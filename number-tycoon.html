@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>숫자의 끝을 보는 타이쿤 - 프로토타입</title>
+<link rel="stylesheet" href="./styles/number-tycoon.css?v=20260814-hitbox">
+</head>
+<body>
+<div class="news-ticker" aria-live="polite">
+  <div class="news-ticker-track">
+    <span class="news-ticker-text" id="newsTickerText"></span>
+  </div>
+  <div class="news-ticker-settings">
+    <button id="newsSettingsBtn" type="button">설정</button>
+    <select id="newsModeSelect" class="news-mode-select hidden" aria-label="뉴스 내용 설정">
+      <option value="all">인간 문장 + AI 문장</option>
+      <option value="human">인간 문장만</option>
+      <option value="ai">AI 문장만</option>
+    </select>
+  </div>
+</div>
+<div class="app">
+  <div class="save-toolbar">
+    <button id="saveBtn">저장</button>
+    <button id="loadBtn">불러오기</button>
+  </div>
+  <div class="chapter" id="chapterLabel">증가와 곱셈</div>
+  <h1>숫자의 끝을 보는 타이쿤</h1>
+
+  <div class="chapter-tabs hidden" id="chapterTabs">
+    <button id="multiplicationTabBtn">베이스</button>
+    <button id="squareTabBtn">제곱</button>
+    <button id="squareBreakthroughTabBtn" class="hidden">제곱돌파</button>
+    <button id="squareConvergenceTabBtn" class="hidden">제곱 수렴</button>
+    <button id="tetrationTabBtn" class="hidden">테트레이션</button>
+  </div>
+
+  <div class="chapter-panel" id="multiplicationPanel">
+    <div class="display" id="displayBox">
+      <div class="value" id="mainValue">0</div>
+      <div class="sub" id="subValue"></div>
+    </div>
+
+    <button class="main" id="addBtn">+1</button>
+
+    <div class="section-title">업그레이드</div>
+    <div class="row">
+      <button id="upgradeClickBtn">
+        클릭당 값 +1 증가
+        <span class="cost" id="upgradeClickCost"></span>
+      </button>
+    </div>
+
+    <div class="row">
+    <button id="autoClickerBtn">
+      오토 클릭커
+      <span class="cost" id="autoClickerCost"></span>
+    </button>
+    </div>
+
+    <div class="row">
+    <button id="autoClickerSpeedBtn">
+      오토 클릭커 속도 업그레이드
+      <span class="cost" id="autoClickerSpeedCost"></span>
+    </button>
+    </div>
+
+    <div class="row">
+      <button id="autoClickerParallelBtn">
+        오토 클릭커 병렬화
+        <span class="cost" id="autoClickerParallelCost"></span>
+      </button>
+    </div>
+
+    <div class="row">
+      <button id="autoClickerPercentFillBtn">
+        오토 클릭커 퍼센트 채우기
+        <span class="cost" id="autoClickerPercentFillCost"></span>
+      </button>
+    </div>
+
+    <div id="percentSection" class="hidden">
+      <div class="section-title" id="percentTitle">퍼센트 시스템</div>
+      <div class="charge-bar"><div class="charge-fill" id="chargeFill"></div></div>
+      <div class="row">
+        <button id="percentBtn" disabled>% 사용 (0 / 100)</button>
+      </div>
+      <div class="row">
+        <button id="upgradeChargeBtn">
+          <span id="upgradeChargeLabel">퍼센트 충전 요구량 -4</span>
+          <span class="cost" id="upgradeChargeCost"></span>
+        </button>
+      </div>
+      <div class="row hidden" id="percentPowerRow">
+        <button id="percentPowerBtn">
+          <span id="percentPowerLabel">퍼센트 파워 업그레이드</span>
+          <span class="cost" id="percentPowerCost"></span>
+        </button>
+      </div>
+      <div class="row">
+        <button id="percentAutoBtn">
+          % 오토클리커
+          <span class="cost" id="percentAutoCost"></span>
+        </button>
+      </div>
+      <div class="row">
+        <button id="percentAutoSpeedBtn">
+          % 오토클리커 속도 업그레이드
+          <span class="cost" id="percentAutoSpeedCost"></span>
+        </button>
+      </div>
+
+      <div class="row">
+        <button id="percentParallelUnlockBtn">
+          퍼센트 사용 병렬화
+          <span class="cost" id="percentParallelUnlockCost"></span>
+        </button>
+      </div>
+
+      <div id="extraPercentLanes"></div>
+    </div>
+
+    <div id="dialogueBox" class="dialogue-box"></div>
+
+    <button id="prestigeBtn" class="hidden main">제곱 프레스티지로 넘어가기</button>
+  </div>
+
+  <div class="chapter-panel hidden" id="squarePanel">
+    <div class="display square-display" id="squareDisplayBox">
+      <div class="value" id="squarePointValue">0 SP</div>
+      <div class="sub" id="squarePointSubValue"></div>
+    </div>
+
+    <div class="section-title">제곱 포인트 영구 업그레이드</div>
+    <div id="squareUpgradeGrid" class="square-upgrade-grid"></div>
+    <div class="row">
+      <button id="unlockTetrationBtn">
+        테트레이션 챕터 열기
+        <span class="cost" id="unlockTetrationCost"></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="chapter-panel hidden" id="squareBreakthroughPanel">
+    <div class="display square-display">
+      <div class="value">제곱돌파</div>
+      <div class="sub">SP를 사용해 베이스 챕터를 영구적으로 강화합니다.</div>
+    </div>
+
+    <div class="section-title">자동 SP 변환기</div>
+    <div class="row">
+      <button id="autoSpConverterToggleBtn">
+        <span id="autoSpConverterToggleLabel">자동 SP 변환기 ON</span>
+        <span class="cost" id="autoSpConverterToggleCost"></span>
+      </button>
+    </div>
+    <div class="row auto-sp-target-row">
+      <input id="autoSpConverterTargetInput" class="auto-sp-target-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="1">
+      <button id="autoSpConverterTargetBtn">목표 SP 설정</button>
+    </div>
+    <div class="sub auto-sp-converter-status" id="autoSpConverterStatus"></div>
+
+    <div class="section-title">제곱돌파 업그레이드</div>
+    <div id="squareBreakthroughGrid" class="square-upgrade-grid breakthrough-upgrade-grid"></div>
+  </div>
+
+  <div class="chapter-panel hidden" id="squareConvergencePanel">
+    <div class="display square-display">
+      <div class="value" id="squareConvergencePointValue">0 CP</div>
+      <div class="sub" id="squareConvergenceSubValue"></div>
+    </div>
+
+    <div class="section-title">제곱 수렴 업그레이드</div>
+    <div id="squareConvergenceGrid" class="square-upgrade-grid breakthrough-upgrade-grid"></div>
+  </div>
+
+  <div class="chapter-panel hidden" id="tetrationPanel">
+    <div class="display tetration-display" id="tetrationDisplayBox">
+      <div class="value" id="lspValue">0 LSP</div>
+      <div class="sub" id="lspSubValue"></div>
+      <div class="sub" id="tetraPointValue">0 tetraP</div>
+    </div>
+
+    <div class="row">
+      <button id="convertLspBtn">
+        LSP를 SP로 변환
+        <span class="cost" id="convertLspCost"></span>
+      </button>
+    </div>
+
+    <div class="row">
+      <button id="autoLspConverterBtn">
+        <span id="autoLspConverterLabel">자동 LSP 변환기</span>
+        <span class="cost" id="autoLspConverterCost"></span>
+      </button>
+    </div>
+
+    <div class="section-title">테트레이션 업그레이드</div>
+    <div id="tetrationUpgradeGrid" class="square-upgrade-grid tetration-upgrade-grid"></div>
+
+    <div class="section-title">LSP 차원</div>
+    <div class="dimension-rate" id="tetrationDimensionMeta"></div>
+    <div id="tetrationDimensions" class="dimension-list"></div>
+  </div>
+
+  <div class="log" id="log"></div>
+</div>
+
+<div id="automatiumWorkspace" class="automatium-workspace hidden" role="dialog" aria-modal="true" aria-labelledby="automatiumTitle">
+  <div class="automatium-shell">
+    <header class="automatium-header">
+      <div>
+        <div class="automatium-kicker">AUTOMATIUM</div>
+        <h2 id="automatiumTitle">N 프로그램</h2>
+      </div>
+      <button id="automatiumCloseBtn" class="automatium-icon-button" type="button" title="편집기 닫기" aria-label="편집기 닫기">×</button>
+    </header>
+
+    <div class="automatium-body">
+      <aside class="automatium-sidebar">
+        <div class="automatium-sidebar-header">
+          <span>프로그램 목록</span>
+          <button id="automatiumNewBtn" type="button">새 프로그램</button>
+        </div>
+        <div id="automatiumProgramList" class="automatium-program-list"></div>
+      </aside>
+
+      <section class="automatium-editor-pane">
+        <div class="automatium-tabs" role="tablist" aria-label="automatium 화면">
+          <button id="automatiumEditorTabBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="automatiumEditorPanel">편집기</button>
+          <button id="automatiumDocsTabBtn" type="button" role="tab" aria-selected="false" aria-controls="automatiumDocsPanel">N 문법</button>
+          <button id="automatiumIdsTabBtn" type="button" role="tab" aria-selected="false" aria-controls="automatiumIdsPanel">업그레이드 ID</button>
+          <button id="automatiumExamplesTabBtn" type="button" role="tab" aria-selected="false" aria-controls="automatiumExamplesPanel">프로그램 예시</button>
+        </div>
+
+        <div id="automatiumEditorPanel" class="automatium-tab-panel automatium-code-panel" role="tabpanel" aria-labelledby="automatiumEditorTabBtn">
+          <div class="automatium-editor-toolbar">
+            <label class="automatium-name-field" for="automatiumProgramName">
+              <span>프로그램 이름</span>
+              <input id="automatiumProgramName" class="automatium-name-input" type="text" maxlength="40" autocomplete="off">
+            </label>
+            <button id="automatiumRenameBtn" type="button">이름 변경</button>
+            <button id="automatiumDeleteBtn" type="button">삭제</button>
+            <button id="automatiumSaveBtn" class="automatium-save-button" type="button">코드 저장</button>
+          </div>
+          <div class="automatium-source-wrap">
+            <textarea id="automatiumSource" class="automatium-source" spellcheck="false" aria-label="N 코드 편집기" autocomplete="off"></textarea>
+            <div id="automatiumAutocomplete" class="automatium-autocomplete hidden" role="listbox" aria-label="N 코드 자동완성"></div>
+          </div>
+          <div class="automatium-editor-footer">
+            <span id="automatiumEditorStatus">꺼짐</span>
+            <span>N</span>
+          </div>
+        </div>
+
+        <div id="automatiumDocsPanel" class="automatium-tab-panel automatium-reference hidden" role="tabpanel" aria-labelledby="automatiumDocsTabBtn">
+          <div id="automatiumDocs"></div>
+        </div>
+
+        <div id="automatiumIdsPanel" class="automatium-tab-panel automatium-reference hidden" role="tabpanel" aria-labelledby="automatiumIdsTabBtn">
+          <div class="automatium-id-toolbar">
+            <input id="automatiumIdFilter" type="search" autocomplete="off" placeholder="이름 또는 ID 검색" aria-label="업그레이드 ID 검색">
+            <span id="automatiumIdCount"></span>
+          </div>
+          <div class="automatium-table-scroll">
+            <table class="automatium-id-table">
+              <thead>
+                <tr>
+                  <th>종류</th>
+                  <th>업그레이드</th>
+                  <th>ID</th>
+                  <th>별칭</th>
+                  <th>레인 표기</th>
+                </tr>
+              </thead>
+              <tbody id="automatiumIdTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="automatiumExamplesPanel" class="automatium-tab-panel automatium-reference hidden" role="tabpanel" aria-labelledby="automatiumExamplesTabBtn">
+          <div class="automatium-reference-heading">
+            <div>
+              <h3>프로그램 예시</h3>
+              <p>버튼을 누르면 선택한 프로그램의 편집기에 코드가 들어갑니다.</p>
+            </div>
+          </div>
+          <div id="automatiumExamples" class="automatium-example-list"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="./scripts/data/chapter-roadmap.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/core/constants.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/core/state.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/core/dom.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/core/chapter-ui.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/systems/percent-lanes.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/systems/square-upgrades.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/systems/square-breakthrough.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/systems/square-convergence.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/core/render.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/systems/clickers.js?v=20260814-n-click"></script>
+<script src="./scripts/systems/percent-system.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/systems/auto-upgrades.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/systems/news-ticker.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/chapters/square.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/chapters/tetration.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/core/save.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/automatium/n-lexer.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/automatium/n-parser.js?v=20260814-n-click"></script>
+<script src="./scripts/automatium/n-runtime.js?v=20260814-n-click"></script>
+<script src="./scripts/systems/automatium.js?v=20260814-n-click"></script>
+<script src="./scripts/systems/dev-console.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/main.js?v=20260814-breakthrough-target-lock"></script>
+</body>
+</html>

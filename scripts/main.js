@@ -1,0 +1,2 @@
+setChapter('multiplication');
+render();
