@@ -1,6 +1,6 @@
 function checkOverflow() {
   const request = squarePrestigeConversionRequest();
-  if (request !== null && num >= request.requiredValue && !overflowed) {
+  if (request !== null && compareBaseNumber(request.requiredValue) >= 0 && !overflowed) {
     triggerOverflow(request);
   }
 }
@@ -14,11 +14,11 @@ const dialogueLines = [
 ];
 
 function triggerOverflow(request = squarePrestigeConversionRequest()) {
-  if (request === null || overflowed || num < request.requiredValue) return false;
+  if (request === null || overflowed || compareBaseNumber(request.requiredValue) < 0) return false;
 
   const targetedConversion = request.pointReward !== null;
   pendingSquarePrestigeRequirement = request.requiredValue;
-  pendingSquarePrestigeValue = targetedConversion ? request.requiredValue : num;
+  pendingSquarePrestigeValue = targetedConversion ? request.requiredValue : getBaseNumber();
   pendingSquarePrestigePoints = request.pointReward;
   log(`제곱 프레스티지 요구수 ${fmt(request.requiredValue)}에 도달했습니다.`, true);
 
@@ -39,7 +39,10 @@ function triggerOverflow(request = squarePrestigeConversionRequest()) {
   upgradeChargeBtn.disabled = true;
   displayBox.classList.add('glitch');
 
-  const displayValue = num > LONG_MAX ? num - (1n << 64n) : num;
+  const currentValue = getBaseNumber();
+  const displayValue = isApproximateNumber(currentValue)
+    ? currentValue
+    : currentValue > LONG_MAX ? currentValue - (1n << 64n) : currentValue;
   mainValue.textContent = fmt(displayValue);
   subValue.textContent = '// PRESTIGE READY';
 
@@ -68,12 +71,12 @@ function completeSquarePrestige({
   squarePointReward = null,
   requiredValue = null
 } = {}) {
-  const rewardValue = prestigeValue ?? pendingSquarePrestigeValue ?? num;
+  const rewardValue = prestigeValue ?? pendingSquarePrestigeValue ?? getBaseNumber();
   const targetedReward = squarePointReward ?? pendingSquarePrestigePoints;
   const minimumValue = requiredValue
     ?? pendingSquarePrestigeRequirement
     ?? (targetedReward === null ? gameEndValue() : squarePrestigeNumberForPointReward(targetedReward));
-  if (num < minimumValue) return false;
+  if (compareBaseNumber(minimumValue) < 0) return false;
 
   pendingSquarePrestigeValue = null;
   pendingSquarePrestigePoints = null;
@@ -81,8 +84,7 @@ function completeSquarePrestige({
   squareUnlocked = true;
   squareMode = false;
   const gainedSquarePoints = targetedReward ?? squarePointGainForValue(rewardValue);
-  squarePoints += gainedSquarePoints;
-  const gainedConvergencePoints = collectSquareConvergenceIfReady();
+  squarePoints = addBaseNumbers(squarePoints, gainedSquarePoints);
 
   resetRunStateAfterSquarePrestige();
   overflowed = false;
@@ -97,13 +99,45 @@ function completeSquarePrestige({
   addBtn.disabled = false;
   addBtn.textContent = `+${perClick.toString()}`;
 
-  setChapter(gainedConvergencePoints > 0n ? 'square-convergence' : keepCurrentChapter ? activeChapter : 'square');
-  log(`제곱 프레스티지 완료${skippedCutscene ? ' (컷신 스킵)' : ''} — ${fmt(gainedSquarePoints)} SP를 얻고 기본 게임을 재시작했습니다.`, true);
-  if (gainedConvergencePoints > 0n) {
-    log(`${fmt(gainedConvergencePoints)} CP를 얻고 제곱 업그레이드와 제곱돌파 업그레이드가 초기화되었습니다.`, true);
-  }
+  setChapter(keepCurrentChapter ? activeChapter : 'square');
+  log(`제곱 프레스티지 완료${skippedCutscene ? ' (컷신 스킵)' : ''} — ${fmtPowerBase(gainedSquarePoints)} SP를 얻고 기본 게임을 재시작했습니다.`, true);
   render();
   return true;
 }
 
+function exchangeSquarePointsManually() {
+  if (!squareUnlocked || overflowed || compareBaseNumber(squarePointExchangeRequirement()) < 0) return false;
+
+  return completeSquarePrestige({
+    skippedCutscene: true,
+    keepCurrentChapter: true,
+    prestigeValue: getBaseNumber(),
+    requiredValue: squarePointExchangeRequirement()
+  });
+}
+
+function renderManualExchangeDock() {
+  manualExchangeDock.classList.toggle('hidden', !squareUnlocked);
+
+  const squareReady = squareUnlocked && !overflowed && compareBaseNumber(squarePointExchangeRequirement()) >= 0;
+  manualSquareExchangeBtn.disabled = !squareReady;
+  manualSquareExchangeCost.textContent = squareReady
+    ? `획득 ${fmtPowerBase(squarePointGainForValue(getBaseNumber()))} SP`
+    : `필요 ${fmtPowerBase(squarePointExchangeRequirement())}`;
+
+  const convergenceReady = compareNumberValues(squarePoints, squareConvergenceExchangeRequirement()) >= 0;
+  manualConvergenceExchangeBtn.disabled = !convergenceReady;
+  manualConvergenceExchangeCost.textContent = convergenceReady
+    ? `획득 ${fmt(squareConvergencePointGain())} CP`
+    : `필요 ${fmt(squareConvergenceExchangeRequirement())} SP`;
+
+  const tetrationReady = isTetrationAvailable();
+  manualTetrationExchangeBtn.classList.toggle('hidden', !tetrationReady);
+  manualTetrationExchangeBtn.disabled = !tetrationReady || compareNumberValues(squarePoints, LONG_MAX) < 0;
+  manualTetrationExchangeCost.textContent = compareNumberValues(squarePoints, LONG_MAX) >= 0
+    ? '획득 1 tetraP'
+    : `필요 ${fmt(LONG_MAX)} SP`;
+}
+
 prestigeBtn.addEventListener('click', () => completeSquarePrestige());
+manualSquareExchangeBtn.addEventListener('click', exchangeSquarePointsManually);

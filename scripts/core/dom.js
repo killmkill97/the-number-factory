@@ -15,17 +15,59 @@ const squareConvergencePanel = document.getElementById('squareConvergencePanel')
 const tetrationPanel = document.getElementById('tetrationPanel');
 const squarePointValue = document.getElementById('squarePointValue');
 const squarePointSubValue = document.getElementById('squarePointSubValue');
+const squareUpgradesViewBtn = document.getElementById('squareUpgradesViewBtn');
+const squareDimensionsViewBtn = document.getElementById('squareDimensionsViewBtn');
+const squareUpgradesViewPanel = document.getElementById('squareUpgradesViewPanel');
+const squareDimensionsViewPanel = document.getElementById('squareDimensionsViewPanel');
+const squareDimensionPowerValue = document.getElementById('squareDimensionPowerValue');
+const squareDimensionPowerSubValue = document.getElementById('squareDimensionPowerSubValue');
+const squareDimensionMultiplierValue = document.getElementById('squareDimensionMultiplierValue');
+const squareDimensionShapeLabel = document.getElementById('squareDimensionShapeLabel');
+const squareDimensionXValue = document.getElementById('squareDimensionXValue');
+const squareDimensionYValue = document.getElementById('squareDimensionYValue');
+const squareDimensionXRate = document.getElementById('squareDimensionXRate');
+const squareDimensionYRate = document.getElementById('squareDimensionYRate');
+const squareDimensionPowerTimeBtn = document.getElementById('squareDimensionPowerTimeBtn');
+const squareDimensionPowerTimeLabel = document.getElementById('squareDimensionPowerTimeLabel');
+const squareDimensionPowerTimeCost = document.getElementById('squareDimensionPowerTimeCost');
+const squareDimensionPowerStrengthBtn = document.getElementById('squareDimensionPowerStrengthBtn');
+const squareDimensionPowerStrengthLabel = document.getElementById('squareDimensionPowerStrengthLabel');
+const squareDimensionPowerStrengthCost = document.getElementById('squareDimensionPowerStrengthCost');
+const squareDimensionXBtn = document.getElementById('squareDimensionXBtn');
+const squareDimensionYBtn = document.getElementById('squareDimensionYBtn');
+const squareDimensionXLabel = document.getElementById('squareDimensionXLabel');
+const squareDimensionYLabel = document.getElementById('squareDimensionYLabel');
+const squareDimensionXCostEl = document.getElementById('squareDimensionXCost');
+const squareDimensionYCostEl = document.getElementById('squareDimensionYCost');
 const squareUpgradeGrid = document.getElementById('squareUpgradeGrid');
 const squareBreakthroughGrid = document.getElementById('squareBreakthroughGrid');
 const squareConvergencePointValue = document.getElementById('squareConvergencePointValue');
 const squareConvergenceSubValue = document.getElementById('squareConvergenceSubValue');
 const squareConvergenceGrid = document.getElementById('squareConvergenceGrid');
-const autoSpConverterToggleBtn = document.getElementById('autoSpConverterToggleBtn');
-const autoSpConverterToggleLabel = document.getElementById('autoSpConverterToggleLabel');
-const autoSpConverterToggleCost = document.getElementById('autoSpConverterToggleCost');
-const autoSpConverterTargetInput = document.getElementById('autoSpConverterTargetInput');
-const autoSpConverterTargetBtn = document.getElementById('autoSpConverterTargetBtn');
-const autoSpConverterStatus = document.getElementById('autoSpConverterStatus');
+const squareConvergenceUpgradePanel = document.getElementById('squareConvergenceUpgradePanel');
+const squareConvergenceViewBtn = document.getElementById('squareConvergenceViewBtn');
+const generalizationViewBtn = document.getElementById('generalizationViewBtn');
+const generalizationPanel = document.getElementById('generalizationPanel');
+const theoryValue = document.getElementById('theoryValue');
+const theorySubValue = document.getElementById('theorySubValue');
+const theoryNumberResourceBtn = document.getElementById('theoryNumberResourceBtn');
+const theoryNumberResourceCost = document.getElementById('theoryNumberResourceCost');
+const theorySquarePointResourceBtn = document.getElementById('theorySquarePointResourceBtn');
+const theorySquarePointResourceCost = document.getElementById('theorySquarePointResourceCost');
+const theoryConvergencePointResourceBtn = document.getElementById('theoryConvergencePointResourceBtn');
+const theoryConvergencePointResourceCost = document.getElementById('theoryConvergencePointResourceCost');
+const researchTheoryBtn = document.getElementById('researchTheoryBtn');
+const researchTheoryCost = document.getElementById('researchTheoryCost');
+const generalizationTree = document.getElementById('generalizationTree');
+const generalizationTreeCanvas = document.getElementById('generalizationTreeCanvas');
+const generalizationConnections = document.getElementById('generalizationConnections');
+const manualExchangeDock = document.getElementById('manualExchangeDock');
+const manualSquareExchangeBtn = document.getElementById('manualSquareExchangeBtn');
+const manualSquareExchangeCost = document.getElementById('manualSquareExchangeCost');
+const manualConvergenceExchangeBtn = document.getElementById('manualConvergenceExchangeBtn');
+const manualConvergenceExchangeCost = document.getElementById('manualConvergenceExchangeCost');
+const manualTetrationExchangeBtn = document.getElementById('manualTetrationExchangeBtn');
+const manualTetrationExchangeCost = document.getElementById('manualTetrationExchangeCost');
 const unlockTetrationBtn = document.getElementById('unlockTetrationBtn');
 const unlockTetrationCost = document.getElementById('unlockTetrationCost');
 const lspValue = document.getElementById('lspValue');
@@ -75,7 +117,17 @@ const saveBtn = document.getElementById('saveBtn');
 const loadBtn = document.getElementById('loadBtn');
 const newsTickerText = document.getElementById('newsTickerText');
 const newsSettingsBtn = document.getElementById('newsSettingsBtn');
+const newsSettingsPanel = document.getElementById('newsSettingsPanel');
 const newsModeSelect = document.getElementById('newsModeSelect');
+const currencyStatusScaleInput = document.getElementById('currencyStatusScaleInput');
+const currencyStatusScaleValue = document.getElementById('currencyStatusScaleValue');
+const currencyStatus = document.getElementById('currencyStatus');
+const currencyNumberValue = document.getElementById('currencyNumberValue');
+const currencySpValue = document.getElementById('currencySpValue');
+const currencyCpValue = document.getElementById('currencyCpValue');
+const currencyLspValue = document.getElementById('currencyLspValue');
+const currencyTetraPValue = document.getElementById('currencyTetraPValue');
+const currencyTheoryValue = document.getElementById('currencyTheoryValue');
 
 function log(msg, system=false) {
   const p = document.createElement('p');
@@ -84,16 +136,51 @@ function log(msg, system=false) {
   logEl.prepend(p);
 }
 
-function fmt(n) {
-  return n.toLocaleString('en-US');
+const NUMBER_SUFFIXES = ['k', 'm', 'b', 't', 'qd', 'qi', 'sx', 'sp', 'oc', 'no'];
+
+function compactMantissa(value) {
+  return Number(value.toPrecision(3)).toString();
+}
+
+function formatWithExponent(mantissa, exponent, sign = '') {
+  if (exponent >= 33) return `${sign}${compactMantissa(mantissa)}e${exponent}`;
+  if (exponent < 3) {
+    const ordinary = mantissa * (10 ** exponent);
+    return `${sign}${Math.floor(ordinary).toLocaleString('en-US')}`;
+  }
+
+  let suffixIndex = Math.floor(exponent / 3) - 1;
+  let abbreviated = mantissa * (10 ** (exponent % 3));
+  let rounded = Number(abbreviated.toPrecision(3));
+
+  if (rounded >= 1000 && suffixIndex < NUMBER_SUFFIXES.length - 1) {
+    rounded /= 1000;
+    suffixIndex++;
+  }
+
+  return `${sign}${compactMantissa(rounded)}${NUMBER_SUFFIXES[suffixIndex]}`;
 }
 
 function fmtPowerBase(n) {
-  const digits = n.toString();
-  if (digits.length <= 9) return fmt(n);
+  if (isApproximateNumber(n)) {
+    return formatWithExponent(n.mantissa, n.exponent);
+  }
 
-  const significant = digits.slice(0, 3);
-  const decimal = significant.slice(1).replace(/0+$/, '');
-  const mantissa = decimal ? `${significant[0]}.${decimal}` : significant[0];
-  return `${mantissa}e${digits.length - 1}`;
+  const value = BigInt(n);
+  if (value === 0n) return '0';
+  const sign = value < 0n ? '-' : '';
+  const digits = (value < 0n ? -value : value).toString();
+  if (digits.length <= 3) return `${sign}${digits}`;
+
+  const significantDigits = digits.slice(0, 16);
+  const mantissa = Number(significantDigits) / (10 ** (significantDigits.length - 1));
+  return formatWithExponent(mantissa, digits.length - 1, sign);
+}
+
+function fmt(n) {
+  return fmtPowerBase(n);
+}
+
+function fmtScientific(n) {
+  return fmtPowerBase(n);
 }

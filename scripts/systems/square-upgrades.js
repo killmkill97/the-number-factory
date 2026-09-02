@@ -13,9 +13,9 @@ function buySquareUpgrade(id) {
     return true;
   }
 
-  if (squarePoints < upgrade.cost) return false;
+  if (compareNumberValues(squarePoints, upgrade.cost) < 0) return false;
 
-  squarePoints -= upgrade.cost;
+  squarePoints = subtractNumberValues(squarePoints, upgrade.cost);
   squareUpgradeState[id] = true;
   if (id === 'auto_upgrade_top_down') {
     autoUpgradeEnabled = true;
@@ -29,6 +29,8 @@ function ensureSquareUpgradeUi(upgrade) {
 
   const button = document.createElement('button');
   button.className = 'square-upgrade';
+  button.dataset.devUpgradeKind = 'square';
+  button.dataset.devUpgradeId = upgrade.id;
   button.style.gridColumn = String(upgrade.column + 1);
   button.style.gridRow = String(upgrade.row + 1);
   button.addEventListener('click', () => buySquareUpgrade(upgrade.id));
@@ -55,6 +57,7 @@ function renderSquareUpgradeBoard() {
       <span class="upgrade-desc">${upgrade.description}</span>
       <span class="cost">${bought ? boughtCostText : `비용: ${fmt(upgrade.cost)} SP`}</span>
     `;
-    button.disabled = bought ? !toggleable : squarePoints < upgrade.cost;
+    const devMode = typeof devConsoleIsOpen === 'function' && devConsoleIsOpen();
+    button.disabled = devMode ? false : bought ? !toggleable : compareNumberValues(squarePoints, upgrade.cost) < 0;
   }
 }

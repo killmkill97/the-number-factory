@@ -11,34 +11,40 @@ function tetrationDimensionTargetName(index) {
 
 function tetrationDimensionProduction(index) {
   const amount = tetrationDimensions[index];
-  if (amount <= 0n) return 0n;
-  return (amount * tetrationDimensionMultiplierUnits(index)) / 4n;
+  if (!isPositiveNumberValue(amount)) return 0n;
+  return divideNumberValue(
+    multiplyNumberValue(amount, tetrationDimensionMultiplierUnits(index)),
+    4n
+  );
 }
 
 function tetrationDimensionMultiplierUnits(index) {
   const purchases = tetrationDimensionPurchases[index];
-  if (purchases <= 1n) return 4n;
-  if (purchases === 2n) return 8n;
-  return 16n + (purchases - 3n);
+  if (compareNumberValues(purchases, 1n) <= 0) return 4n;
+  if (compareNumberValues(purchases, 2n) === 0) return 8n;
+  return addBaseNumbers(16n, subtractNumberValues(purchases, 3n));
 }
 
 function tetrationDimensionMultiplierText(index) {
   const units = tetrationDimensionMultiplierUnits(index);
-  const whole = units / 4n;
-  const remainder = units % 4n;
-  if (remainder === 0n) return fmtPowerBase(whole);
-  const decimal = remainder === 1n ? '25' : remainder === 2n ? '5' : '75';
-  return `${fmtPowerBase(whole)}.${decimal}`;
+  if (!isApproximateNumber(units)) {
+    const whole = units / 4n;
+    const remainder = units % 4n;
+    if (remainder === 0n) return fmtPowerBase(whole);
+    const decimal = remainder === 1n ? '25' : remainder === 2n ? '5' : '75';
+    return `${fmtPowerBase(whole)}.${decimal}`;
+  }
+  return fmtPowerBase(divideNumberValue(units, 4n));
 }
 
 function canAffordTetrationDimension(index) {
   if (!tetrationDimensionsUnlocked) return false;
-  return lsp >= tetrationDimensionCosts[index];
+  return compareNumberValues(lsp, tetrationDimensionCosts[index]) >= 0;
 }
 
 function tetrationDimensionCostText(index) {
   const cost = tetrationDimensionCosts[index];
-  return cost === 0n ? '무료' : `${fmtPowerBase(cost)} LSP`;
+  return isZeroNumberValue(cost) ? '무료' : `${fmtPowerBase(cost)} LSP`;
 }
 
 function resetTetrationDimensionUi() {
@@ -51,9 +57,9 @@ function buyTetrationUpgrade(id) {
   const upgrade = TETRATION_UPGRADES.find(item => item.id === id);
   if (!upgrade) return false;
   if (hasTetrationUpgrade(id)) return false;
-  if (tetraP < upgrade.cost) return false;
+  if (compareNumberValues(tetraP, upgrade.cost) < 0) return false;
 
-  tetraP -= upgrade.cost;
+  tetraP = subtractNumberValues(tetraP, upgrade.cost);
   tetrationUpgradeState[id] = true;
   log(`${upgrade.title} 업그레이드를 구매했습니다.`, true);
   render();
@@ -83,7 +89,7 @@ function renderTetrationUpgradeBoard() {
       <span class="upgrade-desc">${upgrade.description}</span>
       <span class="cost">${bought ? '구매 완료' : `비용: ${fmt(upgrade.cost)} tetraP`}</span>
     `;
-    button.disabled = !isTetrationAvailable() || bought || tetraP < upgrade.cost;
+    button.disabled = !isTetrationAvailable() || bought || compareNumberValues(tetraP, upgrade.cost) < 0;
   }
 }
 
@@ -140,10 +146,10 @@ function buyTetrationDimension(index) {
   if (!canAffordTetrationDimension(index)) return false;
 
   const cost = tetrationDimensionCosts[index];
-  lsp -= cost;
-  tetrationDimensions[index] += 1n;
-  tetrationDimensionPurchases[index] += 1n;
-  tetrationDimensionCosts[index] = cost === 0n ? 16n : cost * 10n;
+  lsp = subtractNumberValues(lsp, cost);
+  tetrationDimensions[index] = addBaseNumbers(tetrationDimensions[index], 1n);
+  tetrationDimensionPurchases[index] = addBaseNumbers(tetrationDimensionPurchases[index], 1n);
+  tetrationDimensionCosts[index] = isZeroNumberValue(cost) ? 16n : multiplyNumberValue(cost, 10n);
   render();
   return true;
 }
@@ -151,11 +157,11 @@ function buyTetrationDimension(index) {
 function convertLspToSp({ automatic = false } = {}) {
   if (!isTetrationAvailable()) return false;
   const gainedSp = convertibleLspToSpAmount();
-  if (gainedSp <= 0n) return false;
+  if (!isPositiveNumberValue(gainedSp)) return false;
 
-  lsp -= gainedSp * LSP_PER_SP;
-  squarePoints += gainedSp;
-  log(`${automatic ? '자동으로 ' : ''}LSP를 변환해 ${fmt(gainedSp)} SP를 얻었습니다.`, true);
+  lsp = subtractNumberValues(lsp, multiplyNumberValue(gainedSp, LSP_PER_SP));
+  squarePoints = addBaseNumbers(squarePoints, gainedSp);
+  log(`${automatic ? '자동으로 ' : ''}LSP를 변환해 ${fmtPowerBase(gainedSp)} SP를 얻었습니다.`, true);
   render();
   return true;
 }
@@ -164,8 +170,8 @@ function buyOrToggleAutoLspConverter() {
   if (!isTetrationAvailable()) return false;
 
   if (!autoLspConverterUnlocked) {
-    if (squarePoints < AUTO_LSP_CONVERTER_COST) return false;
-    squarePoints -= AUTO_LSP_CONVERTER_COST;
+    if (compareNumberValues(squarePoints, AUTO_LSP_CONVERTER_COST) < 0) return false;
+    squarePoints = subtractNumberValues(squarePoints, AUTO_LSP_CONVERTER_COST);
     autoLspConverterUnlocked = true;
     autoLspConverterEnabled = true;
     log('자동 LSP 변환기를 구매했습니다. LSP가 충분하면 자동으로 SP로 변환합니다.', true);
@@ -181,14 +187,18 @@ function buyOrToggleAutoLspConverter() {
 
 function gainTetraPointIfReady({ automatic = false } = {}) {
   if (!isTetrationAvailable()) return false;
-  if (squarePoints < LONG_MAX) return false;
+  if (compareNumberValues(squarePoints, LONG_MAX) < 0) return false;
 
   const gainedTetraP = 1n;
-  tetraP += gainedTetraP;
+  tetraP = addBaseNumbers(tetraP, gainedTetraP);
   resetAfterTetraPointGain();
   log(`${automatic ? '자동으로 ' : ''}${fmtPowerBase(gainedTetraP)} tetraP를 얻었습니다.`, true);
   render();
   return true;
+}
+
+function exchangeTetraPointManually() {
+  return gainTetraPointIfReady();
 }
 
 function resetAfterTetraPointGain() {
@@ -275,14 +285,17 @@ setInterval(() => {
   const productionSpeed = hasTetrationUpgrade('made_in_heaven') ? 2048n : 1n;
   let changed = false;
 
-  if (production[0] > 0n) {
-    lsp += production[0] * productionSpeed;
+  if (isPositiveNumberValue(production[0])) {
+    lsp = addBaseNumbers(lsp, multiplyNumberValue(production[0], productionSpeed));
     changed = true;
   }
 
   for (let index = 1; index < production.length; index++) {
-    if (production[index] <= 0n) continue;
-    tetrationDimensions[index - 1] += production[index] * productionSpeed;
+    if (!isPositiveNumberValue(production[index])) continue;
+    tetrationDimensions[index - 1] = addBaseNumbers(
+      tetrationDimensions[index - 1],
+      multiplyNumberValue(production[index], productionSpeed)
+    );
     changed = true;
   }
 
@@ -294,11 +307,7 @@ setInterval(() => {
   convertLspToSp({ automatic: true });
 }, 500);
 
-setInterval(() => {
-  if (!isTetrationAvailable()) return;
-  gainTetraPointIfReady({ automatic: true });
-}, 500);
-
 unlockTetrationBtn.addEventListener('click', handleTetrationUnlockButton);
 convertLspBtn.addEventListener('click', convertLspToSp);
 autoLspConverterBtn.addEventListener('click', buyOrToggleAutoLspConverter);
+manualTetrationExchangeBtn.addEventListener('click', exchangeTetraPointManually);

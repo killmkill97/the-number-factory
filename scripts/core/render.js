@@ -23,15 +23,23 @@ function render() {
 }
 
 function renderNow() {
-  mainValue.textContent = fmtPowerBase(num);
+  mainValue.textContent = fmtPowerBase(getBaseNumber());
+  if (currencyNumberValue) currencyNumberValue.textContent = fmtPowerBase(getBaseNumber());
+  if (currencySpValue) currencySpValue.textContent = fmtPowerBase(squarePoints);
+  if (currencyCpValue) currencyCpValue.textContent = fmtPowerBase(squareConvergencePoints);
+  if (currencyLspValue) currencyLspValue.textContent = fmtPowerBase(lsp);
+  if (currencyTetraPValue) currencyTetraPValue.textContent = fmtPowerBase(tetraP);
+  if (currencyTheoryValue) currencyTheoryValue.textContent = fmtPowerBase(theory);
   subValue.textContent = `클릭당 +${fmt(effectivePerClick())}`;
   addBtn.textContent = `+${fmt(effectivePerClick())}`;
   squarePointValue.textContent = `${fmt(squarePoints)} SP`;
-  squarePointSubValue.textContent = `제곱 프레스티지마다 +${fmt(squarePointGain())} SP · ${fmt(INT_MAX)} SP 도달 시 +1 CP, 남은 SP 제거`;
+  squarePointSubValue.textContent = `제곱 포인트 교환 요구량 ${fmtPowerBase(squarePointExchangeRequirement())} · 교환마다 +${fmtPowerBase(squarePointGain())} SP · ${fmt(squareConvergenceExchangeRequirement())} SP마다 수동 교환으로 CP 획득`;
   renderSquareUpgradeBoard();
+  renderSquareDimensionView();
   renderSquareBreakthroughBoard();
-  renderAutoSpConverter();
   renderSquareConvergenceBoard();
+  renderGeneralizationBoard();
+  renderManualExchangeDock();
   renderAutomatiumAccess();
   squareBreakthroughTabBtn.classList.toggle('hidden', !canOpenSquareBreakthrough());
   squareConvergenceTabBtn.classList.toggle('hidden', !canOpenSquareConvergence());
@@ -42,12 +50,12 @@ function renderNow() {
     setChapter(squareUnlocked ? 'square' : 'multiplication');
   }
   squareConvergencePointValue.textContent = `${fmt(squareConvergencePoints)} CP`;
-  squareConvergenceSubValue.textContent = `${fmt(INT_MAX)} SP 도달 시 CP +1 · 초과 SP 제거 · 수렴 시 제곱/제곱돌파 업그레이드 초기화`;
+  squareConvergenceSubValue.textContent = `${fmt(squareConvergenceExchangeRequirement())} SP당 CP 1 · 수동 교환 시 가능한 CP를 한 번에 획득 · 남은 SP 제거 · 수렴 시 제곱/제곱돌파 업그레이드 초기화`;
   lspValue.textContent = `${fmtPowerBase(lsp)} LSP`;
   lspSubValue.textContent = `${fmtPowerBase(LSP_PER_SP)} LSP마다 1 SP로 변환 · 현재 변환 가능 ${fmt(convertibleLspToSpAmount())} SP`;
   tetraPointValue.textContent = `${fmtPowerBase(tetraP)} tetraP · ${fmtPowerBase(LONG_MAX)} SP마다 +1`;
   convertLspCost.textContent = `필요: ${fmtPowerBase(LSP_PER_SP)} LSP`;
-  convertLspBtn.disabled = !isTetrationAvailable() || convertibleLspToSpAmount() <= 0n;
+  convertLspBtn.disabled = !isTetrationAvailable() || !isPositiveNumberValue(convertibleLspToSpAmount());
   autoLspConverterBtn.classList.toggle('toggle-active', autoLspConverterUnlocked && autoLspConverterEnabled);
   autoLspConverterBtn.classList.toggle('toggle-inactive', autoLspConverterUnlocked && !autoLspConverterEnabled);
   if (!isTetrationAvailable()) {
@@ -61,7 +69,7 @@ function renderNow() {
   } else {
     autoLspConverterLabel.textContent = '자동 LSP 변환기';
     autoLspConverterCost.textContent = `비용: ${fmt(AUTO_LSP_CONVERTER_COST)} SP`;
-    autoLspConverterBtn.disabled = squarePoints < AUTO_LSP_CONVERTER_COST;
+    autoLspConverterBtn.disabled = compareNumberValues(squarePoints, AUTO_LSP_CONVERTER_COST) < 0;
   }
   renderTetrationUpgradeBoard();
   renderTetrationDimensions();
@@ -102,7 +110,7 @@ function renderNow() {
       : `비용: ${fmt(autoClickerSpeedCost)} · 현재 ${(autoClickerSpeed / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}초`;
 
   autoClickerSpeedBtn.disabled =
-    overflowed || !autoClickerUnlocked || autoClickerSpeed <= autoClickerMinSpeed() || num < autoClickerSpeedCost;
+    overflowed || !autoClickerUnlocked || autoClickerSpeed <= autoClickerMinSpeed() || !canAffordBaseCost(autoClickerSpeedCost);
 
   autoClickerParallelCostText.textContent =
     autoClickerParallel >= autoClickerParallelCap()
@@ -111,10 +119,10 @@ function renderNow() {
 
   autoClickerParallelBtn.disabled =
     overflowed || !autoClickerUnlocked || autoClickerParallel >= autoClickerParallelCap() ||
-    num < autoClickerParallelCost;
+    !canAffordBaseCost(autoClickerParallelCost);
 
   autoClickerBtn.disabled =
-    overflowed || autoClickerUnlocked || num < autoClickerCost;
+    overflowed || autoClickerUnlocked || !canAffordBaseCost(autoClickerCost);
 
   autoClickerPercentFillCostText.textContent = autoClickerPercentFillUnlocked
     ? '구매 완료 · 자동 클릭도 % 충전 +1'
@@ -122,14 +130,14 @@ function renderNow() {
 
   autoClickerPercentFillBtn.disabled =
     overflowed || !autoClickerUnlocked || !percentUnlocked ||
-    autoClickerPercentFillUnlocked || num < autoClickerPercentFillCost;
+    autoClickerPercentFillUnlocked || !canAffordBaseCost(autoClickerPercentFillCost);
 
   percentAutoCostText.textContent = percentAutoUnlocked
     ? `구매 완료 · 대기 ${formatDelay(percentAutoSpeed)}`
     : `비용: ${fmt(percentAutoCost)} · 사용 가능해진 뒤 1초 후 자동 사용`;
 
   percentAutoBtn.disabled =
-    overflowed || !percentUnlocked || percentAutoUnlocked || num < percentAutoCost;
+    overflowed || !percentUnlocked || percentAutoUnlocked || !canAffordBaseCost(percentAutoCost);
 
   percentAutoSpeedCostText.textContent =
     percentAutoSpeed <= percentAutoMinSpeed()
@@ -139,14 +147,14 @@ function renderNow() {
   percentAutoSpeedBtn.disabled =
     overflowed || !percentAutoUnlocked ||
     percentAutoSpeed <= percentAutoMinSpeed() ||
-    num < percentAutoSpeedCost;
+    !canAffordBaseCost(percentAutoSpeedCost);
 
   upgradeClickCost.textContent =
     perClick >= BASE_PER_CLICK_CAP
       ? `최대 강화 (${fmt(BASE_PER_CLICK_CAP)})`
       : `비용: ${fmt(perClickCost)}`;
 
-  upgradeClickBtn.disabled = overflowed || perClick >= BASE_PER_CLICK_CAP || num < perClickCost;
+  upgradeClickBtn.disabled = overflowed || perClick >= BASE_PER_CLICK_CAP || !canAffordBaseCost(perClickCost);
 
   if (percentUnlocked) {
     percentSection.classList.remove('hidden');
@@ -156,19 +164,14 @@ function renderNow() {
 
     const pct = Math.min(100, (percentCharge / percentChargeNeeded) * 100);
     chargeFill.style.width = pct + '%';
-    percentBtn.textContent = `% 사용 (${percentCharge} / ${percentChargeNeeded}) · 파워 ${percentPowerText()}`;
+    percentBtn.textContent = `% 사용 (${percentCharge} / ${percentChargeNeeded}) · 파워 ${percentPowerText()} · ${percentPowerSoftcapStatus(percentPower)}`;
     percentBtn.disabled = percentCharge < percentChargeNeeded;
 
     if (percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE) {
       percentPowerRow.classList.remove('hidden');
       percentPowerLabel.textContent = `퍼센트 파워 업그레이드 (현재 ${percentPowerText()})`;
-      if (percentPower >= percentPowerMax()) {
-        percentPowerCostText.textContent = 'MAX';
-        percentPowerBtn.disabled = true;
-      } else {
-        percentPowerCostText.textContent = `비용: ${fmt(percentPowerCost)}`;
-        percentPowerBtn.disabled = overflowed || num < percentPowerCost;
-      }
+      percentPowerCostText.textContent = `비용: ${fmtScientific(percentPowerCost)} · ${percentPowerSoftcapStatus(percentPower)}`;
+      percentPowerBtn.disabled = overflowed || !canAffordBaseCost(percentPowerCost);
     } else {
       percentPowerRow.classList.add('hidden');
     }
@@ -180,13 +183,13 @@ function renderNow() {
     } else {
       upgradeChargeLabel.textContent = `퍼센트 충전 요구량 -${percentChargeReduction()}`;
       upgradeChargeCost.textContent = `비용: ${fmt(percentChargeCost)} · 현재 ${percentChargeNeeded}회`;
-      upgradeChargeBtn.disabled = num < percentChargeCost;
+      upgradeChargeBtn.disabled = !canAffordBaseCost(percentChargeCost);
     }
 
     if (percentLaneCount < currentPercentLaneLimit) {
       percentParallelUnlockBtn.classList.remove('hidden');
       percentParallelUnlockCostText.textContent = `비용: ${fmt(percentParallelUnlockCost)} · 다음 ${percentLaneCount + 1}레인`;
-      percentParallelUnlockBtn.disabled = num < percentParallelUnlockCost || overflowed;
+      percentParallelUnlockBtn.disabled = !canAffordBaseCost(percentParallelUnlockCost) || overflowed;
     } else {
       percentParallelUnlockCostText.textContent = currentPercentLaneLimit >= MAX_PERCENT_LANES
         ? `최대 병렬화 (${MAX_PERCENT_LANES}레인)`

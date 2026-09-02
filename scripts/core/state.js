@@ -1,4 +1,5 @@
 let num = 0n;
+let approximateNum = null;
 let perClick = 1n;
 let perClickUpgradeCost = 10n;
 
@@ -22,8 +23,23 @@ let activeChapter = 'multiplication';
 let squarePoints = 0n;
 let squareConvergenceUnlocked = false;
 let squareConvergencePoints = 0n;
-let autoSpConverterEnabled = true;
-let autoSpConverterTargetSp = 1n;
+const SQUARE_DIMENSION_SCALE = 100n;
+let squareDimensionX = 500n;
+let squareDimensionY = 600n;
+let squareDimensionXCost = 1n;
+let squareDimensionYCost = 1n;
+let squareDimensionXGrowthLevel = 1n;
+let squareDimensionYGrowthLevel = 1n;
+let squareDimensionXGrowthCarry = 0;
+let squareDimensionYGrowthCarry = 0;
+let squareDimensionPowerInterval = SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL;
+let squareDimensionPowerIntervalCost = SQUARE_DIMENSION_POWER_TIME_BASE_COST;
+let squareDimensionPowerStrengthUnlocked = false;
+let theory = 0n;
+let theoryNumberCost = THEORY_NUMBER_BASE_COST;
+let theorySquarePointCost = THEORY_SQUARE_POINT_BASE_COST;
+let theoryConvergencePointCost = THEORY_CONVERGENCE_POINT_BASE_COST;
+let theoryCostResourceIndex = 0;
 let pendingSquarePrestigeValue = null;
 let pendingSquarePrestigePoints = null;
 let pendingSquarePrestigeRequirement = null;
@@ -33,7 +49,6 @@ let autoLspConverterUnlocked = false;
 let autoLspConverterEnabled = false;
 let autoUpgradeEnabled = false;
 let autoUpgradeTimer = 0;
-let bottleneckTrackerTimer = 0;
 let autoClickerSpeed = 1000;
 
 let autoClickerUnlocked = false;
@@ -57,6 +72,138 @@ let percentAutoSpeedLevel = 0;
 let percentAutoSpeed = percentAutoSpeedLevels[percentAutoSpeedLevel];
 let percentAutoSpeedPrice = 250n;
 let percentAutoTimer = 0;
+
+function isApproximateNumber(value) {
+  return NumberMath.isScientific(value);
+}
+
+function normalizeApproximateNumber(mantissa, exponent) {
+  return NumberMath.normalize(mantissa, exponent);
+}
+
+function approximateNumberFromBigInt(value) {
+  const normalized = NumberMath.fromBigInt(value);
+  return isApproximateNumber(normalized) ? normalized : null;
+}
+
+function approximateNumberFromString(rawValue) {
+  const normalized = NumberMath.fromString(rawValue, null);
+  return isApproximateNumber(normalized) ? normalized : null;
+}
+
+function getBaseNumber() {
+  return approximateNum ?? num;
+}
+
+function setBaseNumber(value) {
+  if (isApproximateNumber(value)) {
+    approximateNum = normalizeApproximateNumber(value.mantissa, value.exponent);
+    num = APPROXIMATE_NUMBER_THRESHOLD;
+    return;
+  }
+
+  const normalized = NumberMath.fromBigInt(value);
+  if (isApproximateNumber(normalized)) {
+    approximateNum = normalized;
+    num = APPROXIMATE_NUMBER_THRESHOLD;
+    return;
+  }
+
+  approximateNum = null;
+  num = normalized;
+}
+
+function setBaseNumberFromSave(rawValue) {
+  setBaseNumber(NumberMath.fromString(rawValue));
+}
+
+function serializeBaseNumber() {
+  return NumberMath.serialize(getBaseNumber());
+}
+
+function serializeNumberValue(value) {
+  return NumberMath.serialize(value);
+}
+
+function toApproximateNumber(value) {
+  return NumberMath.toScientific(value);
+}
+
+function compareNumberValues(left, right) {
+  return NumberMath.compare(left, right);
+}
+
+function compareBaseNumber(value) {
+  return compareNumberValues(getBaseNumber(), value);
+}
+
+function canAffordBaseCost(cost) {
+  return compareBaseNumber(cost) >= 0;
+}
+
+function addBaseNumbers(left, right) {
+  return NumberMath.add(left, right);
+}
+
+function subtractNumberValues(left, right) {
+  return NumberMath.subtract(left, right);
+}
+
+function multiplyNumberValue(value, multiplier) {
+  return NumberMath.multiply(value, multiplier);
+}
+
+function divideNumberValue(value, divisor) {
+  return NumberMath.divide(value, divisor);
+}
+
+function powerOfTenValue(exponent) {
+  return NumberMath.powerOfTen(exponent);
+}
+
+function addToBaseNumber(value) {
+  setBaseNumber(addBaseNumbers(getBaseNumber(), value));
+}
+
+function multiplyBaseNumber(multiplier) {
+  setBaseNumber(multiplyNumberValue(getBaseNumber(), multiplier));
+}
+
+function addFractionOfBaseNumber(numerator, denominator = 100n) {
+  const gain = divideNumberValue(
+    multiplyNumberValue(getBaseNumber(), numerator),
+    denominator
+  );
+  addToBaseNumber(gain);
+}
+
+function spendBaseCost(cost) {
+  if (!canAffordBaseCost(cost)) return false;
+  setBaseNumber(NumberMath.subtract(getBaseNumber(), cost, {
+    ignoreGap: APPROXIMATE_COST_IGNORE_EXPONENT_GAP
+  }));
+  return true;
+}
+
+function ensureBaseNumberAtLeast(value) {
+  if (compareBaseNumber(value) < 0) setBaseNumber(value);
+}
+
+function numberValueFromSave(rawValue, fallback = 0n) {
+  return NumberMath.fromString(rawValue, fallback);
+}
+
+function isPositiveNumberValue(value) {
+  return NumberMath.isPositive(value);
+}
+
+function isZeroNumberValue(value) {
+  return NumberMath.isZero(value);
+}
+
+function minimumNumberValue(left, right) {
+  return NumberMath.min(left, right);
+}
 
 // 퍼센트 병렬화: 2번째 레인은 20만, 이후 레인 해금 비용은 2배씩 증가
 let percentLaneCount = 1;
@@ -100,12 +247,6 @@ const SQUARE_CONVERGENCE_UPGRADES = [
     description: 'N 프로그램으로 게임을 자동화합니다. 구매 후 다시 눌러 편집기를 엽니다.',
     cost: 1n
   },
-  {
-    id: 'unlimitium',
-    title: 'unlimitium',
-    description: '모든 제곱돌파 업그레이드의 구매 제한이 2배가 됩니다.',
-    cost: 1n
-  }
 ];
 
 const squareConvergenceUpgradeState = {};
@@ -113,20 +254,62 @@ for (const upgrade of SQUARE_CONVERGENCE_UPGRADES) {
   squareConvergenceUpgradeState[upgrade.id] = false;
 }
 
+const GENERALIZATION_RESEARCHES = [
+  {
+    id: '1-1',
+    column: 1,
+    row: 1,
+    title: '병목 추적기 효율 강화',
+    description: '병목 추적기가 제공하는 퍼센트 효율 증가량이 2배가 됩니다.',
+    parents: [],
+    theoryCost: 1n
+  },
+  {
+    id: '2-1',
+    column: 2,
+    row: 1,
+    title: '제곱 교환 효율',
+    description: '제곱 포인트 교환 요구량이 long 최댓값에서 800경으로 줄어듭니다.',
+    parents: ['1-1'],
+    theoryCost: 2n
+  },
+  {
+    id: '2-2',
+    column: 2,
+    row: 2,
+    title: '수렴 교환 효율',
+    description: '수렴 포인트 교환 요구량 기준을 100sp로 설정합니다.',
+    parents: ['1-1'],
+    theoryCost: 2n
+  },
+  {
+    id: '3-1',
+    column: 3,
+    row: 1,
+    title: '제곱 차원',
+    description: '제곱 차원 화면과 제곱력 생산 효과를 해금합니다.',
+    parents: ['2-1'],
+    theoryCost: 3n
+  }
+];
+
+const generalizationResearchState = {};
+for (const research of GENERALIZATION_RESEARCHES) {
+  generalizationResearchState[research.id] = false;
+}
+
 const SQUARE_BREAKTHROUGH_UPGRADES = [
   { id: 'black_hole', title: '블랙홀', description: '게임시간이 2배 빨라집니다.', baseCost: 8n, max: 1, affectedByDyson: true },
   { id: 'extra_investment', title: '추가투자', description: 'SP 획득량이 2배 증가합니다.', baseCost: 8n, costMultiplier: [4n, 1n], max: 8, affectedByDyson: true },
   { id: 'tas', title: 'TAS', description: '일반 오토 클릭커 속도 하한선을 10ms로 설정합니다.', baseCost: 4n, max: 1 },
-  { id: 'shortcut', title: '단축', description: '기본 게임 종료수가 1경이 됩니다.', baseCost: 4n, max: 1 },
   { id: 'invisible_hand', title: '보이지 않는 손', description: '자동 업그레이드 속도가 1.5배 빨라집니다.', baseCost: 2n, costMultiplier: [6n, 5n], max: 8, affectedByDyson: true },
-  { id: 'overclock', title: '오버클럭', description: '퍼센트 파워 상한이 4% 증가합니다.', baseCost: 8n, costMultiplier: [7n, 4n], max: 8, affectedByDyson: true },
+  { id: 'overclock', title: '오버클럭', description: '퍼센트 파워 소프트캡을 4단계 확장합니다.', baseCost: 8n, costMultiplier: [7n, 4n], max: 8, affectedByDyson: true },
   { id: 'deflation', title: '디플레이션', description: '모든 베이스 챕터 비용이 0.1배가 됩니다.', baseCost: 16n, max: 1 },
   { id: 'doctor_octopus', title: '닥터옥토퍼스', description: '모든 클릭 획득량이 8배 증가합니다.', baseCost: 16n, costMultiplier: [2n, 1n], max: 8, affectedByDyson: true },
   { id: 'solid_start', title: '탄탄한 시작', description: '퍼센트 시스템을 해금하고 시작수가 200만이 됩니다.', baseCost: 32n, max: 1 },
   { id: 'overcharge', title: '과충전', description: '퍼센트 요구량이 항상 1로 고정됩니다.', baseCost: 16n, max: 1 },
-  { id: 'amplification', title: '증폭', description: '오토클릭커가 병렬마다 5% 확률로 현재 수를 추가로 얻습니다.', baseCost: 32n, max: 1, affectedByDyson: true },
   { id: 'gregtech', title: '그렉텍', description: '오토클릭커 병렬화 상한이 2배 증가합니다.', baseCost: 8n, costMultiplier: [3n, 2n], max: 8, affectedByDyson: true },
-  { id: 'bottleneck_tracker', title: '병목 추적기', description: '1초마다 수가 배수로 증가합니다.', baseCost: 64n, costMultiplier: [10n, 1n], max: 8, affectedByDyson: true },
+  { id: 'bottleneck_tracker', title: '병목 추적기', description: '퍼센트 가격 상승을 늦추고 퍼센트 효율을 높입니다.', baseCost: 64n, costMultiplier: [10n, 1n], max: 8, affectedByDyson: true },
   { id: 'percent_expansion', title: '퍼센트 확장', description: '퍼센트 라인을 1개 추가합니다.', baseCost: 4n, costMultiplier: [2n, 1n], max: 8 },
   { id: 'dyson_swarm', title: '다이슨 스웜', description: '별표가 붙은 제곱돌파 업그레이드 효과가 2배가 됩니다.', baseCost: 1000n, costMultiplier: [20n, 1n], max: 8 }
 ];
@@ -149,8 +332,8 @@ const SQUARE_UPGRADES = [
     id: 'percent_power_8',
     column: 0,
     row: 1,
-    title: '퍼센트 파워 8%',
-    description: '퍼센트 파워 업그레이드의 최대치가 8%로 확장됩니다.',
+    title: '퍼센트 효율 개선',
+    description: '소프트캡 이후 퍼센트 증가량의 감쇠가 완화됩니다.',
     cost: 2n
   },
   {
@@ -194,41 +377,17 @@ const SQUARE_UPGRADES = [
     cost: 1n
   },
   {
-    id: 'limit_800gyeong',
-    column: 1,
-    row: 1,
-    title: '종료수 80경',
-    description: '기본 게임 종료수가 long 최댓값 대신 80경이 됩니다.',
-    cost: 4n
-  },
-  {
     id: 'sp_gain_double',
     column: 1,
-    row: 2,
+    row: 1,
     title: 'SP 획득량 2배',
     description: '제곱 프레스티지의 SP 획득량이 2배가 됩니다.',
     cost: 4n
   },
   {
-    id: 'manual_click_double_chance',
-    column: 1,
-    row: 3,
-    title: '직접 클릭 2배 확률',
-    description: '직접 클릭할 때 5% 확률로 현재 숫자가 2배가 됩니다.',
-    cost: 1n
-  },
-  {
-    id: 'auto_click_plus_50_chance',
-    column: 1,
-    row: 4,
-    title: '오토 클릭 +50% 확률',
-    description: '오토 클릭할 때 1% 확률로 현재 숫자가 50% 증가합니다.',
-    cost: 1n
-  },
-  {
     id: 'auto_upgrade_top_down',
     column: 1,
-    row: 5,
+    row: 2,
     title: '자동 업그레이드',
     description: '살 수 있는 기본 게임 업그레이드 중 하나를 골라 자동 구매합니다.',
     cost: 1n
@@ -300,6 +459,10 @@ function hasSquareConvergenceUpgrade(id) {
   return squareConvergenceUpgradeState[id] === true;
 }
 
+function hasGeneralizationResearch(id) {
+  return generalizationResearchState[id] === true;
+}
+
 function squareBreakthroughLevel(id) {
   return squareBreakthroughLevels[id] ?? 0;
 }
@@ -317,7 +480,7 @@ function canOpenSquareBreakthrough() {
 }
 
 function canOpenSquareConvergence() {
-  return squareConvergenceUnlocked;
+  return squareConvergenceUnlocked || compareNumberValues(squarePoints, INT_MAX) >= 0;
 }
 
 function powBigInt(base, exponent) {
@@ -360,8 +523,7 @@ function squareBreakthroughCost(upgrade) {
 }
 
 function squareBreakthroughMax(upgrade) {
-  const multiplier = hasSquareConvergenceUpgrade('unlimitium') ? 2 : 1;
-  return upgrade.max * multiplier;
+  return upgrade.max;
 }
 
 function squareBreakthroughEffectSuffix(upgrade) {
@@ -372,6 +534,193 @@ function numberGainMultiplier() {
   return hasSquareConvergenceUpgrade('galaxium') ? 2048n : 1n;
 }
 
+function squareDimensionAvailable() {
+  return hasGeneralizationResearch('3-1');
+}
+
+function numberValueFromReal(value) {
+  if (!Number.isFinite(value) || value <= 0) return 0n;
+  if (Number.isSafeInteger(value)) return BigInt(value);
+
+  const exponent = Math.floor(Math.log10(value));
+  return NumberMath.normalize(value / (10 ** exponent), exponent);
+}
+
+function realNumberFromValue(value) {
+  const scientific = NumberMath.toScientific(value);
+  if (!scientific) return 0;
+  const result = scientific.mantissa * (10 ** scientific.exponent);
+  return Number.isFinite(result) ? result : Number.MAX_VALUE;
+}
+
+function squareDimensionLengthValue(sideValue) {
+  if (!isApproximateNumber(sideValue)) {
+    const scaledLength = Number(sideValue);
+    if (Number.isSafeInteger(scaledLength)) {
+      return numberValueFromReal(scaledLength / Number(SQUARE_DIMENSION_SCALE));
+    }
+  }
+  return divideNumberValue(sideValue, SQUARE_DIMENSION_SCALE);
+}
+
+function squareDimensionArea() {
+  if (!isApproximateNumber(squareDimensionX) && !isApproximateNumber(squareDimensionY)) {
+    const x = Number(squareDimensionX);
+    const y = Number(squareDimensionY);
+    if (Number.isSafeInteger(x) && Number.isSafeInteger(y)) {
+      return numberValueFromReal((x * y) / Number(SQUARE_DIMENSION_SCALE ** 2n));
+    }
+  }
+
+  return divideNumberValue(
+    multiplyNumberValue(squareDimensionX, squareDimensionY),
+    SQUARE_DIMENSION_SCALE ** 2n
+  );
+}
+
+function squareDimensionPowerExponent() {
+  return squareDimensionPowerStrengthUnlocked ? 0.5 : 0.25;
+}
+
+function squareDimensionPower() {
+  return squareDimensionAvailable()
+    ? NumberMath.powerApproximate(squareDimensionArea(), squareDimensionPowerExponent())
+    : 1n;
+}
+
+function squareDimensionNumberMultiplier() {
+  return squareDimensionAvailable()
+    ? NumberMath.powerApproximate(squareDimensionArea(), squareDimensionPowerExponent() * 2)
+    : 1n;
+}
+
+function squareDimensionSideValue(side) {
+  return side === 'y' ? squareDimensionY : squareDimensionX;
+}
+
+function squareDimensionSideGrowth(sideValue) {
+  const length = squareDimensionLengthValue(sideValue);
+  const logarithm = realNumberFromValue(NumberMath.log10(length));
+  return BigInt(Math.max(0, Math.round(logarithm * Number(SQUARE_DIMENSION_SCALE))));
+}
+
+function squareDimensionSideCost(side) {
+  return side === 'y' ? squareDimensionYCost : squareDimensionXCost;
+}
+
+function squareDimensionSideGrowthLevel(side) {
+  return side === 'y' ? squareDimensionYGrowthLevel : squareDimensionXGrowthLevel;
+}
+
+function squareDimensionSideGrowthRate(side) {
+  return multiplyNumberValue(
+    squareDimensionSideGrowth(squareDimensionSideValue(side)),
+    squareDimensionSideGrowthLevel(side)
+  );
+}
+
+function resetSquareDimensionState() {
+  squareDimensionX = 500n;
+  squareDimensionY = 600n;
+  squareDimensionXCost = 1n;
+  squareDimensionYCost = 1n;
+  squareDimensionXGrowthLevel = 1n;
+  squareDimensionYGrowthLevel = 1n;
+  squareDimensionXGrowthCarry = 0;
+  squareDimensionYGrowthCarry = 0;
+  squareDimensionPowerInterval = SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL;
+  squareDimensionPowerIntervalCost = SQUARE_DIMENSION_POWER_TIME_BASE_COST;
+  squareDimensionPowerStrengthUnlocked = false;
+}
+
+function buySquareDimensionSide(side) {
+  if (!squareDimensionAvailable()) return false;
+  const cost = squareDimensionSideCost(side);
+  if (compareNumberValues(squarePoints, cost) < 0) return false;
+
+  squarePoints = subtractNumberValues(squarePoints, cost);
+  if (side === 'y') {
+    squareDimensionYGrowthLevel = addBaseNumbers(squareDimensionYGrowthLevel, 1n);
+    squareDimensionYCost = multiplyNumberValue(squareDimensionYCost, 2n);
+  } else {
+    squareDimensionXGrowthLevel = addBaseNumbers(squareDimensionXGrowthLevel, 1n);
+    squareDimensionXCost = multiplyNumberValue(squareDimensionXCost, 2n);
+  }
+  render();
+  return true;
+}
+
+function buySquareDimensionPowerTimeUpgrade() {
+  if (!squareDimensionAvailable() || squareDimensionPowerInterval <= SQUARE_DIMENSION_MIN_PRODUCTION_INTERVAL) {
+    return false;
+  }
+  if (compareNumberValues(squarePoints, squareDimensionPowerIntervalCost) < 0) return false;
+
+  squarePoints = subtractNumberValues(squarePoints, squareDimensionPowerIntervalCost);
+  squareDimensionPowerInterval = Math.max(
+    SQUARE_DIMENSION_MIN_PRODUCTION_INTERVAL,
+    Math.ceil(squareDimensionPowerInterval / 2)
+  );
+  squareDimensionPowerIntervalCost = multiplyNumberValue(squareDimensionPowerIntervalCost, 10n);
+  render();
+  return true;
+}
+
+function buySquareDimensionPowerStrength() {
+  if (!squareDimensionAvailable() || squareDimensionPowerStrengthUnlocked) return false;
+  if (compareNumberValues(squarePoints, SQUARE_DIMENSION_POWER_STRENGTH_COST) < 0) return false;
+
+  squarePoints = subtractNumberValues(squarePoints, SQUARE_DIMENSION_POWER_STRENGTH_COST);
+  squareDimensionPowerStrengthUnlocked = true;
+  log('제곱력 생산 강화가 적용되었습니다. 제곱력 공식 지수가 1/4에서 1/2로 변경되었습니다.', true);
+  render();
+  return true;
+}
+
+function squareDimensionSideGrowthNumber(side) {
+  const rate = squareDimensionSideGrowthRate(side);
+  const numericRate = realNumberFromValue(rate);
+  return Number.isFinite(numericRate) ? numericRate / Number(SQUARE_DIMENSION_SCALE) : Number.MAX_VALUE;
+}
+
+function advanceSquareDimensions(elapsedMs) {
+  if (!squareDimensionAvailable() || overflowed || elapsedMs <= 0) return false;
+
+  const productionSpeed = SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL / squareDimensionPowerInterval;
+  const elapsedSeconds = (elapsedMs / 1000) * productionSpeed;
+  const xGrowth = squareDimensionSideGrowthNumber('x') * elapsedSeconds * Number(SQUARE_DIMENSION_SCALE);
+  const yGrowth = squareDimensionSideGrowthNumber('y') * elapsedSeconds * Number(SQUARE_DIMENSION_SCALE);
+  let changed = false;
+
+  if (Number.isFinite(xGrowth) && xGrowth < Number.MAX_SAFE_INTEGER) {
+    squareDimensionXGrowthCarry += xGrowth;
+    const wholeGrowth = Math.floor(squareDimensionXGrowthCarry);
+    squareDimensionXGrowthCarry -= wholeGrowth;
+    if (wholeGrowth > 0) {
+      squareDimensionX = addBaseNumbers(squareDimensionX, BigInt(wholeGrowth));
+      changed = true;
+    }
+  } else if (Number.isFinite(xGrowth) && xGrowth > 0) {
+    squareDimensionX = addBaseNumbers(squareDimensionX, numberValueFromReal(xGrowth));
+    changed = true;
+  }
+
+  if (Number.isFinite(yGrowth) && yGrowth < Number.MAX_SAFE_INTEGER) {
+    squareDimensionYGrowthCarry += yGrowth;
+    const wholeGrowth = Math.floor(squareDimensionYGrowthCarry);
+    squareDimensionYGrowthCarry -= wholeGrowth;
+    if (wholeGrowth > 0) {
+      squareDimensionY = addBaseNumbers(squareDimensionY, BigInt(wholeGrowth));
+      changed = true;
+    }
+  } else if (Number.isFinite(yGrowth) && yGrowth > 0) {
+    squareDimensionY = addBaseNumbers(squareDimensionY, numberValueFromReal(yGrowth));
+    changed = true;
+  }
+
+  return changed;
+}
+
 function squarePointGain() {
   let gain = hasSquareUpgrade('sp_gain_double') ? 2n : 1n;
   gain *= affectedBigIntMultiplier(2, squareBreakthroughLevel('extra_investment'));
@@ -379,12 +728,16 @@ function squarePointGain() {
 }
 
 function squarePointGainForValue(value) {
-  const chunks = value / gameEndValue();
-  return squarePointGain() * (chunks > 0n ? chunks : 1n);
+  const requirement = squarePointExchangeRequirement();
+  if (compareNumberValues(value, requirement) < 0) return 0n;
+
+  const ratio = divideNumberValue(value, requirement);
+  const logarithmicGain = NumberMath.max(NumberMath.log10(ratio), 1n);
+  return multiplyNumberValue(squarePointGain(), logarithmicGain);
 }
 
-function autoSpConverterAvailable() {
-  return squareBreakthroughEntered;
+function squarePointExchangeRequirement() {
+  return hasGeneralizationResearch('2-1') ? 8000000000000000000n : LONG_MAX;
 }
 
 function squarePrestigeTargetPointReward(pointReward) {
@@ -393,43 +746,12 @@ function squarePrestigeTargetPointReward(pointReward) {
   return requestedReward > 0n ? requestedReward : 1n;
 }
 
-function autoSpConverterTargetValue() {
-  return squarePrestigeTargetPointReward(autoSpConverterTargetSp);
-}
-
-function autoSpConverterRequiredChunks() {
-  return autoSpConverterTargetValue();
-}
-
 function squarePrestigeNumberForPointReward(pointReward) {
   return gameEndValue() * squarePrestigeTargetPointReward(pointReward);
 }
 
-function autoSpConverterTargetNumber() {
-  return squarePrestigeNumberForPointReward(autoSpConverterRequiredChunks());
-}
-
-function autoSpConverterPointReward() {
-  return autoSpConverterTargetValue();
-}
-
 function squarePrestigeConversionRequest() {
-  if (
-    typeof automatiumBlocksAutomaticSquarePrestige === 'function' &&
-    automatiumBlocksAutomaticSquarePrestige()
-  ) {
-    return null;
-  }
-  if (!autoSpConverterAvailable()) {
-    return { requiredValue: gameEndValue(), pointReward: null };
-  }
-  if (!autoSpConverterEnabled) return null;
-
-  const pointReward = autoSpConverterPointReward();
-  return {
-    requiredValue: squarePrestigeNumberForPointReward(pointReward),
-    pointReward
-  };
+  return squareUnlocked ? null : { requiredValue: gameEndValue(), pointReward: null };
 }
 
 function squarePrestigeTriggerValue() {
@@ -437,24 +759,27 @@ function squarePrestigeTriggerValue() {
 }
 
 function squarePointCapacityBeforeTetraPoint() {
-  return squarePoints >= LONG_MAX ? 0n : LONG_MAX - squarePoints;
+  return compareNumberValues(squarePoints, LONG_MAX) >= 0
+    ? 0n
+    : subtractNumberValues(LONG_MAX, squarePoints);
 }
 
 function convertibleLspToSpAmount() {
-  const rawAmount = lsp / LSP_PER_SP;
+  const rawAmount = divideNumberValue(lsp, LSP_PER_SP);
   const capacity = squarePointCapacityBeforeTetraPoint();
-  return rawAmount < capacity ? rawAmount : capacity;
+  return minimumNumberValue(rawAmount, capacity);
 }
 
 function effectivePerClick() {
-  return perClick *
-    (hasSquareUpgrade('click_double') ? 2n : 1n) *
-    numberGainMultiplier() *
-    affectedBigIntMultiplier(8, squareBreakthroughLevel('doctor_octopus'));
+  let gain = perClick;
+  gain = multiplyNumberValue(gain, hasSquareUpgrade('click_double') ? 2n : 1n);
+  gain = multiplyNumberValue(gain, numberGainMultiplier());
+  gain = multiplyNumberValue(gain, affectedBigIntMultiplier(8, squareBreakthroughLevel('doctor_octopus')));
+  return multiplyNumberValue(gain, squareDimensionNumberMultiplier());
 }
 
 function maybeUnlockPercent() {
-  if (percentUnlocked || num < 1000n) return false;
+  if (percentUnlocked || compareBaseNumber(1000n) < 0) return false;
 
   percentUnlocked = true;
   log('1000 도달 — % 시스템이 해금되었습니다.');
@@ -468,9 +793,93 @@ function autoClickerParallelCap() {
   return baseCap * affectedBigIntMultiplier(2, squareBreakthroughLevel('gregtech'));
 }
 
-function percentPowerMax() {
-  const baseMax = hasSquareUpgrade('percent_power_8') ? 8 : 4;
-  return baseMax + (4 * dysonEffectNumber() * squareBreakthroughLevel('overclock'));
+function normalizedPercentPower(power) {
+  const value = Number(power);
+  return Number.isSafeInteger(value) && value >= 1 ? value : 1;
+}
+
+function percentPowerSoftcapBonusLevels() {
+  return 4 * dysonEffectNumber() * squareBreakthroughLevel('overclock');
+}
+
+function percentPowerPriceAccelerationStart() {
+  return 8 + (2 * dysonEffectNumber() * squareBreakthroughLevel('bottleneck_tracker'));
+}
+
+function percentPowerSoftcapDecayPower() {
+  return hasSquareUpgrade('percent_power_8') ? 3 : 4;
+}
+
+function percentEfficiencyMultiplierNumerator() {
+  const bottleneckEfficiencyMultiplier = hasGeneralizationResearch('1-1') ? 2 : 1;
+  return 4 + (bottleneckEfficiencyMultiplier * dysonEffectNumber() * squareBreakthroughLevel('bottleneck_tracker'));
+}
+
+function percentEfficiencyMultiplier() {
+  return percentEfficiencyMultiplierNumerator() / 4;
+}
+
+function applyPercentEfficiency(gain) {
+  return divideNumberValue(
+    multiplyNumberValue(gain, BigInt(percentEfficiencyMultiplierNumerator())),
+    4n
+  );
+}
+
+function percentPowerUpgradeCostForNextLevel(currentPower, baseCost = 40000n) {
+  const nextPower = normalizedPercentPower(currentPower) + 1;
+  const standardExponent = nextPower - 2;
+  const acceleratedLevels = Math.max(0, nextPower - percentPowerPriceAccelerationStart());
+  const acceleratedExponent = (acceleratedLevels * (acceleratedLevels + 1)) / 2;
+  return multiplyNumberValue(baseCost, powerOfTenValue(standardExponent + acceleratedExponent));
+}
+
+function percentPowerSoftcap(power) {
+  const level = normalizedPercentPower(power) + percentPowerSoftcapBonusLevels() - 1;
+  return multiplyNumberValue(PERCENT_POWER_SOFTCAP_START, powerOfTenValue(level));
+}
+
+function percentPowerGrowthLimit(power) {
+  return multiplyNumberValue(percentPowerSoftcap(power), 10n);
+}
+
+function percentGain(value, power) {
+  const softcap = percentPowerSoftcap(power);
+  if (compareNumberValues(value, softcap) <= 0) {
+    const gain = applyPercentEfficiency(divideNumberValue(
+      multiplyNumberValue(value, BigInt(normalizedPercentPower(power))),
+      100n
+    ));
+    return multiplyNumberValue(gain, squareDimensionNumberMultiplier());
+  }
+
+  const growthLimit = percentPowerGrowthLimit(power);
+  if (compareNumberValues(value, growthLimit) >= 0) return 0n;
+
+  const remaining = subtractNumberValues(growthLimit, value);
+  const slowdownSpan = multiplyNumberValue(softcap, 9n);
+  let gain = divideNumberValue(
+    multiplyNumberValue(softcap, BigInt(normalizedPercentPower(power))),
+    100n
+  );
+
+  // 정체선까지 남은 비율의 거듭제곱으로 감쇠시켜 진입 직후부터 증가량이 줄어든다.
+  for (let i = 0; i < percentPowerSoftcapDecayPower(); i++) {
+    gain = divideNumberValue(multiplyNumberValue(gain, remaining), slowdownSpan);
+    if (compareNumberValues(gain, 0n) <= 0) return 0n;
+  }
+  return multiplyNumberValue(applyPercentEfficiency(gain), squareDimensionNumberMultiplier());
+}
+
+function percentPowerSoftcapStatus(power, value = getBaseNumber()) {
+  const softcap = percentPowerSoftcap(power);
+  const growthLimit = percentPowerGrowthLimit(power);
+  const state = compareNumberValues(value, growthLimit) >= 0
+    ? '정체'
+    : compareNumberValues(value, softcap) > 0
+      ? '감쇠 중'
+      : '부터 감쇠';
+  return `소프트캡 ${fmtPowerBase(softcap)} ${state} · 정체선 ${fmtPowerBase(growthLimit)}`;
 }
 
 function percentAutoMinSpeed() {
@@ -496,18 +905,20 @@ function gameTick(ms) {
 }
 
 function gameEndValue() {
-  if (hasSquareBreakthrough('shortcut')) return ONE_GYEONG;
-  return hasSquareUpgrade('limit_800gyeong') ? EIGHTY_GYEONG : LONG_MAX;
+  return LONG_MAX;
 }
 
 function discountedCost(cost) {
-  const value = BigInt(cost);
-  let discounted = value;
+  let discounted = isApproximateNumber(cost) ? cost : BigInt(cost);
   if (hasSquareBreakthrough('deflation')) {
-    discounted = discounted <= 1n ? discounted : ceilDiv(discounted, 10n);
+    discounted = isApproximateNumber(discounted)
+      ? divideNumberValue(discounted, 10n)
+      : discounted <= 1n ? discounted : ceilDiv(discounted, 10n);
   }
   if (hasSquareUpgrade('all_cost_half')) {
-    discounted = discounted <= 1n ? discounted : ceilDiv(discounted, 2n);
+    discounted = isApproximateNumber(discounted)
+      ? divideNumberValue(discounted, 2n)
+      : discounted <= 1n ? discounted : ceilDiv(discounted, 2n);
   }
   return discounted;
 }
@@ -562,16 +973,6 @@ function autoUpgradeSpeedMultiplier() {
   return affectedNumberMultiplier(1.5, squareBreakthroughLevel('invisible_hand'));
 }
 
-function autoClickBonusPercent() {
-  return hasSquareBreakthrough('amplification') ? 50 * dysonEffectNumber() : 0;
-}
-
-function bottleneckTrackerMultiplier() {
-  const level = squareBreakthroughLevel('bottleneck_tracker');
-  if (level <= 0) return 1n;
-  return BigInt(level + 1) * dysonEffectMultiplier();
-}
-
 function resetSquareUpgradeState() {
   for (const upgrade of SQUARE_UPGRADES) {
     squareUpgradeState[upgrade.id] = false;
@@ -605,6 +1006,19 @@ function resetSquareConvergenceUpgradeState() {
   }
 }
 
+function resetGeneralizationResearchState() {
+  for (const research of GENERALIZATION_RESEARCHES) {
+    generalizationResearchState[research.id] = false;
+  }
+}
+
+function loadGeneralizationResearchState(savedState) {
+  resetGeneralizationResearchState();
+  for (const research of GENERALIZATION_RESEARCHES) {
+    generalizationResearchState[research.id] = savedState?.[research.id] === true;
+  }
+}
+
 function loadSquareConvergenceUpgradeState(savedState) {
   resetSquareConvergenceUpgradeState();
   for (const upgrade of SQUARE_CONVERGENCE_UPGRADES) {
@@ -632,22 +1046,102 @@ function allSquareUpgradesBought() {
 }
 
 function squareConvergencePointGain() {
-  return squarePoints >= INT_MAX ? 1n : 0n;
+  const requirement = squareConvergenceExchangeRequirement();
+  if (compareNumberValues(squarePoints, requirement) < 0) return 0n;
+
+  const ratio = divideNumberValue(squarePoints, requirement);
+  return NumberMath.max(NumberMath.log10(ratio), 1n);
+}
+
+function squareConvergenceExchangeRequirement() {
+  return SQUARE_CONVERGENCE_EXCHANGE_REQUIREMENT;
 }
 
 function collectSquareConvergenceIfReady() {
   const gainedConvergencePoints = squareConvergencePointGain();
-  if (gainedConvergencePoints <= 0n) return 0n;
+  if (!isPositiveNumberValue(gainedConvergencePoints)) return 0n;
 
   squarePoints = 0n;
-  squareConvergencePoints += gainedConvergencePoints;
+  squareConvergencePoints = addBaseNumbers(squareConvergencePoints, gainedConvergencePoints);
   squareConvergenceUnlocked = true;
   squareUnlocked = true;
+  resetSquareDimensionState();
   resetSquareUpgradeState();
   resetSquareBreakthroughState();
-  autoSpConverterTargetSp = 1n;
   applyAutomatiumSquareUpgradeUnlocks({ resetAutoUpgrade: true });
   return gainedConvergencePoints;
+}
+
+function canResearchTheory() {
+  return canOpenSquareConvergence() && canAffordTheoryResource(theoryCostResourceIndex);
+}
+
+function theoryCostForResource(resourceIndex) {
+  if (resourceIndex === 0) return theoryNumberCost;
+  if (resourceIndex === 1) return theorySquarePointCost;
+  return theoryConvergencePointCost;
+}
+
+function theoryCostResourceLabel(resourceIndex) {
+  if (resourceIndex === 0) return '수';
+  if (resourceIndex === 1) return 'SP';
+  return 'CP';
+}
+
+function canAffordTheoryResource(resourceIndex) {
+  if (resourceIndex === 0) return compareBaseNumber(theoryNumberCost) >= 0;
+  if (resourceIndex === 1) return compareNumberValues(squarePoints, theorySquarePointCost) >= 0;
+  if (resourceIndex === 2) return compareNumberValues(squareConvergencePoints, theoryConvergencePointCost) >= 0;
+  return false;
+}
+
+function setTheoryCostResource(resourceIndex) {
+  const nextIndex = Number(resourceIndex);
+  if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex > 2) return false;
+  theoryCostResourceIndex = nextIndex;
+  render();
+  return true;
+}
+
+function researchTheory() {
+  if (!canResearchTheory()) return false;
+
+  const selectedResource = theoryCostResourceIndex;
+  const paidResourceLabel = theoryCostResourceLabel(selectedResource);
+  if (theoryCostResourceIndex === 0) {
+    spendBaseCost(theoryNumberCost);
+    theoryNumberCost = multiplyNumberValue(theoryNumberCost, THEORY_NUMBER_COST_GROWTH);
+  } else if (theoryCostResourceIndex === 1) {
+    squarePoints = subtractNumberValues(squarePoints, theorySquarePointCost);
+    theorySquarePointCost = multiplyNumberValue(theorySquarePointCost, THEORY_SQUARE_POINT_COST_GROWTH);
+  } else {
+    squareConvergencePoints = subtractNumberValues(squareConvergencePoints, theoryConvergencePointCost);
+    theoryConvergencePointCost = multiplyNumberValue(theoryConvergencePointCost, THEORY_CONVERGENCE_POINT_COST_GROWTH);
+  }
+
+  theory = addBaseNumbers(theory, 1n);
+  log(`${paidResourceLabel}로 이론을 연구했습니다. 현재 ${fmt(theory)} 이론`, true);
+  render();
+  return true;
+}
+
+function canResearchGeneralization(id) {
+  const research = GENERALIZATION_RESEARCHES.find(item => item.id === id);
+  if (!research || hasGeneralizationResearch(id)) return false;
+  return canOpenSquareConvergence() &&
+    research.parents.every(parentId => hasGeneralizationResearch(parentId)) &&
+    compareNumberValues(theory, research.theoryCost) >= 0;
+}
+
+function researchGeneralization(id) {
+  const research = GENERALIZATION_RESEARCHES.find(item => item.id === id);
+  if (!research || !canResearchGeneralization(id)) return false;
+
+  theory = subtractNumberValues(theory, research.theoryCost);
+  generalizationResearchState[id] = true;
+  log(`${research.id} ${research.title} 연구를 완료했습니다.`, true);
+  render();
+  return true;
 }
 
 function canUnlockTetrationChapter() {
@@ -673,9 +1167,9 @@ function resetRunStateAfterSquarePrestige() {
   pendingSquarePrestigeValue = null;
   pendingSquarePrestigePoints = null;
   pendingSquarePrestigeRequirement = null;
-  num = hasSquareBreakthrough('solid_start')
+  setBaseNumber(hasSquareBreakthrough('solid_start')
     ? 2000000n
-    : hasSquareUpgrade('restart_start_100k') ? 100000n : 0n;
+    : hasSquareUpgrade('restart_start_100k') ? 100000n : 0n);
   perClick = 1n;
   perClickUpgradeCost = 10n;
 
@@ -696,7 +1190,6 @@ function resetRunStateAfterSquarePrestige() {
   autoClickerSpeedPrice = 200n;
   autoClickerTimer = 0;
   autoUpgradeTimer = 0;
-  bottleneckTrackerTimer = 0;
   autoClickerParallel = hasSquareUpgrade('restart_auto_4x') ? 4n : 1n;
   autoClickerParallelPrice = hasSquareUpgrade('restart_auto_4x') ? 4000n : 1000n;
   autoClickerPercentFillUnlocked = hasSquareUpgrade('restart_auto_percent_fill');

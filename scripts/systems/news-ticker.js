@@ -135,6 +135,7 @@ const AI_NEWS_TICKER_POOL = [
 ];
 
 const NEWS_TICKER_MODE_KEY = 'numberTycoonNewsMode';
+const CURRENCY_STATUS_SCALE_KEY = 'numberTycoonCurrencyStatusScale';
 const NEWS_TICKER_MODES = new Set(['all', 'human', 'ai']);
 const NEWS_TICKER_SPEED_PX_PER_SECOND = 450;
 const NEWS_TICKER_SIDE_PADDING = 24;
@@ -143,6 +144,27 @@ let newsTickerMode = localStorage.getItem(NEWS_TICKER_MODE_KEY) || 'all';
 if (!NEWS_TICKER_MODES.has(newsTickerMode)) {
   newsTickerMode = 'all';
 }
+
+function currencyStatusScaleFromStorage() {
+  const savedScale = Number(localStorage.getItem(CURRENCY_STATUS_SCALE_KEY));
+  return Number.isFinite(savedScale) ? Math.min(4, Math.max(1, savedScale)) : 1;
+}
+
+function applyCurrencyStatusScale(rawScale) {
+  const scale = Math.min(4, Math.max(1, Number(rawScale) || 1));
+  if (currencyStatus) {
+    currencyStatus.style.width = `${180 * scale}px`;
+    currencyStatus.style.padding = `${8 * scale}px ${10 * scale}px`;
+    currencyStatus.style.fontSize = `${12 * scale}px`;
+    currencyStatus.style.setProperty('--currency-status-row-gap', `${12 * scale}px`);
+  }
+  document.documentElement.style.setProperty('--currency-status-mobile-space', `${Math.round(216 * scale)}px`);
+  if (currencyStatusScaleInput) currencyStatusScaleInput.value = String(scale);
+  if (currencyStatusScaleValue) currencyStatusScaleValue.textContent = `${scale.toFixed(1)}배`;
+  return scale;
+}
+
+applyCurrencyStatusScale(currencyStatusScaleFromStorage());
 
 function newsTickerMessagePool() {
   if (newsTickerMode === 'human') return HUMAN_NEWS_TICKER_MESSAGES;
@@ -200,10 +222,10 @@ if (newsTickerText) {
   newsTickerText.addEventListener('animationend', setRandomNewsTickerMessage);
 }
 
-if (newsSettingsBtn && newsModeSelect) {
+if (newsSettingsBtn && newsModeSelect && newsSettingsPanel && currencyStatusScaleInput) {
   newsSettingsBtn.addEventListener('click', () => {
-    newsModeSelect.classList.toggle('hidden');
-    if (!newsModeSelect.classList.contains('hidden')) {
+    newsSettingsPanel.classList.toggle('hidden');
+    if (!newsSettingsPanel.classList.contains('hidden')) {
       newsModeSelect.focus();
     }
   });
@@ -212,5 +234,10 @@ if (newsSettingsBtn && newsModeSelect) {
     newsTickerMode = NEWS_TICKER_MODES.has(newsModeSelect.value) ? newsModeSelect.value : 'all';
     localStorage.setItem(NEWS_TICKER_MODE_KEY, newsTickerMode);
     setRandomNewsTickerMessage();
+  });
+
+  currencyStatusScaleInput.addEventListener('input', () => {
+    const scale = applyCurrencyStatusScale(currencyStatusScaleInput.value);
+    localStorage.setItem(CURRENCY_STATUS_SCALE_KEY, String(scale));
   });
 }

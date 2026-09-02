@@ -32,22 +32,23 @@ function lanePowerText(power) {
 }
 
 function upgradeLanePower(lane) {
-  if (lane.power >= percentPowerMax()) return false;
-  lane.power = lane.power < 4 ? 4 : percentPowerMax();
-  lane.powerCost *= 16n;
+  lane.power++;
+  lane.powerCost = percentPowerUpgradeCostForNextLevel(
+    lane.power,
+    scaleByLane(40000n, lane.laneNumber)
+  );
   return true;
 }
 
 function buyExtraLanePower(lane) {
   if (overflowed || squareMode) return false;
   if (percentChargeNeeded > PERCENT_POWER_UNLOCK_CHARGE) return false;
-  if (lane.power >= percentPowerMax()) return false;
   const currentCost = discountedCost(lane.powerCost);
-  if (num < currentCost) return false;
+  if (!canAffordBaseCost(currentCost)) return false;
 
-  num -= currentCost;
+  spendBaseCost(currentCost);
   if (upgradeLanePower(lane)) {
-    log(`퍼센트 레인 ${lane.laneNumber} 파워가 ${lanePowerText(lane.power)}로 증가했습니다.${lane.power >= percentPowerMax() ? ' (MAX)' : ''}`);
+    log(`퍼센트 레인 ${lane.laneNumber} 파워가 ${lanePowerText(lane.power)}로 증가했습니다. ${percentPowerSoftcapStatus(lane.power)}`);
   }
   render();
   return true;
@@ -56,9 +57,9 @@ function buyExtraLanePower(lane) {
 function buyExtraLaneAuto(lane) {
   if (overflowed || squareMode) return false;
   const cost = discountedCost(lane.autoPrice);
-  if (lane.autoUnlocked || num < cost) return false;
+  if (lane.autoUnlocked || !canAffordBaseCost(cost)) return false;
 
-  num -= cost;
+  spendBaseCost(cost);
   lane.autoUnlocked = true;
   lane.autoTimer = 0;
   log(`퍼센트 레인 ${lane.laneNumber} 오토클리커를 구매했습니다.`);
@@ -70,9 +71,9 @@ function upgradeExtraLaneAutoSpeed(lane) {
   if (overflowed || squareMode) return false;
   const currentlyMaxed = lane.autoSpeedLevel >= lane.autoSpeedLevels.length - 1;
   const currentCost = discountedCost(lane.autoSpeedPrice);
-  if (!lane.autoUnlocked || currentlyMaxed || num < currentCost) return false;
+  if (!lane.autoUnlocked || currentlyMaxed || !canAffordBaseCost(currentCost)) return false;
 
-  num -= currentCost;
+  spendBaseCost(currentCost);
   lane.autoSpeedLevel++;
   lane.autoSpeed = lane.autoSpeedLevels[lane.autoSpeedLevel];
   lane.autoSpeedPrice *= 2n;
@@ -84,7 +85,7 @@ function upgradeExtraLaneAutoSpeed(lane) {
 function useExtraPercent(lane) {
   if (overflowed || squareMode) return false;
   if (lane.charge < percentChargeNeeded) return false;
-  num += (num * BigInt(lane.power)) / 100n;
+  addToBaseNumber(percentGain(getBaseNumber(), lane.power));
   lane.charge = 0;
   lane.autoTimer = 0;
   checkOverflow();
@@ -156,19 +157,14 @@ function updateExtraPercentLaneUI(lane) {
 
   fill.style.width = Math.min(100, (lane.charge / percentChargeNeeded) * 100) + '%';
 
-  useBtn.textContent = `% 사용 (${lane.charge} / ${percentChargeNeeded}) · 파워 ${lanePowerText(lane.power)}`;
+  useBtn.textContent = `% 사용 (${lane.charge} / ${percentChargeNeeded}) · 파워 ${lanePowerText(lane.power)} · ${percentPowerSoftcapStatus(lane.power)}`;
   useBtn.disabled = lane.charge < percentChargeNeeded || overflowed || squareMode;
 
   if (percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE) {
     powerRow.classList.remove('hidden');
-    if (lane.power >= percentPowerMax()) {
-      powerBtn.innerHTML = `퍼센트 파워 업그레이드 (현재 ${lanePowerText(lane.power)})<span class="cost">MAX</span>`;
-      powerBtn.disabled = true;
-    } else {
-      const powerCost = discountedCost(lane.powerCost);
-      powerBtn.innerHTML = `퍼센트 파워 업그레이드 (현재 ${lanePowerText(lane.power)})<span class="cost">비용: ${fmt(powerCost)}</span>`;
-      powerBtn.disabled = num < powerCost || overflowed || squareMode;
-    }
+    const powerCost = discountedCost(lane.powerCost);
+    powerBtn.innerHTML = `퍼센트 파워 업그레이드 (현재 ${lanePowerText(lane.power)})<span class="cost">비용: ${fmtScientific(powerCost)} · ${percentPowerSoftcapStatus(lane.power)}</span>`;
+    powerBtn.disabled = !canAffordBaseCost(powerCost) || overflowed || squareMode;
   } else {
     powerRow.classList.add('hidden');
   }
@@ -176,12 +172,12 @@ function updateExtraPercentLaneUI(lane) {
   autoBtn.innerHTML = lane.autoUnlocked
     ? `% 오토클리커 (구매 완료)<span class="cost">대기 ${(lane.autoSpeed / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}초</span>`
     : `% 오토클리커<span class="cost">비용: ${fmt(discountedCost(lane.autoPrice))}</span>`;
-  autoBtn.disabled = lane.autoUnlocked || num < discountedCost(lane.autoPrice) || overflowed || squareMode;
+  autoBtn.disabled = lane.autoUnlocked || !canAffordBaseCost(discountedCost(lane.autoPrice)) || overflowed || squareMode;
 
   const maxed = lane.autoSpeedLevel >= lane.autoSpeedLevels.length - 1;
   const speedCost = discountedCost(lane.autoSpeedPrice);
   speedBtn.innerHTML = `% 오토클리커 속도 업그레이드<span class="cost">${maxed ? '최대 속도 (0.2초)' : `비용: ${fmt(speedCost)} · 현재 ${(lane.autoSpeed / 1000).toFixed(1)}초`}</span>`;
-  speedBtn.disabled = !lane.autoUnlocked || maxed || num < speedCost || overflowed || squareMode;
+  speedBtn.disabled = !lane.autoUnlocked || maxed || !canAffordBaseCost(speedCost) || overflowed || squareMode;
 }
 
 function renderExtraPercentLanes() {

@@ -2,9 +2,9 @@ function unlockNextPercentLane() {
   if (!percentUnlocked) return false;
   if (percentLaneCount >= percentLaneLimit()) return false;
   const cost = discountedCost(nextPercentLaneUnlockCost);
-  if (num < cost) return false;
+  if (!canAffordBaseCost(cost)) return false;
 
-  num -= cost;
+  spendBaseCost(cost);
   percentLaneCount++;
   // 새 레인은 독립된 업그레이드 상태를 가진 새 객체로 생성
   const newLane = makePercentLane(percentLaneCount);
@@ -21,7 +21,7 @@ function usePercent() {
   if (overflowed || squareMode) return false;
   if (percentCharge < percentChargeNeeded) return false;
 
-  num += (num * BigInt(percentPower)) / 100n;
+  addToBaseNumber(percentGain(getBaseNumber(), percentPower));
   percentCharge = 0;
   checkOverflow();
 
@@ -36,14 +36,13 @@ percentBtn.addEventListener('click', usePercent);
 function upgradePercentPower() {
   if (!percentUnlocked) return false;
   if (percentChargeNeeded > PERCENT_POWER_UNLOCK_CHARGE) return false;
-  if (percentPower >= percentPowerMax()) return false;
   const cost = discountedCost(percentPowerUpgradeCost);
-  if (num < cost) return false;
+  if (!canAffordBaseCost(cost)) return false;
 
-  num -= cost;
-  percentPower = percentPower < 4 ? 4 : percentPowerMax();
-  percentPowerUpgradeCost *= 16n;
-  log(`퍼센트 파워가 ${percentPowerText()}로 증가했습니다.${percentPower >= percentPowerMax() ? ' (MAX)' : ''}`);
+  spendBaseCost(cost);
+  percentPower++;
+  percentPowerUpgradeCost = percentPowerUpgradeCostForNextLevel(percentPower);
+  log(`퍼센트 파워가 ${percentPowerText()}로 증가했습니다. ${percentPowerSoftcapStatus(percentPower)}`);
   render();
   return true;
 }
@@ -54,9 +53,9 @@ function buyPercentAuto() {
   if (!percentUnlocked) return false;
   if (percentAutoUnlocked) return false;
   const cost = discountedCost(percentAutoPrice);
-  if (num < cost) return false;
+  if (!canAffordBaseCost(cost)) return false;
 
-  num -= cost;
+  spendBaseCost(cost);
   percentAutoUnlocked = true;
   percentAutoTimer = 0;
   log(`% 오토클리커를 구매했습니다. %가 사용 가능해지면 ${formatDelay(percentAutoSpeed)} 후 자동 사용합니다.`);
@@ -71,9 +70,9 @@ function upgradePercentAutoSpeed() {
   if (!percentAutoUnlocked) return false;
   if (percentAutoSpeed <= percentAutoMinSpeed()) return false;
   const cost = discountedCost(percentAutoSpeedPrice);
-  if (num < cost) return false;
+  if (!canAffordBaseCost(cost)) return false;
 
-  num -= cost;
+  spendBaseCost(cost);
   if (percentAutoSpeed > 200) percentAutoSpeed = Math.max(200, percentAutoSpeed - 200);
   else if (percentAutoSpeed > percentAutoMinSpeed()) percentAutoSpeed = percentAutoMinSpeed();
   percentAutoSpeedPrice *= 2n;
@@ -129,9 +128,9 @@ function upgradePercentCharge() {
   if (!percentUnlocked) return false;
   if (percentChargeNeeded <= minimumPercentChargeNeeded()) return false;
   const cost = discountedCost(percentChargeUpgradeCost);
-  if (num < cost) return false;
+  if (!canAffordBaseCost(cost)) return false;
 
-  num -= cost;
+  spendBaseCost(cost);
   percentChargeLevel++;
   const reduction = percentChargeReduction();
   percentChargeNeeded = Math.max(minimumPercentChargeNeeded(), percentChargeNeeded - reduction);

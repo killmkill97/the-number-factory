@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>숫자의 끝을 보는 타이쿤 - 프로토타입</title>
-<link rel="stylesheet" href="./styles/number-tycoon.css?v=20260814-hitbox">
+<link rel="stylesheet" href="./styles/number-tycoon.css?v=20260903-square-dimension-upgrades-v2">
 </head>
 <body>
 <div class="news-ticker" aria-live="polite">
@@ -12,13 +12,30 @@
   </div>
   <div class="news-ticker-settings">
     <button id="newsSettingsBtn" type="button">설정</button>
-    <select id="newsModeSelect" class="news-mode-select hidden" aria-label="뉴스 내용 설정">
+  </div>
+</div>
+<div class="news-settings-panel hidden" id="newsSettingsPanel">
+  <label class="news-settings-row">
+    <span>뉴스 내용</span>
+    <select id="newsModeSelect" class="news-mode-select" aria-label="뉴스 내용 설정">
       <option value="all">인간 문장 + AI 문장</option>
       <option value="human">인간 문장만</option>
       <option value="ai">AI 문장만</option>
     </select>
-  </div>
+  </label>
+  <label class="news-settings-row">
+    <span>화폐 표시 크기 <output id="currencyStatusScaleValue">1.0배</output></span>
+    <input id="currencyStatusScaleInput" type="range" min="1" max="4" step="0.1" value="1" aria-label="화폐 표시 크기">
+  </label>
 </div>
+<aside class="currency-status" id="currencyStatus" aria-label="보유 화폐">
+  <div class="currency-status-row"><span>숫자:</span><strong id="currencyNumberValue">0</strong></div>
+  <div class="currency-status-row"><span>sp:</span><strong id="currencySpValue">0</strong></div>
+  <div class="currency-status-row"><span>cp:</span><strong id="currencyCpValue">0</strong></div>
+  <div class="currency-status-row"><span>lsp:</span><strong id="currencyLspValue">0</strong></div>
+  <div class="currency-status-row"><span>tetraP:</span><strong id="currencyTetraPValue">0</strong></div>
+  <div class="currency-status-row"><span>이론:</span><strong id="currencyTheoryValue">0</strong></div>
+</aside>
 <div class="app">
   <div class="save-toolbar">
     <button id="saveBtn">저장</button>
@@ -131,13 +148,66 @@
       <div class="sub" id="squarePointSubValue"></div>
     </div>
 
-    <div class="section-title">제곱 포인트 영구 업그레이드</div>
-    <div id="squareUpgradeGrid" class="square-upgrade-grid"></div>
-    <div class="row">
-      <button id="unlockTetrationBtn">
-        테트레이션 챕터 열기
-        <span class="cost" id="unlockTetrationCost"></span>
-      </button>
+    <div class="square-view-tabs" role="tablist" aria-label="제곱 화면">
+      <button id="squareUpgradesViewBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="squareUpgradesViewPanel">제곱 업그레이드</button>
+      <button id="squareDimensionsViewBtn" class="hidden" type="button" role="tab" aria-selected="false" aria-controls="squareDimensionsViewPanel">제곱 차원</button>
+    </div>
+
+    <div id="squareUpgradesViewPanel">
+      <div class="section-title">제곱 포인트 영구 업그레이드</div>
+      <div id="squareUpgradeGrid" class="square-upgrade-grid"></div>
+      <div class="row">
+        <button id="unlockTetrationBtn">
+          테트레이션 챕터 열기
+          <span class="cost" id="unlockTetrationCost"></span>
+        </button>
+      </div>
+    </div>
+
+    <div id="squareDimensionsViewPanel" class="hidden">
+      <div class="display square-display square-dimension-display">
+        <div class="value" id="squareDimensionPowerValue">2.34e0</div>
+        <div class="sub" id="squareDimensionPowerSubValue">제곱력 = (x × y)^(1/4) · 생산 주기 1초</div>
+        <div class="sub" id="squareDimensionMultiplierValue">기본 숫자 생산 배율 ×5.48e0</div>
+      </div>
+
+      <div class="square-dimension-board">
+        <div class="square-dimension-rectangle" aria-hidden="true">
+          <span id="squareDimensionShapeLabel">5e0 × 6e0</span>
+        </div>
+        <div class="square-dimension-sides">
+          <div class="square-dimension-side">
+            <div class="square-dimension-side-label">x 변</div>
+            <div class="square-dimension-side-value" id="squareDimensionXValue">5e0</div>
+            <div class="square-dimension-side-rate" id="squareDimensionXRate">초당 +7e-1 · 배율 ×1</div>
+            <button id="squareDimensionXBtn" type="button">
+              <span id="squareDimensionXLabel">x 성장 배율 +1</span>
+              <span class="cost" id="squareDimensionXCost">비용: 1 SP</span>
+            </button>
+          </div>
+          <div class="square-dimension-side">
+            <div class="square-dimension-side-label">y 변</div>
+            <div class="square-dimension-side-value" id="squareDimensionYValue">6e0</div>
+            <div class="square-dimension-side-rate" id="squareDimensionYRate">초당 +7.8e-1 · 배율 ×1</div>
+            <button id="squareDimensionYBtn" type="button">
+              <span id="squareDimensionYLabel">y 성장 배율 +1</span>
+              <span class="cost" id="squareDimensionYCost">비용: 1 SP</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title">제곱력 업그레이드</div>
+      <div class="square-dimension-upgrades">
+        <button id="squareDimensionPowerTimeBtn" type="button">
+          <span id="squareDimensionPowerTimeLabel">제곱력 생산 시간 강화</span>
+          <span class="cost" id="squareDimensionPowerTimeCost">비용: 100sp SP</span>
+        </button>
+        <button id="squareDimensionPowerStrengthBtn" type="button">
+          <span id="squareDimensionPowerStrengthLabel">제곱력 생산 강화</span>
+          <span class="cost" id="squareDimensionPowerStrengthCost">비용: 100qi SP</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -146,19 +216,6 @@
       <div class="value">제곱돌파</div>
       <div class="sub">SP를 사용해 베이스 챕터를 영구적으로 강화합니다.</div>
     </div>
-
-    <div class="section-title">자동 SP 변환기</div>
-    <div class="row">
-      <button id="autoSpConverterToggleBtn">
-        <span id="autoSpConverterToggleLabel">자동 SP 변환기 ON</span>
-        <span class="cost" id="autoSpConverterToggleCost"></span>
-      </button>
-    </div>
-    <div class="row auto-sp-target-row">
-      <input id="autoSpConverterTargetInput" class="auto-sp-target-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="1">
-      <button id="autoSpConverterTargetBtn">목표 SP 설정</button>
-    </div>
-    <div class="sub auto-sp-converter-status" id="autoSpConverterStatus"></div>
 
     <div class="section-title">제곱돌파 업그레이드</div>
     <div id="squareBreakthroughGrid" class="square-upgrade-grid breakthrough-upgrade-grid"></div>
@@ -170,8 +227,43 @@
       <div class="sub" id="squareConvergenceSubValue"></div>
     </div>
 
-    <div class="section-title">제곱 수렴 업그레이드</div>
-    <div id="squareConvergenceGrid" class="square-upgrade-grid breakthrough-upgrade-grid"></div>
+    <div class="convergence-view-tabs" role="tablist" aria-label="제곱 수렴 화면">
+      <button id="squareConvergenceViewBtn" class="active" type="button" role="tab" aria-selected="true">제곱 수렴</button>
+      <button id="generalizationViewBtn" type="button" role="tab" aria-selected="false">일반화</button>
+    </div>
+
+    <div id="squareConvergenceUpgradePanel">
+      <div class="section-title">제곱 수렴 업그레이드</div>
+      <div id="squareConvergenceGrid" class="square-upgrade-grid breakthrough-upgrade-grid"></div>
+    </div>
+
+    <div id="generalizationPanel" class="hidden">
+      <div class="display square-display generalization-display">
+        <div class="value" id="theoryValue">0 이론</div>
+        <div class="sub" id="theorySubValue"></div>
+      </div>
+
+      <div class="section-title">일반화 연구 트리</div>
+      <article class="research-node theory-node">
+          <div class="research-node-title">이론 확보</div>
+          <div class="research-node-description">수, 제곱 포인트, 수렴 포인트를 사용해 이론을 연구합니다. 연구할수록 각 비용이 상승합니다.</div>
+          <div class="theory-resource-label">연구에 사용할 화폐</div>
+          <div class="theory-resource-selector" role="group" aria-label="이론 연구 화폐 선택">
+            <button id="theoryNumberResourceBtn" type="button">수<span class="cost" id="theoryNumberResourceCost"></span></button>
+            <button id="theorySquarePointResourceBtn" type="button">SP<span class="cost" id="theorySquarePointResourceCost"></span></button>
+            <button id="theoryConvergencePointResourceBtn" type="button">CP<span class="cost" id="theoryConvergencePointResourceCost"></span></button>
+          </div>
+          <button id="researchTheoryBtn" type="button">
+            이론 연구 +1
+            <span class="cost" id="researchTheoryCost"></span>
+          </button>
+      </article>
+      <div id="generalizationTree" class="generalization-tree" aria-label="일반화 연구 트리">
+        <div id="generalizationTreeCanvas" class="generalization-tree-canvas">
+          <svg id="generalizationConnections" class="research-connections" aria-hidden="true"></svg>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="chapter-panel hidden" id="tetrationPanel">
@@ -204,6 +296,22 @@
   </div>
 
   <div class="log" id="log"></div>
+</div>
+
+<div id="manualExchangeDock" class="manual-exchange-dock hidden">
+  <div class="manual-exchange-title">수동 교환</div>
+  <button id="manualSquareExchangeBtn" type="button">
+    제곱 포인트 교환
+    <span class="cost" id="manualSquareExchangeCost"></span>
+  </button>
+  <button id="manualConvergenceExchangeBtn" type="button">
+    수렴 포인트 교환
+    <span class="cost" id="manualConvergenceExchangeCost"></span>
+  </button>
+  <button id="manualTetrationExchangeBtn" class="hidden" type="button">
+    tetraP 교환
+    <span class="cost" id="manualTetrationExchangeCost"></span>
+  </button>
 </div>
 
 <div id="automatiumWorkspace" class="automatium-workspace hidden" role="dialog" aria-modal="true" aria-labelledby="automatiumTitle">
@@ -293,27 +401,29 @@
 </div>
 
 <script src="./scripts/data/chapter-roadmap.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/core/constants.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/core/state.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/core/dom.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/core/chapter-ui.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/systems/percent-lanes.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/systems/square-upgrades.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/systems/square-breakthrough.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/systems/square-convergence.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/core/render.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/systems/clickers.js?v=20260814-n-click"></script>
-<script src="./scripts/systems/percent-system.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/core/constants.js?v=20260903-square-dimension-upgrades-v2"></script>
+<script src="./scripts/core/number-math.js?v=20260903-square-dimension-upgrades-v2"></script>
+<script src="./scripts/core/state.js?v=20260903-square-dimension-upgrades-v2"></script>
+<script src="./scripts/core/dom.js?v=20260903-square-dimension-upgrades-v2"></script>
+<script src="./scripts/core/chapter-ui.js?v=20260902-manual-chapters"></script>
+<script src="./scripts/systems/percent-lanes.js?v=20260903-square-dimension-growth-percent"></script>
+<script src="./scripts/systems/square-upgrades.js?v=20260903-scientific-number-core"></script>
+<script src="./scripts/systems/square-breakthrough.js?v=20260903-scientific-number-core"></script>
+<script src="./scripts/systems/square-convergence.js?v=20260903-research-tree"></script>
+<script src="./scripts/systems/square-dimensions.js?v=20260903-square-dimension-upgrades-v2"></script>
+<script src="./scripts/core/render.js?v=20260903-square-dimensions-compat"></script>
+<script src="./scripts/systems/clickers.js?v=20260829-random-click-bonus-removal"></script>
+<script src="./scripts/systems/percent-system.js?v=20260903-square-dimension-growth-percent"></script>
 <script src="./scripts/systems/auto-upgrades.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/systems/news-ticker.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/chapters/square.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/chapters/tetration.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/core/save.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/systems/news-ticker.js?v=20260903-crisp-currency-scale-compat"></script>
+<script src="./scripts/chapters/square.js?v=20260903-scientific-number-core"></script>
+<script src="./scripts/chapters/tetration.js?v=20260903-scientific-number-core"></script>
+<script src="./scripts/core/save.js?v=20260903-square-dimension-upgrades-v2"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260814-breakthrough-target-lock"></script>
 <script src="./scripts/automatium/n-parser.js?v=20260814-n-click"></script>
-<script src="./scripts/automatium/n-runtime.js?v=20260814-n-click"></script>
-<script src="./scripts/systems/automatium.js?v=20260814-n-click"></script>
-<script src="./scripts/systems/dev-console.js?v=20260814-breakthrough-target-lock"></script>
+<script src="./scripts/automatium/n-runtime.js?v=20260903-scientific-number-core"></script>
+<script src="./scripts/systems/automatium.js?v=20260903-scientific-number-core"></script>
+<script src="./scripts/systems/dev-console.js?v=20260903-scientific-number-core"></script>
 <script src="./scripts/main.js?v=20260814-breakthrough-target-lock"></script>
 </body>
 </html>

@@ -57,12 +57,7 @@ let activeAutomatiumTab = 'editor';
 let automatiumAutocompleteItems = [];
 let automatiumAutocompleteIndex = 0;
 const automatiumExecutions = new Map();
-const automatiumWaitingSpTargets = new Map();
 let automatiumLastNumberClickAt = Number.NEGATIVE_INFINITY;
-
-function automatiumBlocksAutomaticSquarePrestige() {
-  return hasSquareConvergenceUpgrade('automatium') && automatiumWaitingSpTargets.size > 0;
-}
 
 function automatiumId() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -70,7 +65,7 @@ function automatiumId() {
 }
 
 function defaultAutomatiumSource() {
-  return `// 새 N 프로그램\nwhile true {\n    square s\n}\n`;
+  return `// 새 N 프로그램\nwhile true {\n    click\n}\n`;
 }
 
 function makeAutomatiumProgram(index = automatiumPrograms.length + 1) {
@@ -157,11 +152,11 @@ function nPercentLaneUpgradeSnapshot(id, laneNumber, node) {
     const rawCost = laneNumber === 1 ? percentPowerUpgradeCost : lane?.powerCost ?? scaleByLane(40000n, laneNumber);
     const cost = discountedCost(rawCost);
     return {
-      upgraded: power <= 1 ? 0n : (power >= percentPowerMax() && percentPowerMax() > 4 ? 2n : 1n),
+      upgraded: BigInt(Math.max(0, power - 1)),
       amount: BigInt(power),
-      cost: power >= percentPowerMax() ? 0n : cost,
-      max: percentPowerMax() > 4 ? 2n : 1n,
-      available: laneExists && !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && power < percentPowerMax() && num >= cost,
+      cost,
+      max: 0n,
+      available: laneExists && !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && canAffordBaseCost(cost),
       buy: () => laneNumber === 1 ? upgradePercentPower() : lane ? buyExtraLanePower(lane) : false
     };
   }
@@ -175,7 +170,7 @@ function nPercentLaneUpgradeSnapshot(id, laneNumber, node) {
       amount: unlocked ? 1n : 0n,
       cost: unlocked ? 0n : cost,
       max: 1n,
-      available: laneExists && !overflowed && percentUnlocked && !unlocked && num >= cost,
+      available: laneExists && !overflowed && percentUnlocked && !unlocked && canAffordBaseCost(cost),
       buy: () => laneNumber === 1 ? buyPercentAuto() : lane ? buyExtraLaneAuto(lane) : false
     };
   }
@@ -194,7 +189,7 @@ function nPercentLaneUpgradeSnapshot(id, laneNumber, node) {
       amount: BigInt(speed),
       cost: maxed ? 0n : cost,
       max: laneNumber === 1 && percentAutoMinSpeed() < 200 ? 5n : 4n,
-      available: laneExists && !overflowed && percentUnlocked && unlocked && !maxed && num >= cost,
+      available: laneExists && !overflowed && percentUnlocked && unlocked && !maxed && canAffordBaseCost(cost),
       buy: () => laneNumber === 1 ? upgradePercentAutoSpeed() : lane ? upgradeExtraLaneAutoSpeed(lane) : false
     };
   }
@@ -231,7 +226,7 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         amount: effectivePerClick(),
         cost,
         max: BASE_PER_CLICK_CAP - 1n,
-        available: !overflowed && perClick < BASE_PER_CLICK_CAP && num >= cost,
+        available: !overflowed && perClick < BASE_PER_CLICK_CAP && canAffordBaseCost(cost),
         buy: upgradePerClick
       };
     },
@@ -242,7 +237,7 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         amount: autoClickerUnlocked ? 1n : 0n,
         cost: autoClickerUnlocked ? 0n : cost,
         max: 1n,
-        available: !overflowed && !autoClickerUnlocked && num >= cost,
+        available: !overflowed && !autoClickerUnlocked && canAffordBaseCost(cost),
         buy: buyAutoClicker
       };
     },
@@ -253,7 +248,7 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         amount: BigInt(autoClickerSpeed),
         cost: autoClickerSpeed <= autoClickerMinSpeed() ? 0n : cost,
         max: autoClickerMinSpeed() < 25 ? 8n : 7n,
-        available: !overflowed && autoClickerUnlocked && autoClickerSpeed > autoClickerMinSpeed() && num >= cost,
+        available: !overflowed && autoClickerUnlocked && autoClickerSpeed > autoClickerMinSpeed() && canAffordBaseCost(cost),
         buy: upgradeAutoClickerSpeed
       };
     },
@@ -264,7 +259,7 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         amount: autoClickerParallel,
         cost: autoClickerParallel >= autoClickerParallelCap() ? 0n : cost,
         max: nLog2(autoClickerParallelCap()),
-        available: !overflowed && autoClickerUnlocked && autoClickerParallel < autoClickerParallelCap() && num >= cost,
+        available: !overflowed && autoClickerUnlocked && autoClickerParallel < autoClickerParallelCap() && canAffordBaseCost(cost),
         buy: upgradeAutoClickerParallel
       };
     },
@@ -275,7 +270,7 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         amount: autoClickerPercentFillUnlocked ? 1n : 0n,
         cost: autoClickerPercentFillUnlocked ? 0n : cost,
         max: 1n,
-        available: !overflowed && autoClickerUnlocked && percentUnlocked && !autoClickerPercentFillUnlocked && num >= cost,
+        available: !overflowed && autoClickerUnlocked && percentUnlocked && !autoClickerPercentFillUnlocked && canAffordBaseCost(cost),
         buy: buyAutoClickerPercentFill
       };
     },
@@ -286,18 +281,18 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         amount: BigInt(percentChargeNeeded),
         cost: percentChargeNeeded <= minimumPercentChargeNeeded() ? 0n : cost,
         max: BigInt(percentChargeLevel + Math.ceil((percentChargeNeeded - minimumPercentChargeNeeded()) / percentChargeReduction())),
-        available: !overflowed && percentUnlocked && percentChargeNeeded > minimumPercentChargeNeeded() && num >= cost,
+        available: !overflowed && percentUnlocked && percentChargeNeeded > minimumPercentChargeNeeded() && canAffordBaseCost(cost),
         buy: upgradePercentCharge
       };
     },
     percent_power: () => {
       const cost = discountedCost(percentPowerUpgradeCost);
       return {
-        upgraded: percentPower <= 1 ? 0n : (percentPower >= percentPowerMax() && percentPowerMax() > 4 ? 2n : 1n),
+        upgraded: BigInt(Math.max(0, percentPower - 1)),
         amount: BigInt(percentPower),
-        cost: percentPower >= percentPowerMax() ? 0n : cost,
-        max: percentPowerMax() > 4 ? 2n : 1n,
-        available: !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && percentPower < percentPowerMax() && num >= cost,
+        cost,
+        max: 0n,
+        available: !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && canAffordBaseCost(cost),
         buy: upgradePercentPower
       };
     },
@@ -308,7 +303,7 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         amount: percentAutoUnlocked ? 1n : 0n,
         cost: percentAutoUnlocked ? 0n : cost,
         max: 1n,
-        available: !overflowed && percentUnlocked && !percentAutoUnlocked && num >= cost,
+        available: !overflowed && percentUnlocked && !percentAutoUnlocked && canAffordBaseCost(cost),
         buy: buyPercentAuto
       };
     },
@@ -319,7 +314,7 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         amount: BigInt(percentAutoSpeed),
         cost: percentAutoSpeed <= percentAutoMinSpeed() ? 0n : cost,
         max: percentAutoMinSpeed() < 200 ? 5n : 4n,
-        available: !overflowed && percentUnlocked && percentAutoUnlocked && percentAutoSpeed > percentAutoMinSpeed() && num >= cost,
+        available: !overflowed && percentUnlocked && percentAutoUnlocked && percentAutoSpeed > percentAutoMinSpeed() && canAffordBaseCost(cost),
         buy: upgradePercentAutoSpeed
       };
     },
@@ -330,7 +325,7 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         amount: BigInt(percentLaneCount),
         cost: percentLaneCount >= percentLaneLimit() ? 0n : cost,
         max: BigInt(percentLaneLimit() - 1),
-        available: !overflowed && percentUnlocked && percentLaneCount < percentLaneLimit() && num >= cost,
+        available: !overflowed && percentUnlocked && percentLaneCount < percentLaneLimit() && canAffordBaseCost(cost),
         buy: unlockNextPercentLane
       };
     }
@@ -342,16 +337,13 @@ function nSquareUpgradeAmount(id) {
   const bought = hasSquareUpgrade(id);
   const amounts = {
     click_double: () => bought ? 2n : 1n,
-    percent_power_8: () => BigInt(percentPowerMax()),
+    percent_power_8: () => BigInt(percentPowerSoftcapDecayPower()),
     percent_auto_125: () => BigInt(percentAutoMinSpeed()),
     percent_charge_minus_16: () => BigInt(percentChargeReduction()),
     all_cost_half: () => bought ? 0.5 : 1,
     auto_parallel_64: () => autoClickerParallelCap(),
     game_speed_1_5: () => bought ? 1.5 : 1,
-    limit_800gyeong: () => gameEndValue(),
     sp_gain_double: () => bought ? 2n : 1n,
-    manual_click_double_chance: () => bought ? 5n : 0n,
-    auto_click_plus_50_chance: () => bought ? 1n : 0n,
     auto_upgrade_top_down: () => autoUpgradeEnabled,
     skip_cutscene: () => bought,
     restart_percent_unlock: () => bought,
@@ -373,7 +365,7 @@ function nSquareUpgradeSnapshot(rawUpgrade, node) {
     amount: nSquareUpgradeAmount(id),
     cost: bought ? 0n : upgrade.cost,
     max: 1n,
-    available: squareUnlocked && !bought && squarePoints >= upgrade.cost,
+    available: squareUnlocked && !bought && compareNumberValues(squarePoints, upgrade.cost) >= 0,
     buy: () => buySquareUpgrade(id)
   };
 }
@@ -382,16 +374,14 @@ function nBreakthroughUpgradeAmount(id, level) {
   if (id === 'black_hole') return level > 0 ? 2 * dysonEffectNumber() : 1;
   if (id === 'extra_investment') return affectedBigIntMultiplier(2, level);
   if (id === 'tas') return BigInt(autoClickerMinSpeed());
-  if (id === 'shortcut') return gameEndValue();
   if (id === 'invisible_hand') return autoUpgradeSpeedMultiplier();
   if (id === 'overclock') return BigInt(4 * dysonEffectNumber() * level);
   if (id === 'deflation') return level > 0 ? 0.1 : 1;
   if (id === 'doctor_octopus') return affectedBigIntMultiplier(8, level);
   if (id === 'solid_start') return level > 0 ? 2000000n : 0n;
   if (id === 'overcharge') return BigInt(minimumPercentChargeNeeded());
-  if (id === 'amplification') return BigInt(autoClickBonusPercent());
   if (id === 'gregtech') return affectedBigIntMultiplier(2, level);
-  if (id === 'bottleneck_tracker') return bottleneckTrackerMultiplier();
+  if (id === 'bottleneck_tracker') return percentEfficiencyMultiplier();
   if (id === 'percent_expansion') return BigInt(percentLaneLimit());
   if (id === 'dyson_swarm') return dysonEffectMultiplier();
   return BigInt(level);
@@ -416,7 +406,7 @@ function nBreakthroughUpgradeSnapshot(rawUpgrade, node) {
     amount: nBreakthroughUpgradeAmount(id, level),
     cost: cost ?? 0n,
     max: BigInt(max),
-    available: canOpenSquareBreakthrough() && cost !== null && squarePoints >= cost,
+    available: canOpenSquareBreakthrough() && cost !== null && compareNumberValues(squarePoints, cost) >= 0,
     buy: () => buySquareBreakthroughUpgrade(id)
   };
 }
@@ -429,15 +419,14 @@ function nConvergenceUpgradeSnapshot(rawUpgrade, node) {
   const amounts = {
     timium: () => bought ? 2048n : 1n,
     galaxium: () => bought ? 2048n : 1n,
-    automatium: () => bought,
-    unlimitium: () => bought ? 2n : 1n
+    automatium: () => bought
   };
   return {
     upgraded: bought ? 1n : 0n,
     amount: (amounts[id] ?? (() => bought))(),
     cost: bought ? 0n : upgrade.cost,
     max: 1n,
-    available: canOpenSquareConvergence() && !bought && squareConvergencePoints >= upgrade.cost,
+    available: canOpenSquareConvergence() && !bought && compareNumberValues(squareConvergencePoints, upgrade.cost) >= 0,
     buy: () => buySquareConvergenceUpgrade(id)
   };
 }
@@ -480,7 +469,7 @@ const automatiumGameAdapter = {
   get(path, node) {
     const names = path.map(segment => segment.name);
     if (path.length === 1) {
-      if (names[0] === 'number') return num;
+      if (names[0] === 'number') return getBaseNumber();
       if (names[0] === 'sp') return squarePoints;
       if (names[0] === 'cp') return squareConvergencePoints;
       nLanguageError(`알 수 없는 게임 값 'get.${names.join('.')}'`, node);
@@ -506,25 +495,20 @@ const automatiumGameAdapter = {
   },
 
   square(statement, requestedSp = null, programId = null) {
+    if (squareUnlocked) return true;
+
     const explicitTarget = requestedSp !== null;
-    const targetedConversion = explicitTarget || autoSpConverterAvailable();
-    const reward = explicitTarget ? requestedSp : autoSpConverterPointReward();
+    const targetedConversion = explicitTarget;
+    const reward = targetedConversion ? squarePrestigeTargetPointReward(requestedSp) : null;
     const requiredValue = targetedConversion
       ? squarePrestigeNumberForPointReward(reward)
       : gameEndValue();
 
-    if (programId !== null) {
-      if (explicitTarget && num < requiredValue) {
-        automatiumWaitingSpTargets.set(programId, requiredValue);
-      } else {
-        automatiumWaitingSpTargets.delete(programId);
-      }
-    }
-    if (num < requiredValue) return false;
+    if (compareBaseNumber(requiredValue) < 0) return false;
     return completeSquarePrestige({
       skippedCutscene: true,
-      keepCurrentChapter: true,
-      prestigeValue: targetedConversion ? requiredValue : num,
+      keepCurrentChapter: false,
+      prestigeValue: targetedConversion ? requiredValue : getBaseNumber(),
       squarePointReward: targetedConversion ? reward : null,
       requiredValue
     });
@@ -551,7 +535,6 @@ function setAutomatiumRuntimeStatus(programId, status, message) {
 }
 
 function startAutomatiumProgram(program) {
-  automatiumWaitingSpTargets.delete(program.id);
   try {
     const ast = NRuntime.compile(program.source);
     const execution = NRuntime.createExecution(ast, automatiumGameAdapterFor(program.id));
@@ -578,7 +561,6 @@ function startAutomatiumProgram(program) {
 
 function stopAutomatiumProgram(program, message = '꺼짐') {
   program.enabled = false;
-  automatiumWaitingSpTargets.delete(program.id);
   automatiumExecutions.delete(program.id);
   automatiumExecutions.set(program.id, {
     iterator: null,
@@ -591,7 +573,6 @@ function stopAutomatiumProgram(program, message = '꺼짐') {
 
 function failAutomatiumProgram(program, error) {
   program.enabled = false;
-  automatiumWaitingSpTargets.delete(program.id);
   automatiumExecutions.set(program.id, {
     iterator: null,
     status: 'error',
@@ -681,7 +662,7 @@ flag = get.cp == 0</code></pre>
         <tr><td><code>upgraded</code></td><td>현재 구매 횟수</td></tr>
         <tr><td><code>amount</code></td><td>현재 실제 효과값</td></tr>
         <tr><td><code>cost</code></td><td>다음 구매 가격. 최대 단계에서는 0</td></tr>
-        <tr><td><code>max</code></td><td>현재 최대 구매 횟수</td></tr>
+        <tr><td><code>max</code></td><td>현재 최대 구매 횟수 (0이면 제한 없음)</td></tr>
         <tr><td><code>available</code></td><td>지금 구매할 수 있으면 true</td></tr>
       </tbody>
     </table>
@@ -724,7 +705,7 @@ square 10 s
 target = number
 target = 20
 sp target s</code></pre>
-    <p><code>square</code>와 <code>sp</code>는 같은 명령입니다. 뒤에 목표 SP를 쓰면 <code>종료수 × 목표 SP</code>에 도달할 때까지 자동으로 대기한 뒤 정확히 그만큼을 얻습니다. 이 값은 자동 SP 변환기의 설정을 바꾸지 않는 해당 명령만의 임시 목표입니다. 제곱돌파 탭에 실제로 진입하기 전에는 어떤 값을 적어도 목표가 1SP로 고정됩니다. 목표를 적지 않은 일반 <code>square</code>/<code>sp</code> 명령은 끝에 <code>s</code>를 붙여야 대기합니다.</p>
+    <p><code>square</code>와 <code>sp</code>는 같은 명령입니다. 이 명령은 일반수에서 제곱으로 처음 넘어갈 때만 자동화되며, 이때 보상은 항상 1 SP입니다. 제곱 포인트, 수렴 포인트, tetraP 교환과 다음 챕터 진입은 자동화하지 않으므로 화면 왼쪽 아래의 수동 교환 버튼을 사용해야 합니다. 뒤의 목표 숫자와 <code>s</code> 표기는 이전 프로그램과의 호환을 위해 남아 있지만, 제곱에 진입한 뒤에는 아무 교환도 실행하지 않습니다.</p>
 
     <h4>조건문</h4>
     <pre><code>if get.sp &gt;= 1000 and get.cp == 0 {
@@ -749,7 +730,7 @@ whiletick 20 get.sp &lt; 1000 {
 for 10 {
     square
 }</code></pre>
-    <p><code>whiletick 20</code>은 조건이 참인 동안 20 자동화 틱마다 본문을 한 번 실행합니다. <code>break</code>는 가장 가까운 <code>while</code>, <code>whiletick</code>, <code>for</code>를 빠져나옵니다.</p>
+    <p><code>whiletick 20</code>은 조건이 참인 동안 20 자동화 틱마다 본문을 한 번 실행합니다. <code>break</code>는 가장 가까운 <code>while</code>, <code>whiletick</code>, <code>for</code>를 빠져나옵니다. 챕터 교환은 수동으로 진행해야 하므로 자동 구매 프로그램은 해당 챕터 탭을 열어 둔 상태에서 사용하세요.</p>
 
     <h4>연산자</h4>
     <p>산술: <code>+ - * / % ^</code> · 비교: <code>== != &gt; &gt;= &lt; &lt;=</code> · 논리: <code>and or not</code>. 괄호도 사용할 수 있습니다. 정수끼리 나누면 소수점 이하는 버립니다.</p>
@@ -1374,7 +1355,6 @@ function saveSelectedAutomatiumProgram() {
   program.updatedAt = Date.now();
   automatiumEditorDirty = false;
   automatiumNameDirty = false;
-  automatiumWaitingSpTargets.delete(program.id);
 
   try {
     NRuntime.compile(program.source);
@@ -1407,7 +1387,6 @@ function deleteSelectedAutomatiumProgram() {
   const program = selectedAutomatiumProgram();
   if (!program || !window.confirm(`'${program.name}' 프로그램을 삭제하시겠습니까?`)) return;
   const index = automatiumPrograms.indexOf(program);
-  automatiumWaitingSpTargets.delete(program.id);
   automatiumExecutions.delete(program.id);
   automatiumPrograms.splice(index, 1);
   selectedAutomatiumProgramId = automatiumPrograms[index]?.id ?? automatiumPrograms[index - 1]?.id ?? null;
@@ -1440,7 +1419,6 @@ function closeAutomatiumEditor() {
 
 function renderAutomatiumAccess() {
   if (!hasSquareConvergenceUpgrade('automatium')) {
-    automatiumWaitingSpTargets.clear();
     if (!automatiumWorkspace.classList.contains('hidden')) closeAutomatiumEditor();
   }
 }

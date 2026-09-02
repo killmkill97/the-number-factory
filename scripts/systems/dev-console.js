@@ -4,37 +4,151 @@ const devConsole = {
   visible: false
 };
 
-function parseDevBigInt(rawValue) {
+function devConsoleIsOpen() {
+  return devConsole.visible;
+}
+
+function restorePercentChargeRequirementForDev() {
+  let required = 100;
+  const reduction = percentChargeReduction();
+  for (let level = 0; level < percentChargeLevel; level++) {
+    required = Math.max(MIN_PERCENT_CHARGE, required - reduction);
+  }
+  percentChargeNeeded = required;
+  percentCharge = Math.min(percentCharge, percentChargeNeeded);
+  for (const lane of extraPercentLanes) {
+    lane.charge = Math.min(lane.charge, percentChargeNeeded);
+  }
+}
+
+function forceUnlockDevUpgrade(kind, id) {
+  if (kind === 'square') {
+    const upgrade = SQUARE_UPGRADES.find(item => item.id === id);
+    if (!upgrade) return false;
+    squareUpgradeState[id] = true;
+    if (id === 'auto_upgrade_top_down') autoUpgradeEnabled = true;
+    return true;
+  }
+
+  if (kind === 'square_breakthrough') {
+    const upgrade = SQUARE_BREAKTHROUGH_UPGRADES.find(item => item.id === id);
+    if (!upgrade) return false;
+    const level = squareBreakthroughLevel(id);
+    if (level >= squareBreakthroughMax(upgrade)) return false;
+    squareBreakthroughLevels[id] = level + 1;
+    applySquareBreakthroughSideEffects(id);
+    return true;
+  }
+
+  if (kind === 'square_convergence') {
+    const upgrade = SQUARE_CONVERGENCE_UPGRADES.find(item => item.id === id);
+    if (!upgrade) return false;
+    squareConvergenceUpgradeState[id] = true;
+    if (id === 'automatium') {
+      applyAutomatiumSquareUpgradeUnlocks({ resetAutoUpgrade: true });
+    }
+    return true;
+  }
+
+  if (kind === 'generalization') {
+    const research = GENERALIZATION_RESEARCHES.find(item => item.id === id);
+    if (!research) return false;
+    generalizationResearchState[id] = true;
+    return true;
+  }
+
+  return false;
+}
+
+function removeDevUpgrade(kind, id) {
+  if (kind === 'square') {
+    const upgrade = SQUARE_UPGRADES.find(item => item.id === id);
+    if (!upgrade) return false;
+    squareUpgradeState[id] = false;
+    if (id === 'auto_upgrade_top_down') {
+      autoUpgradeEnabled = false;
+      autoUpgradeTimer = 0;
+    }
+    return true;
+  }
+
+  if (kind === 'square_breakthrough') {
+    const upgrade = SQUARE_BREAKTHROUGH_UPGRADES.find(item => item.id === id);
+    if (!upgrade || squareBreakthroughLevel(id) <= 0) return false;
+    squareBreakthroughLevels[id] = 0;
+    if (id === 'percent_expansion') syncPermanentPercentLanes();
+    if (id === 'overcharge') restorePercentChargeRequirementForDev();
+    if (id === 'tas' && autoClickerSpeed < 1000) autoClickerSpeed = 1000;
+    return true;
+  }
+
+  if (kind === 'square_convergence') {
+    const upgrade = SQUARE_CONVERGENCE_UPGRADES.find(item => item.id === id);
+    if (!upgrade || !hasSquareConvergenceUpgrade(id)) return false;
+    squareConvergenceUpgradeState[id] = false;
+    if (id === 'automatium') {
+      squareUpgradeState.skip_cutscene = false;
+      squareUpgradeState.auto_upgrade_top_down = false;
+      autoUpgradeEnabled = false;
+      autoUpgradeTimer = 0;
+    }
+    return true;
+  }
+
+  if (kind === 'generalization') {
+    const research = GENERALIZATION_RESEARCHES.find(item => item.id === id);
+    if (!research || !hasGeneralizationResearch(id)) return false;
+    generalizationResearchState[id] = false;
+    return true;
+  }
+
+  return false;
+}
+
+function handleDevUpgradePointer(event) {
+  if (!devConsole.visible) return;
+
+  const target = event.target.closest?.('[data-dev-upgrade-kind][data-dev-upgrade-id]');
+  if (!target) return;
+
+  const { devUpgradeKind: kind, devUpgradeId: id } = target.dataset;
+  if (event.type === 'contextmenu') {
+    if (!event.shiftKey) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (removeDevUpgrade(kind, id)) {
+      log(`[DEV] ${kind} ${id} 해제`, true);
+      render();
+    }
+    return;
+  }
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (forceUnlockDevUpgrade(kind, id)) {
+    log(`[DEV] ${kind} ${id} 강제 해금`, true);
+    render();
+  }
+}
+
+document.addEventListener('click', handleDevUpgradePointer, true);
+document.addEventListener('contextmenu', handleDevUpgradePointer, true);
+
+function parseDevNumberValue(rawValue) {
   const text = String(rawValue ?? '').trim().replace(/[,_\s]/g, '');
   if (!text) {
     throw new Error('값을 입력하세요.');
   }
 
-  if (/^\+?\d+$/.test(text)) {
-    return BigInt(text.replace(/^\+/, ''));
-  }
-
-  const scientific = text.match(/^\+?(\d+)(?:\.(\d+))?[eE]\+?(\d+)$/);
-  if (!scientific) {
+  const value = NumberMath.fromString(text, null);
+  if (value === null) {
     throw new Error('숫자는 123, 1e200, 1.2e42 형식으로 입력하세요.');
   }
-
-  const whole = scientific[1];
-  const fraction = scientific[2] ?? '';
-  const exponent = Number(scientific[3]);
-  if (!Number.isSafeInteger(exponent)) {
-    throw new Error('지수가 너무 큽니다.');
-  }
-  if (exponent < fraction.length) {
-    throw new Error('정수가 되는 과학적 표기법만 사용할 수 있습니다.');
-  }
-
-  const digits = `${whole}${fraction}`.replace(/^0+(?=\d)/, '');
-  return BigInt(digits || '0') * (10n ** BigInt(exponent - fraction.length));
+  return value;
 }
 
 function formatDevValue(value) {
-  return value.toString().length > 24 ? fmtPowerBase(value) : fmt(value);
+  return fmtPowerBase(value);
 }
 
 function clearOverflowForDevCommand() {
@@ -65,21 +179,23 @@ function runDevCommand(commandText) {
   }
 
   const target = match[1].toLowerCase();
-  const value = parseDevBigInt(match[2]);
 
   if (target === 'number') {
+    const value = parseDevNumberValue(match[2]);
     clearOverflowForDevCommand();
-    num = value;
+    setBaseNumber(value);
     maybeUnlockPercent();
     checkOverflow();
     render();
-    log(`[DEV] number = ${formatDevValue(value)}`, true);
+    log(`[DEV] number = ${fmtPowerBase(getBaseNumber())}`, true);
     return;
   }
 
+  const value = parseDevNumberValue(match[2]);
+
   if (target === 'sp') {
     squarePoints = value;
-    if (value > 0n) {
+    if (isPositiveNumberValue(value)) {
       squareUnlocked = true;
       setChapter('square');
     }
@@ -90,7 +206,7 @@ function runDevCommand(commandText) {
 
   if (target === 'cp') {
     squareConvergencePoints = value;
-    if (value > 0n) {
+    if (isPositiveNumberValue(value)) {
       squareUnlocked = true;
       squareConvergenceUnlocked = true;
       setChapter('square-convergence');
@@ -155,11 +271,13 @@ function toggleDevConsole() {
   ensureDevConsoleUi();
   devConsole.visible = !devConsole.visible;
   devConsole.form.classList.toggle('hidden', !devConsole.visible);
+  document.body.classList.toggle('dev-console-open', devConsole.visible);
+  render();
 
   if (devConsole.visible) {
     devConsole.input.focus();
     logEl.scrollTop = logEl.scrollHeight;
-    log('[DEV] 콘솔 열림: set number <숫자>, set sp <숫자>, set cp <숫자>, set lsp <숫자>, set tetraP <숫자>', true);
+    log('[DEV] 콘솔 열림: set number <숫자>, set sp <숫자>, set cp <숫자>, set lsp <숫자>, set tetraP <숫자> · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제', true);
   }
 }
 

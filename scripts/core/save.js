@@ -1,7 +1,7 @@
 function saveGame() {
   const data = {
     version: SAVE_VERSION,
-    num: num.toString(),
+    num: serializeBaseNumber(),
     perClick: perClick.toString(),
     perClickUpgradeCost: perClickUpgradeCost.toString(),
 
@@ -11,7 +11,7 @@ function saveGame() {
     percentChargeLevel,
     percentChargeUpgradeCost: percentChargeUpgradeCost.toString(),
     percentPower,
-    percentPowerUpgradeCost: percentPowerUpgradeCost.toString(),
+    percentPowerUpgradeCost: serializeNumberValue(percentPowerUpgradeCost),
 
     autoClickerUnlocked,
     autoClickerPrice: autoClickerPrice.toString(),
@@ -33,7 +33,7 @@ function saveGame() {
       laneNumber: lane.laneNumber,
       charge: lane.charge,
       power: lane.power,
-      powerCost: lane.powerCost.toString(),
+      powerCost: serializeNumberValue(lane.powerCost),
       autoUnlocked: lane.autoUnlocked,
       autoPrice: lane.autoPrice.toString(),
       autoSpeedLevel: lane.autoSpeedLevel,
@@ -46,24 +46,37 @@ function saveGame() {
     tetrationUnlocked,
     tetrationDimensionsUnlocked,
     activeChapter,
-    squarePoints: squarePoints.toString(),
+    squarePoints: serializeNumberValue(squarePoints),
     squareConvergenceUnlocked,
-    squareConvergencePoints: squareConvergencePoints.toString(),
-    autoSpConverterEnabled,
-    autoSpConverterTargetSp: autoSpConverterTargetSp.toString(),
+    squareConvergencePoints: serializeNumberValue(squareConvergencePoints),
+    squareDimensionX: serializeNumberValue(squareDimensionX),
+    squareDimensionY: serializeNumberValue(squareDimensionY),
+    squareDimensionXCost: serializeNumberValue(squareDimensionXCost),
+    squareDimensionYCost: serializeNumberValue(squareDimensionYCost),
+    squareDimensionXGrowthLevel: serializeNumberValue(squareDimensionXGrowthLevel),
+    squareDimensionYGrowthLevel: serializeNumberValue(squareDimensionYGrowthLevel),
+    squareDimensionPowerInterval,
+    squareDimensionPowerIntervalCost: serializeNumberValue(squareDimensionPowerIntervalCost),
+    squareDimensionPowerStrengthUnlocked,
+    theory: serializeNumberValue(theory),
+    theoryNumberCost: serializeNumberValue(theoryNumberCost),
+    theorySquarePointCost: serializeNumberValue(theorySquarePointCost),
+    theoryConvergencePointCost: serializeNumberValue(theoryConvergencePointCost),
+    theoryCostResourceIndex,
+    generalizationResearchState,
     squareUpgradeState,
     squareBreakthroughLevels,
     squareConvergenceUpgradeState,
     autoUpgradeEnabled,
     tetrationUpgradeState,
 
-    lsp: lsp.toString(),
-    tetraP: tetraP.toString(),
+    lsp: serializeNumberValue(lsp),
+    tetraP: serializeNumberValue(tetraP),
     autoLspConverterUnlocked,
     autoLspConverterEnabled,
-    tetrationDimensions: tetrationDimensions.map(value => value.toString()),
-    tetrationDimensionPurchases: tetrationDimensionPurchases.map(value => value.toString()),
-    tetrationDimensionCosts: tetrationDimensionCosts.map(value => value.toString())
+    tetrationDimensions: tetrationDimensions.map(serializeNumberValue),
+    tetrationDimensionPurchases: tetrationDimensionPurchases.map(serializeNumberValue),
+    tetrationDimensionCosts: tetrationDimensionCosts.map(serializeNumberValue)
   };
 
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -82,7 +95,17 @@ function loadGame() {
     const saveVersion = Number(d.version ?? 1);
     const isLegacySave = !Number.isFinite(saveVersion) || saveVersion < 5;
 
-    num = BigInt(d.num ?? '0');
+    theory = numberValueFromSave(d.theory);
+    theoryNumberCost = approximateNumberFromString(d.theoryNumberCost ?? '') ?? THEORY_NUMBER_BASE_COST;
+    theorySquarePointCost = numberValueFromSave(d.theorySquarePointCost, THEORY_SQUARE_POINT_BASE_COST);
+    theoryConvergencePointCost = numberValueFromSave(d.theoryConvergencePointCost, THEORY_CONVERGENCE_POINT_BASE_COST);
+    theoryCostResourceIndex = Number(d.theoryCostResourceIndex ?? 0);
+    if (!Number.isInteger(theoryCostResourceIndex) || theoryCostResourceIndex < 0 || theoryCostResourceIndex > 2) {
+      theoryCostResourceIndex = 0;
+    }
+    loadGeneralizationResearchState(d.generalizationResearchState);
+
+    setBaseNumberFromSave(d.num ?? '0');
     perClick = BigInt(d.perClick ?? '1');
     perClickUpgradeCost = BigInt(d.perClickUpgradeCost ?? '10');
 
@@ -92,7 +115,7 @@ function loadGame() {
     percentChargeLevel = d.percentChargeLevel ?? 0;
     percentChargeUpgradeCost = BigInt(d.percentChargeUpgradeCost ?? '250');
     percentPower = d.percentPower ?? 1;
-    percentPowerUpgradeCost = BigInt(d.percentPowerUpgradeCost ?? '40000');
+    percentPowerUpgradeCost = 40000n;
 
     autoClickerUnlocked = d.autoClickerUnlocked ?? false;
     autoClickerPrice = BigInt(d.autoClickerPrice ?? '100');
@@ -120,7 +143,7 @@ function loadGame() {
       const lane = makePercentLane(saved.laneNumber);
       lane.charge = saved.charge ?? 0;
       lane.power = saved.power ?? 1;
-      lane.powerCost = BigInt(saved.powerCost ?? lane.powerCost.toString());
+      lane.powerCost = scaleByLane(40000n, lane.laneNumber);
       lane.autoUnlocked = saved.autoUnlocked ?? false;
       lane.autoPrice = BigInt(saved.autoPrice ?? lane.autoPrice.toString());
       lane.autoSpeedLevel = saved.autoSpeedLevel ?? 0;
@@ -137,11 +160,9 @@ function loadGame() {
       tetrationUnlocked = false;
       tetrationDimensionsUnlocked = false;
       activeChapter = squareUnlocked ? 'square' : 'multiplication';
-      squarePoints = BigInt(d.squarePoints ?? (squareUnlocked ? '1' : '0'));
+      squarePoints = numberValueFromSave(d.squarePoints, squareUnlocked ? 1n : 0n);
       squareConvergenceUnlocked = false;
       squareConvergencePoints = 0n;
-      autoSpConverterEnabled = true;
-      autoSpConverterTargetSp = 1n;
       tetraP = 0n;
       resetSquareUpgradeState();
       resetSquareBreakthroughState();
@@ -153,19 +174,38 @@ function loadGame() {
       tetrationUnlocked = d.tetrationUnlocked ?? false;
       tetrationDimensionsUnlocked = d.tetrationDimensionsUnlocked ?? tetrationUnlocked;
       activeChapter = d.activeChapter ?? (squareUnlocked ? 'square' : 'multiplication');
-      squarePoints = BigInt(d.squarePoints ?? '0');
-      squareConvergenceUnlocked = d.squareConvergenceUnlocked ?? false;
-      squareConvergencePoints = BigInt(d.squareConvergencePoints ?? '0');
-      autoSpConverterEnabled = d.autoSpConverterEnabled ?? true;
-      autoSpConverterTargetSp = BigInt(d.autoSpConverterTargetSp ?? '1');
-      if (autoSpConverterTargetSp <= 0n) autoSpConverterTargetSp = 1n;
+    squarePoints = numberValueFromSave(d.squarePoints);
+    squareConvergenceUnlocked = d.squareConvergenceUnlocked ?? false;
+    squareConvergencePoints = numberValueFromSave(d.squareConvergencePoints);
+    squareDimensionX = numberValueFromSave(d.squareDimensionX, 500n);
+    squareDimensionY = numberValueFromSave(d.squareDimensionY, 600n);
+    squareDimensionXCost = numberValueFromSave(d.squareDimensionXCost, 1n);
+    squareDimensionYCost = numberValueFromSave(d.squareDimensionYCost, 1n);
+    squareDimensionXGrowthLevel = numberValueFromSave(d.squareDimensionXGrowthLevel, 1n);
+    squareDimensionYGrowthLevel = numberValueFromSave(d.squareDimensionYGrowthLevel, 1n);
+    squareDimensionXGrowthCarry = 0;
+    squareDimensionYGrowthCarry = 0;
+    const savedSquareDimensionInterval = Number(
+      d.squareDimensionPowerInterval ?? SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL
+    );
+    squareDimensionPowerInterval = Number.isFinite(savedSquareDimensionInterval)
+      ? Math.min(
+        SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL,
+        Math.max(SQUARE_DIMENSION_MIN_PRODUCTION_INTERVAL, Math.floor(savedSquareDimensionInterval))
+      )
+      : SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL;
+    squareDimensionPowerIntervalCost = numberValueFromSave(
+      d.squareDimensionPowerIntervalCost,
+      SQUARE_DIMENSION_POWER_TIME_BASE_COST
+    );
+    squareDimensionPowerStrengthUnlocked = d.squareDimensionPowerStrengthUnlocked === true;
       resetSquareUpgradeState();
       for (const upgrade of SQUARE_UPGRADES) {
         squareUpgradeState[upgrade.id] = d.squareUpgradeState?.[upgrade.id] === true;
       }
       loadSquareConvergenceUpgradeState(d.squareConvergenceUpgradeState);
       if (
-        squareConvergencePoints > 0n ||
+        isPositiveNumberValue(squareConvergencePoints) ||
         Object.values(squareConvergenceUpgradeState).some(value => value)
       ) {
         squareConvergenceUnlocked = true;
@@ -176,7 +216,6 @@ function loadGame() {
         || activeChapter === 'square-breakthrough'
         || Object.values(squareBreakthroughLevels).some(level => level > 0);
       squareBreakthroughEntered = hadEnteredSquareBreakthrough && canOpenSquareBreakthrough();
-      if (!squareBreakthroughEntered) autoSpConverterTargetSp = 1n;
       autoUpgradeEnabled = hasSquareUpgrade('auto_upgrade_top_down')
         ? d.autoUpgradeEnabled ?? false
         : false;
@@ -184,19 +223,22 @@ function loadGame() {
       for (const upgrade of TETRATION_UPGRADES) {
         tetrationUpgradeState[upgrade.id] = d.tetrationUpgradeState?.[upgrade.id] === true;
       }
-      lsp = BigInt(d.lsp ?? '0');
-      tetraP = BigInt(d.tetraP ?? '0');
+      lsp = numberValueFromSave(d.lsp);
+      tetraP = numberValueFromSave(d.tetraP);
       autoLspConverterUnlocked = d.autoLspConverterUnlocked ?? false;
       autoLspConverterEnabled = d.autoLspConverterEnabled ?? false;
       for (let index = 0; index < TETRATION_DIMENSION_COUNT; index++) {
-        tetrationDimensions[index] = BigInt(d.tetrationDimensions?.[index] ?? '0');
-        tetrationDimensionPurchases[index] = BigInt(d.tetrationDimensionPurchases?.[index] ?? '0');
-        tetrationDimensionCosts[index] = BigInt(d.tetrationDimensionCosts?.[index] ?? initialTetrationDimensionCost(index).toString());
+        tetrationDimensions[index] = numberValueFromSave(d.tetrationDimensions?.[index]);
+        tetrationDimensionPurchases[index] = numberValueFromSave(d.tetrationDimensionPurchases?.[index]);
+        tetrationDimensionCosts[index] = numberValueFromSave(
+          d.tetrationDimensionCosts?.[index],
+          initialTetrationDimensionCost(index)
+        );
       }
-      if (saveVersion < 17 && tetrationUnlocked && tetraP === 0n) {
+      if (saveVersion < 17 && tetrationUnlocked && isZeroNumberValue(tetraP)) {
         tetrationDimensionsUnlocked = true;
       }
-      if (saveVersion < 15 && tetrationUnlocked && tetraP > 0n) {
+      if (saveVersion < 15 && tetrationUnlocked && isPositiveNumberValue(tetraP)) {
         tetrationDimensionsUnlocked = false;
         resetTetrationProductionState();
       }
@@ -210,11 +252,6 @@ function loadGame() {
     if (tetrationUnlocked) {
       squareUnlocked = true;
     }
-    const loadedConvergencePoints = collectSquareConvergenceIfReady();
-    if (loadedConvergencePoints > 0n) {
-      resetRunStateAfterSquarePrestige();
-      activeChapter = 'square-convergence';
-    }
     if (!tetrationUnlocked || !autoLspConverterUnlocked) {
       autoLspConverterEnabled = false;
     }
@@ -226,13 +263,21 @@ function loadGame() {
     if (autoClickerParallel > autoClickerParallelCap()) autoClickerParallel = autoClickerParallelCap();
     if (autoClickerSpeed < autoClickerMinSpeed()) autoClickerSpeed = autoClickerMinSpeed();
     if (hasSquareBreakthrough('solid_start')) {
-      if (num < 2000000n) num = 2000000n;
+      ensureBaseNumberAtLeast(2000000n);
       maybeUnlockPercent();
     }
     if (hasSquareBreakthrough('overcharge')) percentChargeNeeded = 1;
     if (percentChargeNeeded < minimumPercentChargeNeeded()) percentChargeNeeded = minimumPercentChargeNeeded();
     percentCharge = Math.min(percentCharge, percentChargeNeeded);
-    if (percentPower > percentPowerMax()) percentPower = percentPowerMax();
+    percentPower = normalizedPercentPower(percentPower);
+    percentPowerUpgradeCost = percentPowerUpgradeCostForNextLevel(percentPower);
+    for (const lane of extraPercentLanes) {
+      lane.power = normalizedPercentPower(lane.power);
+      lane.powerCost = percentPowerUpgradeCostForNextLevel(
+        lane.power,
+        scaleByLane(40000n, lane.laneNumber)
+      );
+    }
     syncPermanentPercentLanes();
 
     overflowed = false;

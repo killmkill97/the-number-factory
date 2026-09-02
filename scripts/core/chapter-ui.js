@@ -6,7 +6,6 @@ function setChapter(id) {
   if (id === 'tetration' && !isTetrationAvailable()) id = squareUnlocked ? 'square' : 'multiplication';
   if (id === 'square-breakthrough' && !squareBreakthroughEntered) {
     squareBreakthroughEntered = true;
-    autoSpConverterTargetSp = 1n;
     enteredSquareBreakthroughNow = true;
   }
   activeChapter = id;
