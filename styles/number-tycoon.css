@@ -263,7 +263,7 @@
   }
   .square-dimension-sides {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
   }
   .square-dimension-side {
@@ -292,6 +292,13 @@
   .square-dimension-side button {
     width: 100%;
   }
+  .square-dimension-side .square-dimension-max-btn {
+    min-height: 32px;
+    margin-top: 6px;
+    padding: 6px 10px;
+    color: #c99dff;
+    font-size: 12px;
+  }
   .square-dimension-upgrades {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -300,6 +307,24 @@
   .square-dimension-upgrades button {
     min-height: 72px;
     text-align: left;
+  }
+  .square-dimension-auto-upgrade {
+    margin-top: 8px;
+    width: 100%;
+    min-height: 52px;
+    text-align: left;
+  }
+  .square-dimension-additional {
+    display: grid;
+    gap: 18px;
+    margin-top: 18px;
+  }
+  .square-dimension-instance {
+    display: grid;
+    gap: 12px;
+  }
+  .square-dimension-instance .section-title {
+    margin-bottom: 0;
   }
   .square-upgrade-grid {
     display: grid;
@@ -658,20 +683,13 @@
     width: 0%;
     transition: width 0.15s ease;
   }
-  .log {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 12px 14px;
+  .dev-console-host {
+    display: none;
     margin-top: 20px;
-    font-size: 13px;
-    color: var(--text-dim);
-    min-height: 40px;
-    max-height: 160px;
-    overflow-y: auto;
   }
-  .log p { margin: 4px 0; }
-  .log p.system { color: var(--danger); }
+  body.dev-console-open .dev-console-host {
+    display: block;
+  }
   .dev-console {
     position: sticky;
     bottom: 0;
@@ -700,6 +718,18 @@
   }
   .dev-console input:focus {
     border-color: var(--amber);
+  }
+  .dev-runtime-trace {
+    max-height: 280px;
+    margin: 8px 0 0;
+    overflow: auto;
+    padding: 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: #0d1117;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
   }
   body.square-mode .dev-console-prompt {
     color: #c99dff;

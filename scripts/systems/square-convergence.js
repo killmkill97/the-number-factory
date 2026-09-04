@@ -135,14 +135,17 @@ function renderConvergenceView() {
 function buySquareConvergenceUpgrade(id) {
   const upgrade = SQUARE_CONVERGENCE_UPGRADES.find(item => item.id === id);
   if (!upgrade) return false;
-  if (hasSquareConvergenceUpgrade(id)) {
+  const level = squareConvergenceUpgradeLevel(id);
+  if (hasSquareConvergenceUpgrade(id) && (!upgrade.max || level >= upgrade.max)) {
     if (id === 'automatium') return openAutomatiumEditor();
     return false;
   }
-  if (compareNumberValues(squareConvergencePoints, upgrade.cost) < 0) return false;
+  const cost = squareConvergenceUpgradeCost(upgrade);
+  if (compareNumberValues(squareConvergencePoints, cost) < 0) return false;
 
-  squareConvergencePoints = subtractNumberValues(squareConvergencePoints, upgrade.cost);
+  squareConvergencePoints = subtractNumberValues(squareConvergencePoints, cost);
   squareConvergenceUpgradeState[id] = true;
+  squareConvergenceUpgradeLevels[id] = level + 1;
 
   if (id === 'automatium') {
     applyAutomatiumSquareUpgradeUnlocks({ resetAutoUpgrade: true });
@@ -153,6 +156,11 @@ function buySquareConvergenceUpgrade(id) {
 }
 
 function squareConvergenceCostText(upgrade) {
+  const level = squareConvergenceUpgradeLevel(upgrade.id);
+  if (upgrade.max) {
+    if (level >= upgrade.max) return `최대 레벨 ${upgrade.max}/${upgrade.max}`;
+    return `레벨 ${level}/${upgrade.max} · 비용: ${fmt(squareConvergenceUpgradeCost(upgrade))} CP`;
+  }
   if (!hasSquareConvergenceUpgrade(upgrade.id)) return `비용: ${fmt(upgrade.cost)} CP`;
   return upgrade.id === 'automatium' ? '구매 완료 · 편집기 열기' : '구매 완료';
 }
@@ -175,6 +183,7 @@ function renderSquareConvergenceBoard() {
   for (const upgrade of SQUARE_CONVERGENCE_UPGRADES) {
     const button = ensureSquareConvergenceUi(upgrade);
     const bought = hasSquareConvergenceUpgrade(upgrade.id);
+    const level = squareConvergenceUpgradeLevel(upgrade.id);
 
     button.classList.toggle('bought', bought);
     button.innerHTML = `
@@ -183,7 +192,11 @@ function renderSquareConvergenceBoard() {
       <span class="cost">${squareConvergenceCostText(upgrade)}</span>
     `;
     const devMode = typeof devConsoleIsOpen === 'function' && devConsoleIsOpen();
-    button.disabled = devMode ? false : bought ? upgrade.id !== 'automatium' : compareNumberValues(squareConvergencePoints, upgrade.cost) < 0;
+    const opensEditor = bought && upgrade.id === 'automatium';
+    const atMaximum = upgrade.max ? level >= upgrade.max : false;
+    const fixedUpgradeBought = bought && !upgrade.max && !opensEditor;
+    const cannotAfford = compareNumberValues(squareConvergencePoints, squareConvergenceUpgradeCost(upgrade)) < 0;
+    button.disabled = devMode ? false : opensEditor ? false : fixedUpgradeBought || atMaximum || cannotAfford;
   }
 }
 
@@ -246,9 +259,8 @@ function renderGeneralizationResearchBoard() {
 
 function renderTheoryResourceSelector() {
   const resources = [
-    [theoryNumberResourceBtn, theoryNumberResourceCost, 0],
-    [theorySquarePointResourceBtn, theorySquarePointResourceCost, 1],
-    [theoryConvergencePointResourceBtn, theoryConvergencePointResourceCost, 2]
+    [theorySquarePointResourceBtn, theorySquarePointResourceCost, 0],
+    [theoryConvergencePointResourceBtn, theoryConvergencePointResourceCost, 1]
   ];
 
   for (const [button, costElement, resourceIndex] of resources) {
@@ -263,7 +275,7 @@ function renderTheoryResourceSelector() {
 
 function renderGeneralizationBoard() {
   theoryValue.textContent = `${fmt(theory)} 이론`;
-  theorySubValue.textContent = `선택한 화폐로 이론 +1 · 비용 상승폭 수 ×1e100 / SP ×10 / CP ×2`;
+  theorySubValue.textContent = '선택한 화폐로 이론 +1 · 비용 상승폭 SP ×10 / CP ×2';
   renderTheoryResourceSelector();
   renderGeneralizationResearchBoard();
   researchTheoryBtn.disabled = !canResearchTheory();
@@ -295,8 +307,7 @@ function exchangeSquareConvergencePointsManually() {
 
 squareConvergenceViewBtn.addEventListener('click', () => setConvergenceView('convergence'));
 generalizationViewBtn.addEventListener('click', () => setConvergenceView('generalization'));
-theoryNumberResourceBtn.addEventListener('click', () => setTheoryCostResource(0));
-theorySquarePointResourceBtn.addEventListener('click', () => setTheoryCostResource(1));
-theoryConvergencePointResourceBtn.addEventListener('click', () => setTheoryCostResource(2));
+theorySquarePointResourceBtn.addEventListener('click', () => setTheoryCostResource(0));
+theoryConvergencePointResourceBtn.addEventListener('click', () => setTheoryCostResource(1));
 researchTheoryBtn.addEventListener('click', researchTheory);
 manualConvergenceExchangeBtn.addEventListener('click', exchangeSquareConvergencePointsManually);

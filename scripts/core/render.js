@@ -25,6 +25,10 @@ function render() {
 function renderNow() {
   mainValue.textContent = fmtPowerBase(getBaseNumber());
   if (currencyNumberValue) currencyNumberValue.textContent = fmtPowerBase(getBaseNumber());
+  traceNumberEvent('render', {
+    display: mainValue.textContent,
+    number: numberTraceValue(getBaseNumber())
+  });
   if (currencySpValue) currencySpValue.textContent = fmtPowerBase(squarePoints);
   if (currencyCpValue) currencyCpValue.textContent = fmtPowerBase(squareConvergencePoints);
   if (currencyLspValue) currencyLspValue.textContent = fmtPowerBase(lsp);
@@ -95,7 +99,7 @@ function renderNow() {
   const percentAutoCost = discountedCost(percentAutoPrice);
   const percentAutoSpeedCost = discountedCost(percentAutoSpeedPrice);
   const perClickCost = discountedCost(perClickUpgradeCost);
-  const percentPowerCost = discountedCost(percentPowerUpgradeCost);
+  const percentPowerUpgradeCostValue = percentPowerCost(percentPowerUpgradeCost, percentPowerCostCompounding);
   const percentChargeCost = discountedCost(percentChargeUpgradeCost);
   const percentParallelUnlockCost = discountedCost(nextPercentLaneUnlockCost);
   const currentPercentLaneLimit = percentLaneLimit();
@@ -134,7 +138,7 @@ function renderNow() {
 
   percentAutoCostText.textContent = percentAutoUnlocked
     ? `구매 완료 · 대기 ${formatDelay(percentAutoSpeed)}`
-    : `비용: ${fmt(percentAutoCost)} · 사용 가능해진 뒤 1초 후 자동 사용`;
+    : `비용: ${fmt(percentAutoCost)} · 충전 완료 즉시 자동 사용`;
 
   percentAutoBtn.disabled =
     overflowed || !percentUnlocked || percentAutoUnlocked || !canAffordBaseCost(percentAutoCost);
@@ -170,8 +174,8 @@ function renderNow() {
     if (percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE) {
       percentPowerRow.classList.remove('hidden');
       percentPowerLabel.textContent = `퍼센트 파워 업그레이드 (현재 ${percentPowerText()})`;
-      percentPowerCostText.textContent = `비용: ${fmtScientific(percentPowerCost)} · ${percentPowerSoftcapStatus(percentPower)}`;
-      percentPowerBtn.disabled = overflowed || !canAffordBaseCost(percentPowerCost);
+      percentPowerCostText.textContent = `비용: ${fmtScientific(percentPowerUpgradeCostValue)} · ${percentPowerSoftcapStatus(percentPower)}`;
+      percentPowerBtn.disabled = overflowed || !canAffordBaseCost(percentPowerUpgradeCostValue);
     } else {
       percentPowerRow.classList.add('hidden');
     }

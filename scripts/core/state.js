@@ -3,6 +3,13 @@ let approximateNum = null;
 let perClick = 1n;
 let perClickUpgradeCost = 10n;
 
+// 런타임 원인 추적용: 기본적으로 꺼져 있으며 게임 수치에는 관여하지 않는다.
+let numberTraceEnabled = false;
+let numberTraceStartedAt = 0;
+let numberTraceRenderScheduled = false;
+const numberTraceEvents = [];
+const NUMBER_TRACE_EVENT_LIMIT = 2500;
+
 let percentUnlocked = false;
 let percentCharge = 0;
 let percentChargeNeeded = 100;
@@ -12,6 +19,7 @@ let percentChargeUpgradeCost = 250n;
 // 퍼센트 파워: 기본 +1%. 요구 클릭 수가 50 이하일 때 해금
 let percentPower = 1;
 let percentPowerUpgradeCost = 40000n;
+let percentPowerCostCompounding = false;
 
 let overflowed = false;
 let squareMode = false;
@@ -24,19 +32,31 @@ let squarePoints = 0n;
 let squareConvergenceUnlocked = false;
 let squareConvergencePoints = 0n;
 const SQUARE_DIMENSION_SCALE = 100n;
-let squareDimensionX = 500n;
-let squareDimensionY = 600n;
-let squareDimensionXCost = 1n;
-let squareDimensionYCost = 1n;
-let squareDimensionXGrowthLevel = 1n;
-let squareDimensionYGrowthLevel = 1n;
-let squareDimensionXGrowthCarry = 0;
-let squareDimensionYGrowthCarry = 0;
-let squareDimensionPowerInterval = SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL;
-let squareDimensionPowerIntervalCost = SQUARE_DIMENSION_POWER_TIME_BASE_COST;
-let squareDimensionPowerStrengthUnlocked = false;
+function makeSquareDimensionState(costMultiplier = 1n) {
+  return {
+    x: 500n,
+    y: 600n,
+    z: 700n,
+    xCost: costMultiplier,
+    yCost: costMultiplier,
+    zCost: costMultiplier,
+    xGrowthLevel: 1n,
+    yGrowthLevel: 1n,
+    zGrowthLevel: 1n,
+    xGrowthCarry: 0,
+    yGrowthCarry: 0,
+    zGrowthCarry: 0,
+    powerInterval: SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL,
+    powerIntervalCost: SQUARE_DIMENSION_POWER_TIME_BASE_COST * costMultiplier,
+    powerStrengthUnlocked: false
+  };
+}
+
+const squareDimensionStates = [
+  makeSquareDimensionState(1n),
+  makeSquareDimensionState(2n)
+];
 let theory = 0n;
-let theoryNumberCost = THEORY_NUMBER_BASE_COST;
 let theorySquarePointCost = THEORY_SQUARE_POINT_BASE_COST;
 let theoryConvergencePointCost = THEORY_CONVERGENCE_POINT_BASE_COST;
 let theoryCostResourceIndex = 0;
@@ -49,6 +69,9 @@ let autoLspConverterUnlocked = false;
 let autoLspConverterEnabled = false;
 let autoUpgradeEnabled = false;
 let autoUpgradeTimer = 0;
+let squareDimensionAutoUpgradeEnabled = false;
+let squareDimensionAutoUpgradeTimer = 0;
+let squareDimensionAutoUpgradeCursor = 0;
 let autoClickerSpeed = 1000;
 
 let autoClickerUnlocked = false;
@@ -161,8 +184,66 @@ function powerOfTenValue(exponent) {
   return NumberMath.powerOfTen(exponent);
 }
 
-function addToBaseNumber(value) {
-  setBaseNumber(addBaseNumbers(getBaseNumber(), value));
+function numberTraceTimestamp() {
+  if (typeof performance === 'undefined') return 0;
+  return Math.round((performance.now() - numberTraceStartedAt) * 10) / 10;
+}
+
+function numberTraceValue(value) {
+  return NumberMath.serialize(value);
+}
+
+function traceNumberEvent(type, details = {}) {
+  if (!numberTraceEnabled) return;
+
+  numberTraceEvents.push({
+    at: numberTraceTimestamp(),
+    type,
+    ...details
+  });
+  if (numberTraceEvents.length > NUMBER_TRACE_EVENT_LIMIT) {
+    numberTraceEvents.splice(0, numberTraceEvents.length - NUMBER_TRACE_EVENT_LIMIT);
+  }
+
+  if (typeof scheduleNumberTraceRender === 'function' && !numberTraceRenderScheduled) {
+    numberTraceRenderScheduled = true;
+    scheduleNumberTraceRender();
+  }
+}
+
+function startNumberTrace() {
+  numberTraceEnabled = true;
+  numberTraceStartedAt = typeof performance === 'undefined' ? 0 : performance.now();
+  numberTraceEvents.length = 0;
+  traceNumberEvent('trace-start', {
+    number: numberTraceValue(getBaseNumber()),
+    percentCharge: `${percentCharge}/${percentChargeNeeded}`,
+    percentAutoSpeed,
+    laneCount: percentLaneCount
+  });
+}
+
+function stopNumberTrace() {
+  traceNumberEvent('trace-stop');
+  numberTraceEnabled = false;
+}
+
+function clearNumberTrace() {
+  numberTraceEvents.length = 0;
+  if (typeof scheduleNumberTraceRender === 'function') scheduleNumberTraceRender();
+}
+
+function addToBaseNumber(value, source = 'unknown') {
+  if (compareNumberValues(value, 0n) <= 0) return;
+  const before = getBaseNumber();
+  const after = addBaseNumbers(before, value);
+  setBaseNumber(after);
+  traceNumberEvent('number-change', {
+    source,
+    before: numberTraceValue(before),
+    gain: numberTraceValue(value),
+    after: numberTraceValue(after)
+  });
 }
 
 function multiplyBaseNumber(multiplier) {
@@ -247,11 +328,21 @@ const SQUARE_CONVERGENCE_UPGRADES = [
     description: 'N 프로그램으로 게임을 자동화합니다. 구매 후 다시 눌러 편집기를 엽니다.',
     cost: 1n
   },
+  {
+    id: 'cp_gain_5x',
+    title: 'CP 획득량 5배',
+    description: 'CP 획득량이 레벨마다 5배가 됩니다.',
+    cost: 5n,
+    costMultiplier: 5n,
+    max: 8
+  },
 ];
 
 const squareConvergenceUpgradeState = {};
+const squareConvergenceUpgradeLevels = {};
 for (const upgrade of SQUARE_CONVERGENCE_UPGRADES) {
   squareConvergenceUpgradeState[upgrade.id] = false;
+  squareConvergenceUpgradeLevels[upgrade.id] = 0;
 }
 
 const GENERALIZATION_RESEARCHES = [
@@ -278,7 +369,25 @@ const GENERALIZATION_RESEARCHES = [
     column: 2,
     row: 2,
     title: '수렴 교환 효율',
-    description: '수렴 포인트 교환 요구량 기준을 100sp로 설정합니다.',
+    description: '수렴 포인트 교환 요구량 기준을 90sp로 줄입니다.',
+    parents: ['1-1'],
+    theoryCost: 2n
+  },
+  {
+    id: '2-3',
+    column: 2,
+    row: 3,
+    title: '다이슨 스웜 허용치 확장',
+    description: '다이슨 스웜의 최대 구매 가능 개수를 12개로 늘립니다.',
+    parents: ['1-1'],
+    theoryCost: 4n
+  },
+  {
+    id: '2-4',
+    column: 2,
+    row: 4,
+    title: '병목 추적기 허용치 확장',
+    description: '병목 추적기의 최대 구매 가능 개수를 16개로 늘립니다.',
     parents: ['1-1'],
     theoryCost: 2n
   },
@@ -290,6 +399,96 @@ const GENERALIZATION_RESEARCHES = [
     description: '제곱 차원 화면과 제곱력 생산 효과를 해금합니다.',
     parents: ['2-1'],
     theoryCost: 3n
+  },
+  {
+    id: '3-2',
+    column: 3,
+    row: 2,
+    title: '발산자',
+    description: '발산자를 해금합니다. 현재는 기능이 없습니다.',
+    parents: ['2-2'],
+    theoryCost: 6n
+  },
+  {
+    id: '3-3',
+    column: 3,
+    row: 3,
+    title: '퍼센트 가격 감쇠',
+    description: 'e500 이후 퍼센트 업그레이드 가격의 거듭제곱을 1.5에서 1.1로 낮춥니다.',
+    parents: ['2-4'],
+    theoryCost: 6n
+  },
+  {
+    id: '4-1',
+    column: 4,
+    row: 1,
+    title: '제곱 차원 성장 공식 개선',
+    description: '제곱 차원의 변 성장 공식이 log10에서 log9로 바뀝니다.',
+    parents: ['3-1'],
+    theoryCost: 3n
+  },
+  {
+    id: '4-2',
+    column: 4,
+    row: 2,
+    title: '제곱 차원 확장',
+    description: '제곱 차원을 2개로 늘립니다. 두 번째 차원의 모든 업그레이드는 2배 비쌉니다.',
+    parents: ['3-1'],
+    theoryCost: 6n
+  },
+  {
+    id: '5-1',
+    column: 5,
+    row: 1,
+    title: '차원 일반화',
+    description: '제곱 차원에 z 변을 추가합니다. 제곱력이 숫자 생산에 기여하는 방식이 제곱에서 3제곱으로 바뀝니다.',
+    parents: ['4-1', '4-2'],
+    theoryCost: 8n
+  },
+  {
+    id: '6-1',
+    column: 6,
+    row: 1,
+    title: '제곱력 기여 제곱화',
+    description: '제곱력이 수 강화에 기여하는 배율을 한 번 더 제곱합니다.',
+    parents: ['5-1'],
+    theoryCost: 12n
+  },
+  {
+    id: '6-2',
+    column: 6,
+    row: 2,
+    title: '제곱력 생산 강화',
+    description: '제곱력 생산 공식을 (xyz)^1까지 강화합니다.',
+    parents: ['5-1'],
+    theoryCost: 4n
+  },
+  {
+    id: '7-1',
+    column: 7,
+    row: 1,
+    title: '제곱력 생산 공식 개선',
+    description: '제곱력 생산 공식이 (xyz)^3이 됩니다.',
+    parents: ['6-2'],
+    theoryCost: 4n
+  },
+  {
+    id: '6-4',
+    column: 6,
+    row: 4,
+    title: '제곱력 소프트캡 강화',
+    description: '제곱력의 지수를 3제곱한 만큼 퍼센트 소프트캡을 확장합니다.',
+    parents: ['5-1'],
+    theoryCost: 8n
+  },
+  {
+    id: '7-3',
+    column: 7,
+    row: 3,
+    title: '제곱 차원 자동 업그레이드',
+    description: '제곱 차원의 변, 생산 시간, 생산력 강화 업그레이드를 자동 구매합니다.',
+    parents: ['6-1'],
+    theoryCost: 2n
   }
 ];
 
@@ -459,6 +658,19 @@ function hasSquareConvergenceUpgrade(id) {
   return squareConvergenceUpgradeState[id] === true;
 }
 
+function squareConvergenceUpgradeLevel(id) {
+  return squareConvergenceUpgradeLevels[id] ?? (hasSquareConvergenceUpgrade(id) ? 1 : 0);
+}
+
+function squareConvergenceUpgradeCost(upgrade) {
+  const level = squareConvergenceUpgradeLevel(upgrade.id);
+  if (!upgrade.costMultiplier) return upgrade.cost;
+  return multiplyNumberValue(
+    upgrade.cost,
+    NumberMath.power(upgrade.costMultiplier, level)
+  );
+}
+
 function hasGeneralizationResearch(id) {
   return generalizationResearchState[id] === true;
 }
@@ -503,12 +715,8 @@ function dysonEffectNumber() {
   return Number(dysonEffectMultiplier());
 }
 
-function affectedBigIntPerLevel(base) {
-  return BigInt(base) * dysonEffectMultiplier();
-}
-
 function affectedBigIntMultiplier(base, level) {
-  return powBigInt(affectedBigIntPerLevel(base), level);
+  return powBigInt(BigInt(base) * dysonEffectMultiplier(), level);
 }
 
 function affectedNumberMultiplier(base, level) {
@@ -523,6 +731,8 @@ function squareBreakthroughCost(upgrade) {
 }
 
 function squareBreakthroughMax(upgrade) {
+  if (upgrade.id === 'dyson_swarm' && hasGeneralizationResearch('2-3')) return 12;
+  if (upgrade.id === 'bottleneck_tracker' && hasGeneralizationResearch('2-4')) return 16;
   return upgrade.max;
 }
 
@@ -536,6 +746,10 @@ function numberGainMultiplier() {
 
 function squareDimensionAvailable() {
   return hasGeneralizationResearch('3-1');
+}
+
+function squareDimensionCount() {
+  return hasGeneralizationResearch('4-2') ? 2 : 1;
 }
 
 function numberValueFromReal(value) {
@@ -563,161 +777,407 @@ function squareDimensionLengthValue(sideValue) {
   return divideNumberValue(sideValue, SQUARE_DIMENSION_SCALE);
 }
 
-function squareDimensionArea() {
-  if (!isApproximateNumber(squareDimensionX) && !isApproximateNumber(squareDimensionY)) {
-    const x = Number(squareDimensionX);
-    const y = Number(squareDimensionY);
-    if (Number.isSafeInteger(x) && Number.isSafeInteger(y)) {
-      return numberValueFromReal((x * y) / Number(SQUARE_DIMENSION_SCALE ** 2n));
+function squareDimensionState(index = 0) {
+  return squareDimensionStates[index] ?? squareDimensionStates[0];
+}
+
+function squareDimensionIsAvailable(index = 0) {
+  return squareDimensionAvailable() && index >= 0 && index < squareDimensionCount();
+}
+
+function squareDimensionVolume(index = 0) {
+  const dimension = squareDimensionState(index);
+  if (!hasGeneralizationResearch('5-1')) {
+    if (!isApproximateNumber(dimension.x) && !isApproximateNumber(dimension.y)) {
+      const x = Number(dimension.x);
+      const y = Number(dimension.y);
+      if (Number.isSafeInteger(x) && Number.isSafeInteger(y)) {
+        return numberValueFromReal((x * y) / Number(SQUARE_DIMENSION_SCALE ** 2n));
+      }
+    }
+    return divideNumberValue(
+      multiplyNumberValue(dimension.x, dimension.y),
+      SQUARE_DIMENSION_SCALE ** 2n
+    );
+  }
+
+  if (!isApproximateNumber(dimension.x) && !isApproximateNumber(dimension.y) && !isApproximateNumber(dimension.z)) {
+    const x = Number(dimension.x);
+    const y = Number(dimension.y);
+    const z = Number(dimension.z);
+    if (Number.isSafeInteger(x) && Number.isSafeInteger(y) && Number.isSafeInteger(z)) {
+      return numberValueFromReal((x * y * z) / Number(SQUARE_DIMENSION_SCALE ** 3n));
     }
   }
 
   return divideNumberValue(
-    multiplyNumberValue(squareDimensionX, squareDimensionY),
-    SQUARE_DIMENSION_SCALE ** 2n
+    multiplyNumberValue(multiplyNumberValue(dimension.x, dimension.y), dimension.z),
+    SQUARE_DIMENSION_SCALE ** 3n
   );
 }
 
-function squareDimensionPowerExponent() {
-  return squareDimensionPowerStrengthUnlocked ? 0.5 : 0.25;
+// 기존 호출부와 저장 데이터 호환을 위해 이름만 유지한다. 실제 값은 이제 x*y*z 부피다.
+function squareDimensionArea(index = 0) {
+  return squareDimensionVolume(index);
 }
 
-function squareDimensionPower() {
-  return squareDimensionAvailable()
-    ? NumberMath.powerApproximate(squareDimensionArea(), squareDimensionPowerExponent())
-    : 1n;
+function squareDimensionPowerExponent(index = 0) {
+  if (hasGeneralizationResearch('7-1')) return 3;
+  if (hasGeneralizationResearch('6-2')) return 1;
+  const generalized = hasGeneralizationResearch('5-1');
+  if (squareDimensionState(index).powerStrengthUnlocked) {
+    return generalized ? (1 / 3) : 0.5;
+  }
+  return generalized ? (1 / 6) : 0.25;
 }
 
-function squareDimensionNumberMultiplier() {
-  return squareDimensionAvailable()
-    ? NumberMath.powerApproximate(squareDimensionArea(), squareDimensionPowerExponent() * 2)
-    : 1n;
+function squareDimensionPower(index = 0) {
+  if (!squareDimensionIsAvailable(index)) return 1n;
+  return NumberMath.powerApproximate(squareDimensionVolume(index), squareDimensionPowerExponent(index));
 }
 
-function squareDimensionSideValue(side) {
-  return side === 'y' ? squareDimensionY : squareDimensionX;
+function squareDimensionNumberMultiplier(index = null) {
+  if (index !== null) {
+    if (!squareDimensionIsAvailable(index)) return 1n;
+    let multiplier = NumberMath.powerApproximate(
+      squareDimensionPower(index),
+      hasGeneralizationResearch('5-1') ? 3 : 2
+    );
+    if (hasGeneralizationResearch('6-1')) {
+      multiplier = NumberMath.powerApproximate(multiplier, 2);
+    }
+    return multiplier;
+  }
+
+  if (!squareDimensionAvailable()) return 1n;
+  let multiplier = 1n;
+  for (let dimensionIndex = 0; dimensionIndex < squareDimensionCount(); dimensionIndex++) {
+    multiplier = multiplyNumberValue(
+      multiplier,
+      squareDimensionNumberMultiplier(dimensionIndex)
+    );
+  }
+  return multiplier;
+}
+
+function squareDimensionTotalPower() {
+  if (!squareDimensionAvailable()) return 1n;
+
+  let totalPower = 1n;
+  for (let dimensionIndex = 0; dimensionIndex < squareDimensionCount(); dimensionIndex++) {
+    totalPower = multiplyNumberValue(
+      totalPower,
+      squareDimensionPower(dimensionIndex)
+    );
+  }
+  return totalPower;
+}
+
+function squareDimensionPercentSoftcapExponent() {
+  if (!hasGeneralizationResearch('6-4') || !squareDimensionAvailable()) return 0;
+
+  const logarithm = realNumberFromValue(NumberMath.log10(squareDimensionTotalPower()));
+  if (!Number.isFinite(logarithm) || logarithm <= 0) return 0;
+  const cubeRootMax = Math.cbrt(Number.MAX_VALUE);
+  return logarithm > cubeRootMax
+    ? Number.MAX_VALUE
+    : Math.floor(logarithm ** 3);
+}
+
+function squareDimensionPercentSoftcapMultiplier() {
+  return NumberMath.powerApproximate(10n, squareDimensionPercentSoftcapExponent());
+}
+
+function squareDimensionSideValue(side, index = 0) {
+  const dimension = squareDimensionState(index);
+  if (side === 'z') return dimension.z;
+  return side === 'y' ? dimension.y : dimension.x;
 }
 
 function squareDimensionSideGrowth(sideValue) {
   const length = squareDimensionLengthValue(sideValue);
-  const logarithm = realNumberFromValue(NumberMath.log10(length));
+  const baseLogarithm = realNumberFromValue(NumberMath.log10(length));
+  const logarithm = hasGeneralizationResearch('4-1')
+    ? baseLogarithm / Math.log10(9)
+    : baseLogarithm;
   return BigInt(Math.max(0, Math.round(logarithm * Number(SQUARE_DIMENSION_SCALE))));
 }
 
-function squareDimensionSideCost(side) {
-  return side === 'y' ? squareDimensionYCost : squareDimensionXCost;
+function squareDimensionSideCost(side, index = 0) {
+  const dimension = squareDimensionState(index);
+  if (side === 'z') return dimension.zCost;
+  return side === 'y' ? dimension.yCost : dimension.xCost;
 }
 
-function squareDimensionSideGrowthLevel(side) {
-  return side === 'y' ? squareDimensionYGrowthLevel : squareDimensionXGrowthLevel;
+function squareDimensionSideGrowthLevel(side, index = 0) {
+  const dimension = squareDimensionState(index);
+  if (side === 'z') return dimension.zGrowthLevel;
+  return side === 'y' ? dimension.yGrowthLevel : dimension.xGrowthLevel;
 }
 
-function squareDimensionSideGrowthRate(side) {
+function squareDimensionSideGrowthRate(side, index = 0) {
   return multiplyNumberValue(
-    squareDimensionSideGrowth(squareDimensionSideValue(side)),
-    squareDimensionSideGrowthLevel(side)
+    squareDimensionSideGrowth(squareDimensionSideValue(side, index)),
+    squareDimensionSideGrowthLevel(side, index)
   );
 }
 
 function resetSquareDimensionState() {
-  squareDimensionX = 500n;
-  squareDimensionY = 600n;
-  squareDimensionXCost = 1n;
-  squareDimensionYCost = 1n;
-  squareDimensionXGrowthLevel = 1n;
-  squareDimensionYGrowthLevel = 1n;
-  squareDimensionXGrowthCarry = 0;
-  squareDimensionYGrowthCarry = 0;
-  squareDimensionPowerInterval = SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL;
-  squareDimensionPowerIntervalCost = SQUARE_DIMENSION_POWER_TIME_BASE_COST;
-  squareDimensionPowerStrengthUnlocked = false;
+  squareDimensionAutoUpgradeTimer = 0;
+  squareDimensionAutoUpgradeCursor = 0;
+  for (let index = 0; index < squareDimensionStates.length; index++) {
+    Object.assign(squareDimensionStates[index], makeSquareDimensionState(index === 0 ? 1n : 2n));
+  }
 }
 
-function buySquareDimensionSide(side) {
-  if (!squareDimensionAvailable()) return false;
-  const cost = squareDimensionSideCost(side);
+function buySquareDimensionSide(side, index = 0) {
+  if (!squareDimensionIsAvailable(index)) return false;
+  if (side === 'z' && !hasGeneralizationResearch('5-1')) return false;
+  const dimension = squareDimensionState(index);
+  const cost = squareDimensionSideCost(side, index);
   if (compareNumberValues(squarePoints, cost) < 0) return false;
 
   squarePoints = subtractNumberValues(squarePoints, cost);
-  if (side === 'y') {
-    squareDimensionYGrowthLevel = addBaseNumbers(squareDimensionYGrowthLevel, 1n);
-    squareDimensionYCost = multiplyNumberValue(squareDimensionYCost, 2n);
+  if (side === 'z') {
+    dimension.zGrowthLevel = addBaseNumbers(dimension.zGrowthLevel, 1n);
+    dimension.zCost = multiplyNumberValue(dimension.zCost, 2n);
+  } else if (side === 'y') {
+    dimension.yGrowthLevel = addBaseNumbers(dimension.yGrowthLevel, 1n);
+    dimension.yCost = multiplyNumberValue(dimension.yCost, 2n);
   } else {
-    squareDimensionXGrowthLevel = addBaseNumbers(squareDimensionXGrowthLevel, 1n);
-    squareDimensionXCost = multiplyNumberValue(squareDimensionXCost, 2n);
+    dimension.xGrowthLevel = addBaseNumbers(dimension.xGrowthLevel, 1n);
+    dimension.xCost = multiplyNumberValue(dimension.xCost, 2n);
   }
   render();
   return true;
 }
 
-function buySquareDimensionPowerTimeUpgrade() {
-  if (!squareDimensionAvailable() || squareDimensionPowerInterval <= SQUARE_DIMENSION_MIN_PRODUCTION_INTERVAL) {
+function squareDimensionSideBulkCost(cost, purchases) {
+  if (!Number.isSafeInteger(purchases) || purchases <= 0) return 0n;
+  const doubling = NumberMath.power(2n, purchases);
+  return multiplyNumberValue(cost, subtractNumberValues(doubling, 1n));
+}
+
+function squareDimensionSideMaxPurchases(side, index = 0) {
+  if (!squareDimensionIsAvailable(index)) return 0;
+  if (side === 'z' && !hasGeneralizationResearch('5-1')) return 0;
+
+  const cost = squareDimensionSideCost(side, index);
+  if (compareNumberValues(squarePoints, cost) < 0) return 0;
+
+  let affordable = 1;
+  let unaffordable = 2;
+  while (compareNumberValues(squarePoints, squareDimensionSideBulkCost(cost, unaffordable)) >= 0) {
+    affordable = unaffordable;
+    if (unaffordable > Math.floor(Number.MAX_SAFE_INTEGER / 2)) return affordable;
+    unaffordable *= 2;
+  }
+
+  while (unaffordable - affordable > 1) {
+    const middle = affordable + Math.floor((unaffordable - affordable) / 2);
+    if (compareNumberValues(squarePoints, squareDimensionSideBulkCost(cost, middle)) >= 0) {
+      affordable = middle;
+    } else {
+      unaffordable = middle;
+    }
+  }
+  return affordable;
+}
+
+function buySquareDimensionSideMaximum(side, index = 0) {
+  const purchases = squareDimensionSideMaxPurchases(side, index);
+  if (purchases <= 0) return false;
+
+  const dimension = squareDimensionState(index);
+  const cost = squareDimensionSideCost(side, index);
+  const totalCost = squareDimensionSideBulkCost(cost, purchases);
+  const nextCost = multiplyNumberValue(cost, NumberMath.power(2n, purchases));
+
+  squarePoints = subtractNumberValues(squarePoints, totalCost);
+  if (side === 'z') {
+    dimension.zGrowthLevel = addBaseNumbers(dimension.zGrowthLevel, BigInt(purchases));
+    dimension.zCost = nextCost;
+  } else if (side === 'y') {
+    dimension.yGrowthLevel = addBaseNumbers(dimension.yGrowthLevel, BigInt(purchases));
+    dimension.yCost = nextCost;
+  } else {
+    dimension.xGrowthLevel = addBaseNumbers(dimension.xGrowthLevel, BigInt(purchases));
+    dimension.xCost = nextCost;
+  }
+  render();
+  return true;
+}
+
+function buySquareDimensionPowerTimeUpgrade(index = 0) {
+  const dimension = squareDimensionState(index);
+  if (!squareDimensionIsAvailable(index) || dimension.powerInterval <= SQUARE_DIMENSION_MIN_PRODUCTION_INTERVAL) {
     return false;
   }
-  if (compareNumberValues(squarePoints, squareDimensionPowerIntervalCost) < 0) return false;
+  if (compareNumberValues(squarePoints, dimension.powerIntervalCost) < 0) return false;
 
-  squarePoints = subtractNumberValues(squarePoints, squareDimensionPowerIntervalCost);
-  squareDimensionPowerInterval = Math.max(
+  squarePoints = subtractNumberValues(squarePoints, dimension.powerIntervalCost);
+  dimension.powerInterval = Math.max(
     SQUARE_DIMENSION_MIN_PRODUCTION_INTERVAL,
-    Math.ceil(squareDimensionPowerInterval / 2)
+    Math.ceil(dimension.powerInterval / 2)
   );
-  squareDimensionPowerIntervalCost = multiplyNumberValue(squareDimensionPowerIntervalCost, 10n);
+  dimension.powerIntervalCost = multiplyNumberValue(dimension.powerIntervalCost, 10n);
   render();
   return true;
 }
 
-function buySquareDimensionPowerStrength() {
-  if (!squareDimensionAvailable() || squareDimensionPowerStrengthUnlocked) return false;
-  if (compareNumberValues(squarePoints, SQUARE_DIMENSION_POWER_STRENGTH_COST) < 0) return false;
+function buySquareDimensionPowerStrength(index = 0) {
+  const dimension = squareDimensionState(index);
+  if (!squareDimensionIsAvailable(index) || dimension.powerStrengthUnlocked || hasGeneralizationResearch('6-2')) return false;
+  const cost = multiplyNumberValue(SQUARE_DIMENSION_POWER_STRENGTH_COST, index === 0 ? 1n : 2n);
+  if (compareNumberValues(squarePoints, cost) < 0) return false;
 
-  squarePoints = subtractNumberValues(squarePoints, SQUARE_DIMENSION_POWER_STRENGTH_COST);
-  squareDimensionPowerStrengthUnlocked = true;
-  log('제곱력 생산 강화가 적용되었습니다. 제곱력 공식 지수가 1/4에서 1/2로 변경되었습니다.', true);
+  squarePoints = subtractNumberValues(squarePoints, cost);
+  dimension.powerStrengthUnlocked = true;
+  log(
+    hasGeneralizationResearch('5-1')
+      ? '제곱력 생산 강화가 적용되었습니다. 제곱력 공식 지수가 1/6에서 1/3으로 변경되었습니다.'
+      : '제곱력 생산 강화가 적용되었습니다. 제곱력 공식 지수가 1/4에서 1/2로 변경되었습니다.',
+    true
+  );
   render();
   return true;
 }
 
-function squareDimensionSideGrowthNumber(side) {
-  const rate = squareDimensionSideGrowthRate(side);
+function squareDimensionAutoUpgradeAvailable() {
+  return hasGeneralizationResearch('7-3');
+}
+
+function toggleSquareDimensionAutoUpgrade() {
+  if (!squareDimensionAutoUpgradeAvailable()) return false;
+  squareDimensionAutoUpgradeEnabled = !squareDimensionAutoUpgradeEnabled;
+  squareDimensionAutoUpgradeTimer = 0;
+  render();
+  return true;
+}
+
+function tryAutomaticSquareDimensionUpgrade() {
+  if (!squareDimensionAutoUpgradeAvailable() || !squareDimensionAutoUpgradeEnabled) return false;
+
+  const choices = [];
+  for (let index = 0; index < squareDimensionCount(); index++) {
+    for (const side of ['x', 'y', 'z']) {
+      choices.push(() => buySquareDimensionSide(side, index));
+    }
+    choices.push(() => buySquareDimensionPowerTimeUpgrade(index));
+    choices.push(() => buySquareDimensionPowerStrength(index));
+  }
+  if (choices.length === 0) return false;
+
+  const start = squareDimensionAutoUpgradeCursor % choices.length;
+  for (let offset = 0; offset < choices.length; offset++) {
+    const choiceIndex = (start + offset) % choices.length;
+    if (choices[choiceIndex]()) {
+      squareDimensionAutoUpgradeCursor = (choiceIndex + 1) % choices.length;
+      return true;
+    }
+  }
+  return false;
+}
+
+function advanceSquareDimensionAutoUpgrade(elapsedMs) {
+  if (
+    !squareDimensionAutoUpgradeAvailable()
+    || !squareDimensionAutoUpgradeEnabled
+    || overflowed
+    || squareMode
+    || elapsedMs <= 0
+  ) {
+    squareDimensionAutoUpgradeTimer = 0;
+    return false;
+  }
+
+  squareDimensionAutoUpgradeTimer += gameTick(elapsedMs) * autoUpgradeSpeedMultiplier();
+  if (!Number.isFinite(squareDimensionAutoUpgradeTimer)) squareDimensionAutoUpgradeTimer = 250 * 16;
+
+  const attempts = Math.min(16, Math.floor(squareDimensionAutoUpgradeTimer / 250));
+  if (attempts <= 0) return false;
+
+  let changed = false;
+  for (let index = 0; index < attempts; index++) {
+    if (!tryAutomaticSquareDimensionUpgrade()) break;
+    squareDimensionAutoUpgradeTimer -= 250;
+    changed = true;
+  }
+  if (squareDimensionAutoUpgradeTimer > 250) squareDimensionAutoUpgradeTimer = 250;
+  return changed;
+}
+
+function squareDimensionSideGrowthNumber(side, index = 0) {
+  const rate = squareDimensionSideGrowthRate(side, index);
   const numericRate = realNumberFromValue(rate);
   return Number.isFinite(numericRate) ? numericRate / Number(SQUARE_DIMENSION_SCALE) : Number.MAX_VALUE;
 }
 
-function advanceSquareDimensions(elapsedMs) {
-  if (!squareDimensionAvailable() || overflowed || elapsedMs <= 0) return false;
-
-  const productionSpeed = SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL / squareDimensionPowerInterval;
+function advanceSquareDimensionState(dimension, index, elapsedMs) {
+  const productionSpeed = SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL / dimension.powerInterval;
   const elapsedSeconds = (elapsedMs / 1000) * productionSpeed;
-  const xGrowth = squareDimensionSideGrowthNumber('x') * elapsedSeconds * Number(SQUARE_DIMENSION_SCALE);
-  const yGrowth = squareDimensionSideGrowthNumber('y') * elapsedSeconds * Number(SQUARE_DIMENSION_SCALE);
+  const xGrowth = squareDimensionSideGrowthNumber('x', index) * elapsedSeconds * Number(SQUARE_DIMENSION_SCALE);
+  const yGrowth = squareDimensionSideGrowthNumber('y', index) * elapsedSeconds * Number(SQUARE_DIMENSION_SCALE);
+  const zGrowth = hasGeneralizationResearch('5-1')
+    ? squareDimensionSideGrowthNumber('z', index) * elapsedSeconds * Number(SQUARE_DIMENSION_SCALE)
+    : 0;
   let changed = false;
 
   if (Number.isFinite(xGrowth) && xGrowth < Number.MAX_SAFE_INTEGER) {
-    squareDimensionXGrowthCarry += xGrowth;
-    const wholeGrowth = Math.floor(squareDimensionXGrowthCarry);
-    squareDimensionXGrowthCarry -= wholeGrowth;
+    dimension.xGrowthCarry += xGrowth;
+    const wholeGrowth = Math.floor(dimension.xGrowthCarry);
+    dimension.xGrowthCarry -= wholeGrowth;
     if (wholeGrowth > 0) {
-      squareDimensionX = addBaseNumbers(squareDimensionX, BigInt(wholeGrowth));
+      dimension.x = addBaseNumbers(dimension.x, BigInt(wholeGrowth));
       changed = true;
     }
   } else if (Number.isFinite(xGrowth) && xGrowth > 0) {
-    squareDimensionX = addBaseNumbers(squareDimensionX, numberValueFromReal(xGrowth));
+    dimension.x = addBaseNumbers(dimension.x, numberValueFromReal(xGrowth));
     changed = true;
   }
 
   if (Number.isFinite(yGrowth) && yGrowth < Number.MAX_SAFE_INTEGER) {
-    squareDimensionYGrowthCarry += yGrowth;
-    const wholeGrowth = Math.floor(squareDimensionYGrowthCarry);
-    squareDimensionYGrowthCarry -= wholeGrowth;
+    dimension.yGrowthCarry += yGrowth;
+    const wholeGrowth = Math.floor(dimension.yGrowthCarry);
+    dimension.yGrowthCarry -= wholeGrowth;
     if (wholeGrowth > 0) {
-      squareDimensionY = addBaseNumbers(squareDimensionY, BigInt(wholeGrowth));
+      dimension.y = addBaseNumbers(dimension.y, BigInt(wholeGrowth));
       changed = true;
     }
   } else if (Number.isFinite(yGrowth) && yGrowth > 0) {
-    squareDimensionY = addBaseNumbers(squareDimensionY, numberValueFromReal(yGrowth));
+    dimension.y = addBaseNumbers(dimension.y, numberValueFromReal(yGrowth));
     changed = true;
   }
 
+  if (Number.isFinite(zGrowth) && zGrowth < Number.MAX_SAFE_INTEGER) {
+    dimension.zGrowthCarry += zGrowth;
+    const wholeGrowth = Math.floor(dimension.zGrowthCarry);
+    dimension.zGrowthCarry -= wholeGrowth;
+    if (wholeGrowth > 0) {
+      dimension.z = addBaseNumbers(dimension.z, BigInt(wholeGrowth));
+      changed = true;
+    }
+  } else if (Number.isFinite(zGrowth) && zGrowth > 0) {
+    dimension.z = addBaseNumbers(dimension.z, numberValueFromReal(zGrowth));
+    changed = true;
+  }
+
+  return changed;
+}
+
+function advanceSquareDimensions(elapsedMs) {
+  if (!squareDimensionAvailable() || overflowed || elapsedMs <= 0) {
+    squareDimensionAutoUpgradeTimer = 0;
+    return false;
+  }
+
+  let changed = false;
+  for (let index = 0; index < squareDimensionCount(); index++) {
+    if (advanceSquareDimensionState(squareDimensionState(index), index, elapsedMs)) {
+      changed = true;
+    }
+  }
+  if (advanceSquareDimensionAutoUpgrade(elapsedMs)) changed = true;
   return changed;
 }
 
@@ -798,6 +1258,11 @@ function normalizedPercentPower(power) {
   return Number.isSafeInteger(value) && value >= 1 ? value : 1;
 }
 
+// 파워 레벨은 계속 올릴 수 있지만 실제 퍼센트 획득 배율은 +100%에서 고정한다.
+function percentEffectivePower(power) {
+  return Math.min(100, normalizedPercentPower(power));
+}
+
 function percentPowerSoftcapBonusLevels() {
   return 4 * dysonEffectNumber() * squareBreakthroughLevel('overclock');
 }
@@ -836,50 +1301,48 @@ function percentPowerUpgradeCostForNextLevel(currentPower, baseCost = 40000n) {
 
 function percentPowerSoftcap(power) {
   const level = normalizedPercentPower(power) + percentPowerSoftcapBonusLevels() - 1;
-  return multiplyNumberValue(PERCENT_POWER_SOFTCAP_START, powerOfTenValue(level));
+  const baseSoftcap = multiplyNumberValue(PERCENT_POWER_SOFTCAP_START, powerOfTenValue(level));
+  return multiplyNumberValue(baseSoftcap, squareDimensionPercentSoftcapMultiplier());
 }
 
 function percentPowerGrowthLimit(power) {
-  return multiplyNumberValue(percentPowerSoftcap(power), 10n);
+  // 기존 저장 데이터와 호출부 호환을 위해 이름은 유지하지만,
+  // 현재 퍼센트 시스템의 실제 상한은 소프트캡 하나만 사용한다.
+  return percentPowerSoftcap(power);
 }
 
 function percentGain(value, power) {
   const softcap = percentPowerSoftcap(power);
-  if (compareNumberValues(value, softcap) <= 0) {
-    const gain = applyPercentEfficiency(divideNumberValue(
-      multiplyNumberValue(value, BigInt(normalizedPercentPower(power))),
-      100n
-    ));
-    return multiplyNumberValue(gain, squareDimensionNumberMultiplier());
-  }
+  if (compareNumberValues(value, softcap) >= 0) return 0n;
 
-  const growthLimit = percentPowerGrowthLimit(power);
-  if (compareNumberValues(value, growthLimit) >= 0) return 0n;
-
-  const remaining = subtractNumberValues(growthLimit, value);
-  const slowdownSpan = multiplyNumberValue(softcap, 9n);
+  const remaining = subtractNumberValues(softcap, value);
   let gain = divideNumberValue(
-    multiplyNumberValue(softcap, BigInt(normalizedPercentPower(power))),
+    multiplyNumberValue(value, BigInt(percentEffectivePower(power))),
     100n
   );
 
-  // 정체선까지 남은 비율의 거듭제곱으로 감쇠시켜 진입 직후부터 증가량이 줄어든다.
+  // 소프트캡에 가까워질수록 남은 공간 비율의 거듭제곱으로 감쇠한다.
+  // 근사 수에서는 비율을 먼저 계산해야 거대한 지수에서 gain이 소실되지 않는다.
+  // 일반 정수에서는 먼저 곱해야 정수 나눗셈으로 비율이 0으로 잘리지 않는다.
+  const useStableRatio = isApproximateNumber(remaining) || isApproximateNumber(softcap);
+  const remainingRatio = useStableRatio ? divideNumberValue(remaining, softcap) : null;
   for (let i = 0; i < percentPowerSoftcapDecayPower(); i++) {
-    gain = divideNumberValue(multiplyNumberValue(gain, remaining), slowdownSpan);
+    gain = useStableRatio
+      ? multiplyNumberValue(gain, remainingRatio)
+      : divideNumberValue(multiplyNumberValue(gain, remaining), softcap);
     if (compareNumberValues(gain, 0n) <= 0) return 0n;
   }
-  return multiplyNumberValue(applyPercentEfficiency(gain), squareDimensionNumberMultiplier());
+
+  gain = multiplyNumberValue(applyPercentEfficiency(gain), squareDimensionNumberMultiplier());
+  return minimumNumberValue(gain, remaining);
 }
 
 function percentPowerSoftcapStatus(power, value = getBaseNumber()) {
   const softcap = percentPowerSoftcap(power);
-  const growthLimit = percentPowerGrowthLimit(power);
-  const state = compareNumberValues(value, growthLimit) >= 0
+  const state = compareNumberValues(value, softcap) >= 0
     ? '정체'
-    : compareNumberValues(value, softcap) > 0
-      ? '감쇠 중'
-      : '부터 감쇠';
-  return `소프트캡 ${fmtPowerBase(softcap)} ${state} · 정체선 ${fmtPowerBase(growthLimit)}`;
+    : '부터 감쇠';
+  return `소프트캡 ${fmtPowerBase(softcap)} ${state}`;
 }
 
 function percentAutoMinSpeed() {
@@ -921,6 +1384,43 @@ function discountedCost(cost) {
       : discounted <= 1n ? discounted : ceilDiv(discounted, 2n);
   }
   return discounted;
+}
+
+function percentPowerCostExponent() {
+  return hasGeneralizationResearch('3-3') ? 1.1 : 1.5;
+}
+
+function percentPowerCost(cost, compounding = false) {
+  if (compounding) return cost;
+  const adjustedCost = discountedCost(cost);
+  const threshold = powerOfTenValue(500);
+  return compareNumberValues(adjustedCost, threshold) >= 0
+    ? NumberMath.power(adjustedCost, percentPowerCostExponent())
+    : adjustedCost;
+}
+
+function nextCompoundingPercentPowerCost(currentCost) {
+  return NumberMath.power(currentCost, percentPowerCostExponent());
+}
+
+function updatePercentPowerCostAfterPurchase() {
+  const currentCost = percentPowerCost(percentPowerUpgradeCost, percentPowerCostCompounding);
+  percentPower++;
+
+  if (percentPowerCostCompounding || compareNumberValues(currentCost, powerOfTenValue(500)) >= 0) {
+    percentPowerCostCompounding = true;
+    percentPowerUpgradeCost = nextCompoundingPercentPowerCost(currentCost);
+    return;
+  }
+
+  const nextRawCost = percentPowerUpgradeCostForNextLevel(percentPower);
+  const nextAdjustedCost = discountedCost(nextRawCost);
+  if (compareNumberValues(nextAdjustedCost, powerOfTenValue(500)) >= 0) {
+    percentPowerCostCompounding = true;
+    percentPowerUpgradeCost = nextCompoundingPercentPowerCost(nextAdjustedCost);
+  } else {
+    percentPowerUpgradeCost = nextRawCost;
+  }
 }
 
 function percentChargeReduction() {
@@ -1003,6 +1503,7 @@ function resetSquareBreakthroughState() {
 function resetSquareConvergenceUpgradeState() {
   for (const upgrade of SQUARE_CONVERGENCE_UPGRADES) {
     squareConvergenceUpgradeState[upgrade.id] = false;
+    squareConvergenceUpgradeLevels[upgrade.id] = 0;
   }
 }
 
@@ -1015,14 +1516,26 @@ function resetGeneralizationResearchState() {
 function loadGeneralizationResearchState(savedState) {
   resetGeneralizationResearchState();
   for (const research of GENERALIZATION_RESEARCHES) {
-    generalizationResearchState[research.id] = savedState?.[research.id] === true;
+    const legacyResearchId = research.id === '6-4' ? '7-2' : null;
+    generalizationResearchState[research.id] =
+      savedState?.[research.id] === true || savedState?.[legacyResearchId] === true;
   }
 }
 
-function loadSquareConvergenceUpgradeState(savedState) {
+function loadSquareConvergenceUpgradeState(savedState, savedLevels) {
   resetSquareConvergenceUpgradeState();
   for (const upgrade of SQUARE_CONVERGENCE_UPGRADES) {
-    squareConvergenceUpgradeState[upgrade.id] = savedState?.[upgrade.id] === true;
+    if (upgrade.max) {
+      const rawLevel = Number(savedLevels?.[upgrade.id] ?? (savedState?.[upgrade.id] === true ? 1 : 0));
+      const level = Number.isFinite(rawLevel)
+        ? Math.max(0, Math.min(upgrade.max, Math.floor(rawLevel)))
+        : 0;
+      squareConvergenceUpgradeLevels[upgrade.id] = level;
+      squareConvergenceUpgradeState[upgrade.id] = level > 0;
+    } else {
+      squareConvergenceUpgradeState[upgrade.id] = savedState?.[upgrade.id] === true;
+      squareConvergenceUpgradeLevels[upgrade.id] = squareConvergenceUpgradeState[upgrade.id] ? 1 : 0;
+    }
   }
 }
 
@@ -1050,11 +1563,18 @@ function squareConvergencePointGain() {
   if (compareNumberValues(squarePoints, requirement) < 0) return 0n;
 
   const ratio = divideNumberValue(squarePoints, requirement);
-  return NumberMath.max(NumberMath.log10(ratio), 1n);
+  let gain = NumberMath.max(NumberMath.log10(ratio), 1n);
+  const upgradeLevel = squareConvergenceUpgradeLevel('cp_gain_5x');
+  if (upgradeLevel > 0) {
+    gain = multiplyNumberValue(gain, NumberMath.power(5n, upgradeLevel));
+  }
+  return gain;
 }
 
 function squareConvergenceExchangeRequirement() {
-  return SQUARE_CONVERGENCE_EXCHANGE_REQUIREMENT;
+  return hasGeneralizationResearch('2-2')
+    ? SQUARE_CONVERGENCE_IMPROVED_EXCHANGE_REQUIREMENT
+    : SQUARE_CONVERGENCE_EXCHANGE_REQUIREMENT;
 }
 
 function collectSquareConvergenceIfReady() {
@@ -1077,27 +1597,23 @@ function canResearchTheory() {
 }
 
 function theoryCostForResource(resourceIndex) {
-  if (resourceIndex === 0) return theoryNumberCost;
-  if (resourceIndex === 1) return theorySquarePointCost;
+  if (resourceIndex === 0) return theorySquarePointCost;
   return theoryConvergencePointCost;
 }
 
 function theoryCostResourceLabel(resourceIndex) {
-  if (resourceIndex === 0) return '수';
-  if (resourceIndex === 1) return 'SP';
-  return 'CP';
+  return resourceIndex === 0 ? 'SP' : 'CP';
 }
 
 function canAffordTheoryResource(resourceIndex) {
-  if (resourceIndex === 0) return compareBaseNumber(theoryNumberCost) >= 0;
-  if (resourceIndex === 1) return compareNumberValues(squarePoints, theorySquarePointCost) >= 0;
-  if (resourceIndex === 2) return compareNumberValues(squareConvergencePoints, theoryConvergencePointCost) >= 0;
+  if (resourceIndex === 0) return compareNumberValues(squarePoints, theorySquarePointCost) >= 0;
+  if (resourceIndex === 1) return compareNumberValues(squareConvergencePoints, theoryConvergencePointCost) >= 0;
   return false;
 }
 
 function setTheoryCostResource(resourceIndex) {
   const nextIndex = Number(resourceIndex);
-  if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex > 2) return false;
+  if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex > 1) return false;
   theoryCostResourceIndex = nextIndex;
   render();
   return true;
@@ -1109,9 +1625,6 @@ function researchTheory() {
   const selectedResource = theoryCostResourceIndex;
   const paidResourceLabel = theoryCostResourceLabel(selectedResource);
   if (theoryCostResourceIndex === 0) {
-    spendBaseCost(theoryNumberCost);
-    theoryNumberCost = multiplyNumberValue(theoryNumberCost, THEORY_NUMBER_COST_GROWTH);
-  } else if (theoryCostResourceIndex === 1) {
     squarePoints = subtractNumberValues(squarePoints, theorySquarePointCost);
     theorySquarePointCost = multiplyNumberValue(theorySquarePointCost, THEORY_SQUARE_POINT_COST_GROWTH);
   } else {
@@ -1139,6 +1652,10 @@ function researchGeneralization(id) {
 
   theory = subtractNumberValues(theory, research.theoryCost);
   generalizationResearchState[id] = true;
+  if (id === '7-3') {
+    squareDimensionAutoUpgradeEnabled = true;
+    squareDimensionAutoUpgradeTimer = 0;
+  }
   log(`${research.id} ${research.title} 연구를 완료했습니다.`, true);
   render();
   return true;
@@ -1180,6 +1697,7 @@ function resetRunStateAfterSquarePrestige() {
   percentChargeUpgradeCost = 250n;
   percentPower = 1;
   percentPowerUpgradeCost = 40000n;
+  percentPowerCostCompounding = false;
 
   overflowed = false;
   squareMode = false;

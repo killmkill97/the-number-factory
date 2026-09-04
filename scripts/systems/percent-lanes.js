@@ -12,9 +12,10 @@ function makePercentLane(laneNumber) {
     charge: 0,
     power: 1,
     powerCost: scaleByLane(40000n, laneNumber),
+    powerCostCompounding: false,
     autoUnlocked: false,
     autoPrice: scaleByLane(150n, laneNumber),
-    autoSpeedLevels: [1000, 800, 600, 400, 200],
+    autoSpeedLevels: [1000, 800, 600, 400, 200, 10],
     autoSpeedLevel: 0,
     autoSpeed: 1000,
     autoSpeedPrice: scaleByLane(250n, laneNumber),
@@ -24,26 +25,40 @@ function makePercentLane(laneNumber) {
 }
 
 function percentPowerText() {
-  return `+${percentPower}%`;
+  return `+${percentEffectivePower(percentPower)}%`;
 }
 
 function lanePowerText(power) {
-  return `+${power}%`;
+  return `+${percentEffectivePower(power)}%`;
 }
 
 function upgradeLanePower(lane) {
   lane.power++;
-  lane.powerCost = percentPowerUpgradeCostForNextLevel(
+  const currentCost = percentPowerCost(lane.powerCost, lane.powerCostCompounding);
+  if (lane.powerCostCompounding || compareNumberValues(currentCost, powerOfTenValue(500)) >= 0) {
+    lane.powerCostCompounding = true;
+    lane.powerCost = nextCompoundingPercentPowerCost(currentCost);
+    return true;
+  }
+
+  const nextRawCost = percentPowerUpgradeCostForNextLevel(
     lane.power,
     scaleByLane(40000n, lane.laneNumber)
   );
+  const nextAdjustedCost = discountedCost(nextRawCost);
+  if (compareNumberValues(nextAdjustedCost, powerOfTenValue(500)) >= 0) {
+    lane.powerCostCompounding = true;
+    lane.powerCost = nextCompoundingPercentPowerCost(nextAdjustedCost);
+  } else {
+    lane.powerCost = nextRawCost;
+  }
   return true;
 }
 
 function buyExtraLanePower(lane) {
   if (overflowed || squareMode) return false;
   if (percentChargeNeeded > PERCENT_POWER_UNLOCK_CHARGE) return false;
-  const currentCost = discountedCost(lane.powerCost);
+  const currentCost = percentPowerCost(lane.powerCost, lane.powerCostCompounding);
   if (!canAffordBaseCost(currentCost)) return false;
 
   spendBaseCost(currentCost);
@@ -69,13 +84,18 @@ function buyExtraLaneAuto(lane) {
 
 function upgradeExtraLaneAutoSpeed(lane) {
   if (overflowed || squareMode) return false;
-  const currentlyMaxed = lane.autoSpeedLevel >= lane.autoSpeedLevels.length - 1;
+  const minimumSpeed = percentAutoMinSpeed();
+  const currentlyMaxed = lane.autoSpeed <= minimumSpeed;
   const currentCost = discountedCost(lane.autoSpeedPrice);
   if (!lane.autoUnlocked || currentlyMaxed || !canAffordBaseCost(currentCost)) return false;
 
   spendBaseCost(currentCost);
-  lane.autoSpeedLevel++;
-  lane.autoSpeed = lane.autoSpeedLevels[lane.autoSpeedLevel];
+  if (lane.autoSpeed > 200) {
+    lane.autoSpeed = Math.max(200, lane.autoSpeed - 200);
+  } else {
+    lane.autoSpeed = minimumSpeed;
+  }
+  lane.autoSpeedLevel = Math.min(lane.autoSpeedLevel + 1, lane.autoSpeedLevels.length - 1);
   lane.autoSpeedPrice *= 2n;
   lane.autoTimer = 0;
   render();
@@ -83,21 +103,81 @@ function upgradeExtraLaneAutoSpeed(lane) {
 }
 
 function useExtraPercent(lane) {
-  if (overflowed || squareMode) return false;
-  if (lane.charge < percentChargeNeeded) return false;
-  addToBaseNumber(percentGain(getBaseNumber(), lane.power));
+  if (overflowed || squareMode) {
+    traceNumberEvent('percent-use-skip', {
+      lane: lane.laneNumber,
+      reason: overflowed ? 'overflowed' : 'square-mode'
+    });
+    return false;
+  }
+  if (lane.charge < percentChargeNeeded) {
+    traceNumberEvent('percent-use-skip', {
+      lane: lane.laneNumber,
+      reason: 'not-ready',
+      charge: `${lane.charge}/${percentChargeNeeded}`
+    });
+    return false;
+  }
+
+  const before = getBaseNumber();
+  traceNumberEvent('percent-use-enter', {
+    lane: lane.laneNumber,
+    charge: `${lane.charge}/${percentChargeNeeded}`,
+    autoTimer: `${lane.autoTimer}/${lane.autoSpeed}`,
+    number: numberTraceValue(before)
+  });
+
+  const gain = percentGain(before, lane.power);
+  traceNumberEvent('percent-gain', {
+    lane: lane.laneNumber,
+    power: lane.power,
+    before: numberTraceValue(before),
+    gain: numberTraceValue(gain)
+  });
+  if (!isPositiveNumberValue(gain)) return false;
+
+  addToBaseNumber(gain, `percent-lane-${lane.laneNumber}`);
   lane.charge = 0;
   lane.autoTimer = 0;
   checkOverflow();
+  traceNumberEvent('percent-use-complete', {
+    lane: lane.laneNumber,
+    charge: `${lane.charge}/${percentChargeNeeded}`,
+    number: numberTraceValue(getBaseNumber())
+  });
   render();
   return true;
 }
 
 function chargeAllPercentLanes(amount) {
-  if (!percentUnlocked) return;
+  if (!percentUnlocked) {
+    maybeUnlockPercent();
+    if (!percentUnlocked) return;
+  }
+  const beforeMainCharge = percentCharge;
+  const beforeLaneCharges = extraPercentLanes.map(lane => ({ laneNumber: lane.laneNumber, charge: lane.charge }));
   percentCharge = Math.min(percentChargeNeeded, percentCharge + amount);
   for (const lane of extraPercentLanes) {
     lane.charge = Math.min(percentChargeNeeded, lane.charge + amount);
+  }
+
+  traceNumberEvent('percent-auto-charge', {
+    amount,
+    main: `${beforeMainCharge}/${percentChargeNeeded}->${percentCharge}/${percentChargeNeeded}`,
+    lanes: extraPercentLanes.map(lane => {
+      const before = beforeLaneCharges.find(item => item.laneNumber === lane.laneNumber)?.charge ?? 0;
+      return `${lane.laneNumber}:${before}->${lane.charge}`;
+    }).join(' ')
+  });
+
+  if (beforeMainCharge < percentChargeNeeded && percentCharge >= percentChargeNeeded) {
+    traceNumberEvent('percent-ready', { lane: 1, charge: `${percentCharge}/${percentChargeNeeded}` });
+  }
+  for (const lane of extraPercentLanes) {
+    const before = beforeLaneCharges.find(item => item.laneNumber === lane.laneNumber)?.charge ?? 0;
+    if (before < percentChargeNeeded && lane.charge >= percentChargeNeeded) {
+      traceNumberEvent('percent-ready', { lane: lane.laneNumber, charge: `${lane.charge}/${percentChargeNeeded}` });
+    }
   }
 }
 
@@ -162,7 +242,7 @@ function updateExtraPercentLaneUI(lane) {
 
   if (percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE) {
     powerRow.classList.remove('hidden');
-    const powerCost = discountedCost(lane.powerCost);
+    const powerCost = percentPowerCost(lane.powerCost, lane.powerCostCompounding);
     powerBtn.innerHTML = `퍼센트 파워 업그레이드 (현재 ${lanePowerText(lane.power)})<span class="cost">비용: ${fmtScientific(powerCost)} · ${percentPowerSoftcapStatus(lane.power)}</span>`;
     powerBtn.disabled = !canAffordBaseCost(powerCost) || overflowed || squareMode;
   } else {
@@ -174,9 +254,9 @@ function updateExtraPercentLaneUI(lane) {
     : `% 오토클리커<span class="cost">비용: ${fmt(discountedCost(lane.autoPrice))}</span>`;
   autoBtn.disabled = lane.autoUnlocked || !canAffordBaseCost(discountedCost(lane.autoPrice)) || overflowed || squareMode;
 
-  const maxed = lane.autoSpeedLevel >= lane.autoSpeedLevels.length - 1;
+  const maxed = lane.autoSpeed <= percentAutoMinSpeed();
   const speedCost = discountedCost(lane.autoSpeedPrice);
-  speedBtn.innerHTML = `% 오토클리커 속도 업그레이드<span class="cost">${maxed ? '최대 속도 (0.2초)' : `비용: ${fmt(speedCost)} · 현재 ${(lane.autoSpeed / 1000).toFixed(1)}초`}</span>`;
+  speedBtn.innerHTML = `% 오토클리커 속도 업그레이드<span class="cost">${maxed ? `최대 속도 (${formatDelay(percentAutoMinSpeed())})` : `비용: ${fmt(speedCost)} · 현재 ${formatDelay(lane.autoSpeed)}`}</span>`;
   speedBtn.disabled = !lane.autoUnlocked || maxed || !canAffordBaseCost(speedCost) || overflowed || squareMode;
 }
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>숫자의 끝을 보는 타이쿤 - 프로토타입</title>
-<link rel="stylesheet" href="./styles/number-tycoon.css?v=20260903-square-dimension-upgrades-v2">
+<link rel="stylesheet" href="./styles/number-tycoon.css?v=20260905-dimension-auto-research">
 </head>
 <body>
 <div class="news-ticker" aria-live="polite">
@@ -169,6 +169,7 @@
         <div class="value" id="squareDimensionPowerValue">2.34e0</div>
         <div class="sub" id="squareDimensionPowerSubValue">제곱력 = (x × y)^(1/4) · 생산 주기 1초</div>
         <div class="sub" id="squareDimensionMultiplierValue">기본 숫자 생산 배율 ×5.48e0</div>
+        <div class="sub hidden" id="squareDimensionSoftcapValue"></div>
       </div>
 
       <div class="square-dimension-board">
@@ -184,6 +185,7 @@
               <span id="squareDimensionXLabel">x 성장 배율 +1</span>
               <span class="cost" id="squareDimensionXCost">비용: 1 SP</span>
             </button>
+            <button id="squareDimensionXMaxBtn" class="square-dimension-max-btn" type="button" title="사용 가능한 SP로 최대 구매" aria-label="x 성장 배율 최대 구매">최대</button>
           </div>
           <div class="square-dimension-side">
             <div class="square-dimension-side-label">y 변</div>
@@ -193,6 +195,17 @@
               <span id="squareDimensionYLabel">y 성장 배율 +1</span>
               <span class="cost" id="squareDimensionYCost">비용: 1 SP</span>
             </button>
+            <button id="squareDimensionYMaxBtn" class="square-dimension-max-btn" type="button" title="사용 가능한 SP로 최대 구매" aria-label="y 성장 배율 최대 구매">최대</button>
+          </div>
+          <div class="square-dimension-side">
+            <div class="square-dimension-side-label">z 변</div>
+            <div class="square-dimension-side-value" id="squareDimensionZValue">7e0</div>
+            <div class="square-dimension-side-rate" id="squareDimensionZRate">차원 일반화 필요</div>
+            <button id="squareDimensionZBtn" type="button">
+              <span id="squareDimensionZLabel">z 성장 배율 +1</span>
+              <span class="cost" id="squareDimensionZCost">차원 일반화 필요</span>
+            </button>
+            <button id="squareDimensionZMaxBtn" class="square-dimension-max-btn" type="button" title="사용 가능한 SP로 최대 구매" aria-label="z 성장 배율 최대 구매">최대</button>
           </div>
         </div>
       </div>
@@ -208,6 +221,11 @@
           <span class="cost" id="squareDimensionPowerStrengthCost">비용: 100qi SP</span>
         </button>
       </div>
+      <button id="squareDimensionAutoUpgradeBtn" class="square-dimension-auto-upgrade" type="button">
+        <span id="squareDimensionAutoUpgradeLabel">제곱 차원 자동 업그레이드</span>
+        <span class="cost" id="squareDimensionAutoUpgradeStatus">7-3 연구 필요</span>
+      </button>
+      <div id="squareDimensionAdditional" class="square-dimension-additional hidden"></div>
     </div>
   </div>
 
@@ -246,10 +264,9 @@
       <div class="section-title">일반화 연구 트리</div>
       <article class="research-node theory-node">
           <div class="research-node-title">이론 확보</div>
-          <div class="research-node-description">수, 제곱 포인트, 수렴 포인트를 사용해 이론을 연구합니다. 연구할수록 각 비용이 상승합니다.</div>
+          <div class="research-node-description">SP와 수렴 포인트를 사용해 이론을 연구합니다. 연구할수록 선택한 비용이 상승합니다.</div>
           <div class="theory-resource-label">연구에 사용할 화폐</div>
           <div class="theory-resource-selector" role="group" aria-label="이론 연구 화폐 선택">
-            <button id="theoryNumberResourceBtn" type="button">수<span class="cost" id="theoryNumberResourceCost"></span></button>
             <button id="theorySquarePointResourceBtn" type="button">SP<span class="cost" id="theorySquarePointResourceCost"></span></button>
             <button id="theoryConvergencePointResourceBtn" type="button">CP<span class="cost" id="theoryConvergencePointResourceCost"></span></button>
           </div>
@@ -295,7 +312,7 @@
     <div id="tetrationDimensions" class="dimension-list"></div>
   </div>
 
-  <div class="log" id="log"></div>
+  <div class="dev-console-host" id="devConsoleHost"></div>
 </div>
 
 <div id="manualExchangeDock" class="manual-exchange-dock hidden">
@@ -401,29 +418,29 @@
 </div>
 
 <script src="./scripts/data/chapter-roadmap.js?v=20260814-breakthrough-target-lock"></script>
-<script src="./scripts/core/constants.js?v=20260903-square-dimension-upgrades-v2"></script>
+<script src="./scripts/core/constants.js?v=20260904-dimension-generalization"></script>
 <script src="./scripts/core/number-math.js?v=20260903-square-dimension-upgrades-v2"></script>
-<script src="./scripts/core/state.js?v=20260903-square-dimension-upgrades-v2"></script>
-<script src="./scripts/core/dom.js?v=20260903-square-dimension-upgrades-v2"></script>
+<script src="./scripts/core/state.js?v=20260905-percent-cost-damping"></script>
+<script src="./scripts/core/dom.js?v=20260905-softcap-summary"></script>
 <script src="./scripts/core/chapter-ui.js?v=20260902-manual-chapters"></script>
-<script src="./scripts/systems/percent-lanes.js?v=20260903-square-dimension-growth-percent"></script>
+<script src="./scripts/systems/percent-lanes.js?v=20260905-percent-recovery"></script>
 <script src="./scripts/systems/square-upgrades.js?v=20260903-scientific-number-core"></script>
 <script src="./scripts/systems/square-breakthrough.js?v=20260903-scientific-number-core"></script>
 <script src="./scripts/systems/square-convergence.js?v=20260903-research-tree"></script>
-<script src="./scripts/systems/square-dimensions.js?v=20260903-square-dimension-upgrades-v2"></script>
-<script src="./scripts/core/render.js?v=20260903-square-dimensions-compat"></script>
-<script src="./scripts/systems/clickers.js?v=20260829-random-click-bonus-removal"></script>
-<script src="./scripts/systems/percent-system.js?v=20260903-square-dimension-growth-percent"></script>
+<script src="./scripts/systems/square-dimensions.js?v=20260905-percent-cost-damping"></script>
+<script src="./scripts/core/render.js?v=20260904-runtime-trace"></script>
+<script src="./scripts/systems/clickers.js?v=20260905-percent-recovery"></script>
+<script src="./scripts/systems/percent-system.js?v=20260904-runtime-trace-v2"></script>
 <script src="./scripts/systems/auto-upgrades.js?v=20260814-breakthrough-target-lock"></script>
 <script src="./scripts/systems/news-ticker.js?v=20260903-crisp-currency-scale-compat"></script>
 <script src="./scripts/chapters/square.js?v=20260903-scientific-number-core"></script>
 <script src="./scripts/chapters/tetration.js?v=20260903-scientific-number-core"></script>
-<script src="./scripts/core/save.js?v=20260903-square-dimension-upgrades-v2"></script>
+<script src="./scripts/core/save.js?v=20260905-percent-recovery"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260814-breakthrough-target-lock"></script>
 <script src="./scripts/automatium/n-parser.js?v=20260814-n-click"></script>
 <script src="./scripts/automatium/n-runtime.js?v=20260903-scientific-number-core"></script>
-<script src="./scripts/systems/automatium.js?v=20260903-scientific-number-core"></script>
-<script src="./scripts/systems/dev-console.js?v=20260903-scientific-number-core"></script>
+<script src="./scripts/systems/automatium.js?v=20260904-percent-softcap"></script>
+<script src="./scripts/systems/dev-console.js?v=20260904-runtime-trace"></script>
 <script src="./scripts/main.js?v=20260814-breakthrough-target-lock"></script>
 </body>
 </html>

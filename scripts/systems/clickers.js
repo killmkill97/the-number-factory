@@ -1,6 +1,6 @@
 function performManualNumberClick() {
   if (overflowed) return false;
-  addToBaseNumber(effectivePerClick());
+  addToBaseNumber(effectivePerClick(), 'manual-click');
   if (percentUnlocked) {
     chargeAllPercentLanes(1);
   }
@@ -32,26 +32,60 @@ function safeChargeAmount(totalClicks) {
 
 function applyAutoClickerGain(cycles) {
   const totalClicks = autoClickerParallel * cycles;
-  addToBaseNumber(effectivePerClick() * totalClicks);
+  traceNumberEvent('auto-clicker-fire', {
+    cycles: cycles.toString(),
+    clicks: totalClicks.toString(),
+    percentFill: autoClickerPercentFillUnlocked,
+    number: numberTraceValue(getBaseNumber())
+  });
+  addToBaseNumber(multiplyNumberValue(effectivePerClick(), totalClicks), 'auto-click');
 
+  // 숫자 증가로 퍼센트 해금 조건을 넘긴 첫 자동 클릭도 바로 충전에 반영한다.
+  maybeUnlockPercent();
   if (autoClickerPercentFillUnlocked && percentUnlocked) {
     chargeAllPercentLanes(safeChargeAmount(totalClicks));
   }
 }
 
+let lastAutoClickerTraceHeartbeatAt = -Infinity;
+
 setInterval(() => {
+  const now = typeof performance === 'undefined' ? 0 : performance.now();
   if (!autoClickerUnlocked || overflowed) {
+    if (numberTraceEnabled && now - lastAutoClickerTraceHeartbeatAt >= 50) {
+      lastAutoClickerTraceHeartbeatAt = now;
+      traceNumberEvent('auto-clicker-tick', {
+        state: autoClickerUnlocked ? 'overflowed' : 'locked',
+        percentFill: autoClickerPercentFillUnlocked,
+        timer: `${autoClickerTimer}/${autoClickerSpeed}`
+      });
+    }
     autoClickerTimer = 0;
     return;
   }
 
-  autoClickerTimer += gameTick(AUTO_CLICKER_TICK_MS);
+  const elapsed = gameTick(AUTO_CLICKER_TICK_MS);
+  autoClickerTimer += elapsed;
+
+  if (numberTraceEnabled && now - lastAutoClickerTraceHeartbeatAt >= 50) {
+    lastAutoClickerTraceHeartbeatAt = now;
+    traceNumberEvent('auto-clicker-tick', {
+      state: 'running',
+      percentFill: autoClickerPercentFillUnlocked,
+      elapsed,
+      timer: `${autoClickerTimer}/${autoClickerSpeed}`
+    });
+  }
 
   if (autoClickerTimer >= autoClickerSpeed) {
     const cycles = BigInt(Math.floor(autoClickerTimer / autoClickerSpeed));
     applyAutoClickerGain(cycles);
 
     autoClickerTimer %= autoClickerSpeed;
+    traceNumberEvent('auto-clicker-complete', {
+      timer: `${autoClickerTimer}/${autoClickerSpeed}`,
+      percentFill: autoClickerPercentFillUnlocked
+    });
     maybeUnlockPercent();
     checkOverflow();
     render();

@@ -150,10 +150,10 @@ function nPercentLaneUpgradeSnapshot(id, laneNumber, node) {
   if (id === 'percent_power') {
     const power = laneNumber === 1 ? percentPower : lane?.power ?? 1;
     const rawCost = laneNumber === 1 ? percentPowerUpgradeCost : lane?.powerCost ?? scaleByLane(40000n, laneNumber);
-    const cost = discountedCost(rawCost);
+    const cost = percentPowerCost(rawCost, laneNumber === 1 ? percentPowerCostCompounding : lane?.powerCostCompounding ?? false);
     return {
       upgraded: BigInt(Math.max(0, power - 1)),
-      amount: BigInt(power),
+      amount: BigInt(percentEffectivePower(power)),
       cost,
       max: 0n,
       available: laneExists && !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && canAffordBaseCost(cost),
@@ -181,14 +181,12 @@ function nPercentLaneUpgradeSnapshot(id, laneNumber, node) {
     const unlocked = laneNumber === 1 ? percentAutoUnlocked : lane?.autoUnlocked ?? false;
     const rawCost = laneNumber === 1 ? percentAutoSpeedPrice : lane?.autoSpeedPrice ?? scaleByLane(250n, laneNumber);
     const cost = discountedCost(rawCost);
-    const maxed = laneNumber === 1
-      ? speed <= percentAutoMinSpeed()
-      : speedLevel >= (lane?.autoSpeedLevels.length ?? percentAutoSpeedLevels.length) - 1;
+    const maxed = speed <= percentAutoMinSpeed();
     return {
       upgraded: BigInt(speedLevel),
       amount: BigInt(speed),
       cost: maxed ? 0n : cost,
-      max: laneNumber === 1 && percentAutoMinSpeed() < 200 ? 5n : 4n,
+      max: percentAutoMinSpeed() < 200 ? 5n : 4n,
       available: laneExists && !overflowed && percentUnlocked && unlocked && !maxed && canAffordBaseCost(cost),
       buy: () => laneNumber === 1 ? upgradePercentAutoSpeed() : lane ? upgradeExtraLaneAutoSpeed(lane) : false
     };
@@ -286,10 +284,10 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
       };
     },
     percent_power: () => {
-      const cost = discountedCost(percentPowerUpgradeCost);
+      const cost = percentPowerCost(percentPowerUpgradeCost, percentPowerCostCompounding);
       return {
         upgraded: BigInt(Math.max(0, percentPower - 1)),
-        amount: BigInt(percentPower),
+        amount: BigInt(percentEffectivePower(percentPower)),
         cost,
         max: 0n,
         available: !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && canAffordBaseCost(cost),

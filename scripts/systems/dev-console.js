@@ -1,6 +1,8 @@
 const devConsole = {
   form: null,
   input: null,
+  trace: null,
+  traceTimer: null,
   visible: false
 };
 
@@ -44,6 +46,7 @@ function forceUnlockDevUpgrade(kind, id) {
     const upgrade = SQUARE_CONVERGENCE_UPGRADES.find(item => item.id === id);
     if (!upgrade) return false;
     squareConvergenceUpgradeState[id] = true;
+    squareConvergenceUpgradeLevels[id] = upgrade.max ?? 1;
     if (id === 'automatium') {
       applyAutomatiumSquareUpgradeUnlocks({ resetAutoUpgrade: true });
     }
@@ -86,6 +89,7 @@ function removeDevUpgrade(kind, id) {
     const upgrade = SQUARE_CONVERGENCE_UPGRADES.find(item => item.id === id);
     if (!upgrade || !hasSquareConvergenceUpgrade(id)) return false;
     squareConvergenceUpgradeState[id] = false;
+    squareConvergenceUpgradeLevels[id] = 0;
     if (id === 'automatium') {
       squareUpgradeState.skip_cutscene = false;
       squareUpgradeState.auto_upgrade_top_down = false;
@@ -151,6 +155,44 @@ function formatDevValue(value) {
   return fmtPowerBase(value);
 }
 
+function formatNumberTraceEvent(event) {
+  const details = Object.entries(event)
+    .filter(([key]) => key !== 'at' && key !== 'type')
+    .map(([key, value]) => `${key}=${value}`)
+    .join(' · ');
+  return `[+${event.at.toFixed(1)}ms] ${event.type}${details ? ` · ${details}` : ''}`;
+}
+
+function renderNumberTrace() {
+  numberTraceRenderScheduled = false;
+  devConsole.traceTimer = null;
+  if (!devConsole.trace) return;
+
+  devConsole.trace.classList.toggle('hidden', !numberTraceEnabled && numberTraceEvents.length === 0);
+  const visibleEvents = numberTraceEvents.slice(-160);
+  devConsole.trace.textContent = visibleEvents.length
+    ? visibleEvents.map(formatNumberTraceEvent).join('\n')
+    : '추적 이벤트 없음';
+  devConsole.trace.scrollTop = devConsole.trace.scrollHeight;
+}
+
+function scheduleNumberTraceRender() {
+  if (devConsole.traceTimer !== null) return;
+  devConsole.traceTimer = setTimeout(() => renderNumberTrace(), 100);
+}
+
+function runNumberTraceCommand(command) {
+  const match = command.match(/^trace\s+number\s+(on|off|clear)$/i);
+  if (!match) return false;
+
+  const action = match[1].toLowerCase();
+  if (action === 'on') startNumberTrace();
+  else if (action === 'off') stopNumberTrace();
+  else clearNumberTrace();
+  renderNumberTrace();
+  return true;
+}
+
 function clearOverflowForDevCommand() {
   overflowed = false;
   pendingSquarePrestigeValue = null;
@@ -173,9 +215,11 @@ function runDevCommand(commandText) {
   const command = commandText.trim();
   if (!command) return;
 
+  if (runNumberTraceCommand(command)) return;
+
   const match = command.match(/^set\s+(number|sp|cp|lsp|tetrap)\s+(.+)$/i);
   if (!match) {
-    throw new Error('지원 명령어: set number <숫자>, set sp <숫자>, set cp <숫자>, set lsp <숫자>, set tetraP <숫자>');
+    throw new Error('지원 명령어: set number/sp/cp/lsp/tetraP <숫자>, trace number on/off/clear');
   }
 
   const target = match[1].toLowerCase();
@@ -263,8 +307,14 @@ function ensureDevConsoleUi() {
   });
 
   logEl.appendChild(form);
+
+  const trace = document.createElement('pre');
+  trace.className = 'dev-runtime-trace hidden';
+  trace.setAttribute('aria-live', 'off');
+  logEl.appendChild(trace);
   devConsole.form = form;
   devConsole.input = input;
+  devConsole.trace = trace;
 }
 
 function toggleDevConsole() {
@@ -276,8 +326,8 @@ function toggleDevConsole() {
 
   if (devConsole.visible) {
     devConsole.input.focus();
-    logEl.scrollTop = logEl.scrollHeight;
-    log('[DEV] 콘솔 열림: set number <숫자>, set sp <숫자>, set cp <숫자>, set lsp <숫자>, set tetraP <숫자> · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제', true);
+    renderNumberTrace();
+    log('[DEV] 콘솔 열림: set number/sp/cp/lsp/tetraP <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제', true);
   }
 }
 

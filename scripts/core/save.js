@@ -1,4 +1,5 @@
 function saveGame() {
+  const primarySquareDimension = squareDimensionState(0);
   const data = {
     version: SAVE_VERSION,
     num: serializeBaseNumber(),
@@ -12,6 +13,7 @@ function saveGame() {
     percentChargeUpgradeCost: percentChargeUpgradeCost.toString(),
     percentPower,
     percentPowerUpgradeCost: serializeNumberValue(percentPowerUpgradeCost),
+    percentPowerCostCompounding,
 
     autoClickerUnlocked,
     autoClickerPrice: autoClickerPrice.toString(),
@@ -34,6 +36,7 @@ function saveGame() {
       charge: lane.charge,
       power: lane.power,
       powerCost: serializeNumberValue(lane.powerCost),
+      powerCostCompounding: lane.powerCostCompounding,
       autoUnlocked: lane.autoUnlocked,
       autoPrice: lane.autoPrice.toString(),
       autoSpeedLevel: lane.autoSpeedLevel,
@@ -49,17 +52,33 @@ function saveGame() {
     squarePoints: serializeNumberValue(squarePoints),
     squareConvergenceUnlocked,
     squareConvergencePoints: serializeNumberValue(squareConvergencePoints),
-    squareDimensionX: serializeNumberValue(squareDimensionX),
-    squareDimensionY: serializeNumberValue(squareDimensionY),
-    squareDimensionXCost: serializeNumberValue(squareDimensionXCost),
-    squareDimensionYCost: serializeNumberValue(squareDimensionYCost),
-    squareDimensionXGrowthLevel: serializeNumberValue(squareDimensionXGrowthLevel),
-    squareDimensionYGrowthLevel: serializeNumberValue(squareDimensionYGrowthLevel),
-    squareDimensionPowerInterval,
-    squareDimensionPowerIntervalCost: serializeNumberValue(squareDimensionPowerIntervalCost),
-    squareDimensionPowerStrengthUnlocked,
+    squareDimensionX: serializeNumberValue(primarySquareDimension.x),
+    squareDimensionY: serializeNumberValue(primarySquareDimension.y),
+    squareDimensionZ: serializeNumberValue(primarySquareDimension.z),
+    squareDimensionXCost: serializeNumberValue(primarySquareDimension.xCost),
+    squareDimensionYCost: serializeNumberValue(primarySquareDimension.yCost),
+    squareDimensionZCost: serializeNumberValue(primarySquareDimension.zCost),
+    squareDimensionXGrowthLevel: serializeNumberValue(primarySquareDimension.xGrowthLevel),
+    squareDimensionYGrowthLevel: serializeNumberValue(primarySquareDimension.yGrowthLevel),
+    squareDimensionZGrowthLevel: serializeNumberValue(primarySquareDimension.zGrowthLevel),
+    squareDimensionPowerInterval: primarySquareDimension.powerInterval,
+    squareDimensionPowerIntervalCost: serializeNumberValue(primarySquareDimension.powerIntervalCost),
+    squareDimensionPowerStrengthUnlocked: primarySquareDimension.powerStrengthUnlocked,
+    squareDimensions: squareDimensionStates.map(dimension => ({
+      x: serializeNumberValue(dimension.x),
+      y: serializeNumberValue(dimension.y),
+      z: serializeNumberValue(dimension.z),
+      xCost: serializeNumberValue(dimension.xCost),
+      yCost: serializeNumberValue(dimension.yCost),
+      zCost: serializeNumberValue(dimension.zCost),
+      xGrowthLevel: serializeNumberValue(dimension.xGrowthLevel),
+      yGrowthLevel: serializeNumberValue(dimension.yGrowthLevel),
+      zGrowthLevel: serializeNumberValue(dimension.zGrowthLevel),
+      powerInterval: dimension.powerInterval,
+      powerIntervalCost: serializeNumberValue(dimension.powerIntervalCost),
+      powerStrengthUnlocked: dimension.powerStrengthUnlocked
+    })),
     theory: serializeNumberValue(theory),
-    theoryNumberCost: serializeNumberValue(theoryNumberCost),
     theorySquarePointCost: serializeNumberValue(theorySquarePointCost),
     theoryConvergencePointCost: serializeNumberValue(theoryConvergencePointCost),
     theoryCostResourceIndex,
@@ -67,7 +86,9 @@ function saveGame() {
     squareUpgradeState,
     squareBreakthroughLevels,
     squareConvergenceUpgradeState,
+    squareConvergenceUpgradeLevels,
     autoUpgradeEnabled,
+    squareDimensionAutoUpgradeEnabled,
     tetrationUpgradeState,
 
     lsp: serializeNumberValue(lsp),
@@ -96,16 +117,25 @@ function loadGame() {
     const isLegacySave = !Number.isFinite(saveVersion) || saveVersion < 5;
 
     theory = numberValueFromSave(d.theory);
-    theoryNumberCost = approximateNumberFromString(d.theoryNumberCost ?? '') ?? THEORY_NUMBER_BASE_COST;
     theorySquarePointCost = numberValueFromSave(d.theorySquarePointCost, THEORY_SQUARE_POINT_BASE_COST);
     theoryConvergencePointCost = numberValueFromSave(d.theoryConvergencePointCost, THEORY_CONVERGENCE_POINT_BASE_COST);
-    theoryCostResourceIndex = Number(d.theoryCostResourceIndex ?? 0);
-    if (!Number.isInteger(theoryCostResourceIndex) || theoryCostResourceIndex < 0 || theoryCostResourceIndex > 2) {
+    const savedTheoryResourceIndex = Number(d.theoryCostResourceIndex ?? 0);
+    theoryCostResourceIndex = Number.isFinite(saveVersion) && saveVersion >= SAVE_VERSION
+      ? savedTheoryResourceIndex
+      : savedTheoryResourceIndex === 2 ? 1 : 0;
+    if (!Number.isInteger(theoryCostResourceIndex) || theoryCostResourceIndex < 0 || theoryCostResourceIndex > 1) {
       theoryCostResourceIndex = 0;
     }
     loadGeneralizationResearchState(d.generalizationResearchState);
+    squareDimensionAutoUpgradeEnabled = hasGeneralizationResearch('7-3')
+      && (d.squareDimensionAutoUpgradeEnabled ?? true);
+    squareDimensionAutoUpgradeTimer = 0;
 
-    setBaseNumberFromSave(d.num ?? '0');
+    // 잠시 존재했던 누적 버퍼 저장값은 불러올 때 한 번만 실제 숫자에 합쳐 마이그레이션한다.
+    setBaseNumber(addBaseNumbers(
+      numberValueFromSave(d.num),
+      numberValueFromSave(d.numPendingGain)
+    ));
     perClick = BigInt(d.perClick ?? '1');
     perClickUpgradeCost = BigInt(d.perClickUpgradeCost ?? '10');
 
@@ -116,6 +146,7 @@ function loadGame() {
     percentChargeUpgradeCost = BigInt(d.percentChargeUpgradeCost ?? '250');
     percentPower = d.percentPower ?? 1;
     percentPowerUpgradeCost = 40000n;
+    percentPowerCostCompounding = false;
 
     autoClickerUnlocked = d.autoClickerUnlocked ?? false;
     autoClickerPrice = BigInt(d.autoClickerPrice ?? '100');
@@ -144,6 +175,7 @@ function loadGame() {
       lane.charge = saved.charge ?? 0;
       lane.power = saved.power ?? 1;
       lane.powerCost = scaleByLane(40000n, lane.laneNumber);
+      lane.powerCostCompounding = false;
       lane.autoUnlocked = saved.autoUnlocked ?? false;
       lane.autoPrice = BigInt(saved.autoPrice ?? lane.autoPrice.toString());
       lane.autoSpeedLevel = saved.autoSpeedLevel ?? 0;
@@ -177,33 +209,57 @@ function loadGame() {
     squarePoints = numberValueFromSave(d.squarePoints);
     squareConvergenceUnlocked = d.squareConvergenceUnlocked ?? false;
     squareConvergencePoints = numberValueFromSave(d.squareConvergencePoints);
-    squareDimensionX = numberValueFromSave(d.squareDimensionX, 500n);
-    squareDimensionY = numberValueFromSave(d.squareDimensionY, 600n);
-    squareDimensionXCost = numberValueFromSave(d.squareDimensionXCost, 1n);
-    squareDimensionYCost = numberValueFromSave(d.squareDimensionYCost, 1n);
-    squareDimensionXGrowthLevel = numberValueFromSave(d.squareDimensionXGrowthLevel, 1n);
-    squareDimensionYGrowthLevel = numberValueFromSave(d.squareDimensionYGrowthLevel, 1n);
-    squareDimensionXGrowthCarry = 0;
-    squareDimensionYGrowthCarry = 0;
-    const savedSquareDimensionInterval = Number(
-      d.squareDimensionPowerInterval ?? SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL
-    );
-    squareDimensionPowerInterval = Number.isFinite(savedSquareDimensionInterval)
-      ? Math.min(
-        SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL,
-        Math.max(SQUARE_DIMENSION_MIN_PRODUCTION_INTERVAL, Math.floor(savedSquareDimensionInterval))
-      )
-      : SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL;
-    squareDimensionPowerIntervalCost = numberValueFromSave(
-      d.squareDimensionPowerIntervalCost,
-      SQUARE_DIMENSION_POWER_TIME_BASE_COST
-    );
-    squareDimensionPowerStrengthUnlocked = d.squareDimensionPowerStrengthUnlocked === true;
+    for (let index = 0; index < squareDimensionStates.length; index++) {
+      const dimension = squareDimensionState(index);
+      const savedDimension = d.squareDimensions?.[index] ?? (index === 0 ? {
+        x: d.squareDimensionX,
+        y: d.squareDimensionY,
+        z: d.squareDimensionZ,
+        xCost: d.squareDimensionXCost,
+        yCost: d.squareDimensionYCost,
+        zCost: d.squareDimensionZCost,
+        xGrowthLevel: d.squareDimensionXGrowthLevel,
+        yGrowthLevel: d.squareDimensionYGrowthLevel,
+        zGrowthLevel: d.squareDimensionZGrowthLevel,
+        powerInterval: d.squareDimensionPowerInterval,
+        powerIntervalCost: d.squareDimensionPowerIntervalCost,
+        powerStrengthUnlocked: d.squareDimensionPowerStrengthUnlocked
+      } : null);
+      if (!savedDimension) continue;
+
+      dimension.x = numberValueFromSave(savedDimension.x, dimension.x);
+      dimension.y = numberValueFromSave(savedDimension.y, dimension.y);
+      dimension.z = numberValueFromSave(savedDimension.z, dimension.z);
+      dimension.xCost = numberValueFromSave(savedDimension.xCost, dimension.xCost);
+      dimension.yCost = numberValueFromSave(savedDimension.yCost, dimension.yCost);
+      dimension.zCost = numberValueFromSave(savedDimension.zCost, dimension.zCost);
+      dimension.xGrowthLevel = numberValueFromSave(savedDimension.xGrowthLevel, dimension.xGrowthLevel);
+      dimension.yGrowthLevel = numberValueFromSave(savedDimension.yGrowthLevel, dimension.yGrowthLevel);
+      dimension.zGrowthLevel = numberValueFromSave(savedDimension.zGrowthLevel, dimension.zGrowthLevel);
+      dimension.xGrowthCarry = 0;
+      dimension.yGrowthCarry = 0;
+      dimension.zGrowthCarry = 0;
+
+      const savedSquareDimensionInterval = Number(
+        savedDimension.powerInterval ?? SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL
+      );
+      dimension.powerInterval = Number.isFinite(savedSquareDimensionInterval)
+        ? Math.min(
+          SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL,
+          Math.max(SQUARE_DIMENSION_MIN_PRODUCTION_INTERVAL, Math.floor(savedSquareDimensionInterval))
+        )
+        : SQUARE_DIMENSION_BASE_PRODUCTION_INTERVAL;
+      dimension.powerIntervalCost = numberValueFromSave(
+        savedDimension.powerIntervalCost,
+        dimension.powerIntervalCost
+      );
+      dimension.powerStrengthUnlocked = savedDimension.powerStrengthUnlocked === true;
+    }
       resetSquareUpgradeState();
       for (const upgrade of SQUARE_UPGRADES) {
         squareUpgradeState[upgrade.id] = d.squareUpgradeState?.[upgrade.id] === true;
       }
-      loadSquareConvergenceUpgradeState(d.squareConvergenceUpgradeState);
+      loadSquareConvergenceUpgradeState(d.squareConvergenceUpgradeState, d.squareConvergenceUpgradeLevels);
       if (
         isPositiveNumberValue(squareConvergencePoints) ||
         Object.values(squareConvergenceUpgradeState).some(value => value)
@@ -264,19 +320,46 @@ function loadGame() {
     if (autoClickerSpeed < autoClickerMinSpeed()) autoClickerSpeed = autoClickerMinSpeed();
     if (hasSquareBreakthrough('solid_start')) {
       ensureBaseNumberAtLeast(2000000n);
-      maybeUnlockPercent();
     }
+    // 저장 당시 플래그가 오래된 세이브와 어긋나도 실제 해금 조건을 다시 판정한다.
+    // 높은 수를 가진 세이브가 퍼센트 잠금 상태로 복원되면 자동 생산이 멈춘다.
+    maybeUnlockPercent();
     if (hasSquareBreakthrough('overcharge')) percentChargeNeeded = 1;
     if (percentChargeNeeded < minimumPercentChargeNeeded()) percentChargeNeeded = minimumPercentChargeNeeded();
     percentCharge = Math.min(percentCharge, percentChargeNeeded);
     percentPower = normalizedPercentPower(percentPower);
-    percentPowerUpgradeCost = percentPowerUpgradeCostForNextLevel(percentPower);
+    const savedPercentPowerCost = numberValueFromSave(d.percentPowerUpgradeCost);
+    const savedPercentPowerCostIsCompounding = d.percentPowerCostCompounding === true;
+    if (savedPercentPowerCostIsCompounding && isPositiveNumberValue(savedPercentPowerCost)) {
+      percentPowerCostCompounding = true;
+      percentPowerUpgradeCost = savedPercentPowerCost;
+    } else {
+      const rawPercentPowerCost = percentPowerUpgradeCostForNextLevel(percentPower);
+      const adjustedPercentPowerCost = discountedCost(rawPercentPowerCost);
+      percentPowerCostCompounding = compareNumberValues(adjustedPercentPowerCost, powerOfTenValue(500)) >= 0;
+      percentPowerUpgradeCost = percentPowerCostCompounding
+        ? nextCompoundingPercentPowerCost(adjustedPercentPowerCost)
+        : rawPercentPowerCost;
+    }
     for (const lane of extraPercentLanes) {
       lane.power = normalizedPercentPower(lane.power);
-      lane.powerCost = percentPowerUpgradeCostForNextLevel(
+      const savedLanePowerCost = numberValueFromSave(d.extraPercentLanes?.find(item => item.laneNumber === lane.laneNumber)?.powerCost);
+      const savedLanePowerCostIsCompounding = d.extraPercentLanes?.find(item => item.laneNumber === lane.laneNumber)?.powerCostCompounding === true;
+      if (savedLanePowerCostIsCompounding && isPositiveNumberValue(savedLanePowerCost)) {
+        lane.powerCostCompounding = true;
+        lane.powerCost = savedLanePowerCost;
+        continue;
+      }
+
+      const rawLanePowerCost = percentPowerUpgradeCostForNextLevel(
         lane.power,
         scaleByLane(40000n, lane.laneNumber)
       );
+      const adjustedLanePowerCost = discountedCost(rawLanePowerCost);
+      lane.powerCostCompounding = compareNumberValues(adjustedLanePowerCost, powerOfTenValue(500)) >= 0;
+      lane.powerCost = lane.powerCostCompounding
+        ? nextCompoundingPercentPowerCost(adjustedLanePowerCost)
+        : rawLanePowerCost;
     }
     syncPermanentPercentLanes();
 
