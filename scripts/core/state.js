@@ -446,6 +446,15 @@ const GENERALIZATION_RESEARCHES = [
     theoryCost: 8n
   },
   {
+    id: '5-2',
+    column: 5,
+    row: 2,
+    title: '제곱 포인트 획득 공식 개선',
+    description: 'SP 획득량을 [수^(1/2400) / 종료수] 공식으로 계산합니다. 최소 획득량은 1 SP입니다.',
+    parents: ['4-2'],
+    theoryCost: 6n
+  },
+  {
     id: '6-1',
     column: 6,
     row: 1,
@@ -1191,9 +1200,16 @@ function squarePointGainForValue(value) {
   const requirement = squarePointExchangeRequirement();
   if (compareNumberValues(value, requirement) < 0) return 0n;
 
-  const ratio = divideNumberValue(value, requirement);
-  const logarithmicGain = NumberMath.max(NumberMath.log10(ratio), 1n);
-  return multiplyNumberValue(squarePointGain(), logarithmicGain);
+  const gain = hasGeneralizationResearch('5-2')
+    ? NumberMath.max(
+      divideNumberValue(NumberMath.power(value, 1 / 2400), gameEndValue()),
+      1n
+    )
+    : NumberMath.max(
+      NumberMath.log10(divideNumberValue(value, requirement)),
+      1n
+    );
+  return multiplyNumberValue(squarePointGain(), gain);
 }
 
 function squarePointExchangeRequirement() {
