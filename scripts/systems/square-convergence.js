@@ -287,7 +287,7 @@ function renderGeneralizationBoard() {
   generalizationResetCostEl.textContent = `비용: ${fmtPowerBase(generalizationResetCost)} CP`;
   generalizationResetBtn.disabled = !canResetGeneralizationResearch();
   generalizationResetBtn.title = canResetGeneralizationResearch()
-    ? '모든 일반화 연구를 초기화합니다'
+    ? '모든 일반화 연구를 초기화하고 사용한 이론을 반환합니다'
     : hasAnyGeneralizationResearch()
       ? `CP ${fmtPowerBase(generalizationResetCost)} 필요`
       : '초기화할 연구가 없습니다';

@@ -2227,10 +2227,17 @@ function canResetGeneralizationResearch() {
 function resetGeneralizationResearch() {
   if (!canResetGeneralizationResearch()) return false;
 
+  let refundedTheory = 0n;
+  for (const research of GENERALIZATION_RESEARCHES) {
+    if (hasGeneralizationResearch(research.id)) {
+      refundedTheory = addBaseNumbers(refundedTheory, research.theoryCost);
+    }
+  }
   squareConvergencePoints = subtractNumberValues(squareConvergencePoints, generalizationResetCost);
+  theory = addBaseNumbers(theory, refundedTheory);
   resetGeneralizationResearchState();
   generalizationResetCost = multiplyNumberValue(generalizationResetCost, 2n);
-  log(`일반화 연구를 초기화했습니다. 다음 초기화 비용: ${fmt(generalizationResetCost)} CP`, true);
+  log(`일반화 연구를 초기화했습니다. ${fmt(refundedTheory)} 이론을 반환했습니다. 다음 초기화 비용: ${fmt(generalizationResetCost)} CP`, true);
   render();
   return true;
 }
