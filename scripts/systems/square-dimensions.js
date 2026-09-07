@@ -269,19 +269,21 @@ function renderSquareDimensionCard(ui, index) {
 function renderSquareDimensionView() {
   if (!squareDimensionsViewBtn || !squareUpgradesViewPanel || !squareDimensionsViewPanel) return;
 
-  const available = squareDimensionAvailable();
-  squareDimensionsViewBtn.classList.toggle('hidden', !available);
-  if (!available && activeSquareView === 'dimensions') activeSquareView = 'upgrades';
+  const dimensionsAvailable = squareDimensionAvailable();
+  const productionAvailable = dimensionsAvailable || divergerAvailable();
+  squareDimensionsViewBtn.classList.toggle('hidden', !productionAvailable);
+  if (!productionAvailable && activeSquareView === 'dimensions') activeSquareView = 'upgrades';
 
-  const showingDimensions = available && activeSquareView === 'dimensions';
-  squareUpgradesViewPanel.classList.toggle('hidden', showingDimensions);
-  squareDimensionsViewPanel.classList.toggle('hidden', !showingDimensions);
-  squareUpgradesViewBtn.classList.toggle('active', !showingDimensions);
-  squareDimensionsViewBtn.classList.toggle('active', showingDimensions);
-  squareUpgradesViewBtn.setAttribute('aria-selected', String(!showingDimensions));
-  squareDimensionsViewBtn.setAttribute('aria-selected', String(showingDimensions));
+  const showingProduction = productionAvailable && activeSquareView === 'dimensions';
+  squareUpgradesViewPanel.classList.toggle('hidden', showingProduction);
+  squareDimensionsViewPanel.classList.toggle('hidden', !showingProduction);
+  squareUpgradesViewBtn.classList.toggle('active', !showingProduction);
+  squareDimensionsViewBtn.classList.toggle('active', showingProduction);
+  squareUpgradesViewBtn.setAttribute('aria-selected', String(!showingProduction));
+  squareDimensionsViewBtn.setAttribute('aria-selected', String(showingProduction));
 
-  if (!available) {
+  if (typeof renderProductionSubView === 'function') renderProductionSubView();
+  if (!dimensionsAvailable) {
     squareDimensionAdditional?.classList.add('hidden');
     return;
   }

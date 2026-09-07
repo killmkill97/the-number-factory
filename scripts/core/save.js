@@ -78,9 +78,29 @@ function saveGame() {
       powerIntervalCost: serializeNumberValue(dimension.powerIntervalCost),
       powerStrengthUnlocked: dimension.powerStrengthUnlocked
     })),
+    divergerN: serializeNumberValue(divergerN),
+    divergerPower: serializeNumberValue(divergerPower),
+    divergerA: serializeNumberValue(divergerA),
+    divergerB,
+    divergerC,
+    divergerInterval,
+    divergerATheoryCost: serializeNumberValue(divergerATheoryCost),
+    divergerACpCost: serializeNumberValue(divergerACpCost),
+    divergerBTheoryCost: serializeNumberValue(divergerBTheoryCost),
+    divergerBCpCost: serializeNumberValue(divergerBCpCost),
+    divergerCTheoryCost: serializeNumberValue(divergerCTheoryCost),
+    divergerCCpCost: serializeNumberValue(divergerCCpCost),
+    divergerALevel,
+    divergerBLevel,
+    divergerCLevel,
+    divergerSpeedLevel,
+    divergerSpeedTheoryCost: serializeNumberValue(divergerSpeedTheoryCost),
+    divergerSpeedCpCost: serializeNumberValue(divergerSpeedCpCost),
+    divergerUpgradeHistory,
     theory: serializeNumberValue(theory),
     theorySquarePointCost: serializeNumberValue(theorySquarePointCost),
     theoryConvergencePointCost: serializeNumberValue(theoryConvergencePointCost),
+    generalizationResetCost: serializeNumberValue(generalizationResetCost),
     theoryCostResourceIndex,
     generalizationResearchState,
     squareUpgradeState,
@@ -119,14 +139,64 @@ function loadGame() {
     theory = numberValueFromSave(d.theory);
     theorySquarePointCost = numberValueFromSave(d.theorySquarePointCost, THEORY_SQUARE_POINT_BASE_COST);
     theoryConvergencePointCost = numberValueFromSave(d.theoryConvergencePointCost, THEORY_CONVERGENCE_POINT_BASE_COST);
+    generalizationResetCost = numberValueFromSave(d.generalizationResetCost, GENERALIZATION_RESET_BASE_COST);
     const savedTheoryResourceIndex = Number(d.theoryCostResourceIndex ?? 0);
-    theoryCostResourceIndex = Number.isFinite(saveVersion) && saveVersion >= SAVE_VERSION
+    theoryCostResourceIndex = Number.isFinite(saveVersion) && saveVersion >= 34
       ? savedTheoryResourceIndex
       : savedTheoryResourceIndex === 2 ? 1 : 0;
     if (!Number.isInteger(theoryCostResourceIndex) || theoryCostResourceIndex < 0 || theoryCostResourceIndex > 1) {
       theoryCostResourceIndex = 0;
     }
     loadGeneralizationResearchState(d.generalizationResearchState);
+    divergerN = divergerNumberValueFromSave(d.divergerN, 1n);
+    divergerPower = divergerNumberValueFromSave(d.divergerPower, 0n);
+    divergerA = numberValueFromSave(d.divergerA, 1n);
+    const savedDivergerB = Number(d.divergerB ?? 1.05);
+    divergerB = Number.isFinite(savedDivergerB) && savedDivergerB >= 1.05 ? savedDivergerB : 1.05;
+    const savedDivergerC = Number(d.divergerC ?? 0);
+    divergerC = Number.isFinite(savedDivergerC)
+      ? Math.min(DIVERGER_C_MAX, Math.max(0, Math.floor(savedDivergerC)))
+      : 0;
+    const savedDivergerInterval = Number(d.divergerInterval ?? DIVERGER_BASE_INTERVAL);
+    divergerInterval = Number.isFinite(savedDivergerInterval)
+      ? Math.min(DIVERGER_BASE_INTERVAL, Math.max(divergerMinInterval(), savedDivergerInterval))
+      : DIVERGER_BASE_INTERVAL;
+    divergerATheoryCost = numberValueFromSave(d.divergerATheoryCost, 4n);
+    divergerACpCost = numberValueFromSave(d.divergerACpCost, 20n);
+    divergerBTheoryCost = numberValueFromSave(d.divergerBTheoryCost, 8n);
+    divergerBCpCost = numberValueFromSave(d.divergerBCpCost, 32n);
+    divergerCTheoryCost = numberValueFromSave(d.divergerCTheoryCost, 12n);
+    divergerCCpCost = numberValueFromSave(d.divergerCCpCost, 48n);
+    const savedDivergerALevel = Number(d.divergerALevel ?? d.divergerUpgradeHistory?.a?.length ?? 0);
+    const savedDivergerBLevel = Number(d.divergerBLevel ?? d.divergerUpgradeHistory?.b?.length ?? 0);
+    const savedDivergerCLevel = Number(d.divergerCLevel ?? d.divergerUpgradeHistory?.c?.length ?? divergerC);
+    const savedDivergerSpeedLevel = Number(d.divergerSpeedLevel ?? d.divergerUpgradeHistory?.speed?.length);
+    divergerALevel = Number.isFinite(savedDivergerALevel) ? Math.max(0, Math.floor(savedDivergerALevel)) : 0;
+    divergerBLevel = Number.isFinite(savedDivergerBLevel) ? Math.max(0, Math.floor(savedDivergerBLevel)) : 0;
+    divergerCLevel = Number.isFinite(savedDivergerCLevel)
+      ? Math.min(DIVERGER_C_MAX, Math.max(0, Math.floor(savedDivergerCLevel)))
+      : divergerC;
+    divergerSpeedLevel = Number.isFinite(savedDivergerSpeedLevel)
+      ? Math.max(0, Math.floor(savedDivergerSpeedLevel))
+      : divergerSpeedLevelFromInterval(divergerInterval);
+    divergerSpeedTheoryCost = numberValueFromSave(
+      d.divergerSpeedTheoryCost,
+      divergerSpeedTheoryCostAtLevel(divergerSpeedLevel)
+    );
+    divergerSpeedCpCost = numberValueFromSave(
+      d.divergerSpeedCpCost,
+      divergerSpeedCpCostAtLevel(divergerSpeedLevel)
+    );
+    loadDivergerUpgradeHistory(d.divergerUpgradeHistory, {
+      a: divergerALevel,
+      b: divergerBLevel,
+      c: divergerCLevel,
+      speed: divergerSpeedLevel
+    });
+    divergerTimer = 0;
+    divergerGraphSamples.length = 0;
+    divergerGraphScaleMinimum = null;
+    divergerGraphScaleMaximum = null;
     squareDimensionAutoUpgradeEnabled = hasGeneralizationResearch('7-3')
       && (d.squareDimensionAutoUpgradeEnabled ?? true);
     squareDimensionAutoUpgradeTimer = 0;

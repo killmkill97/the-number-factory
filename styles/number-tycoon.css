@@ -239,6 +239,22 @@
     border-color: #a97dd4;
     color: #c99dff;
   }
+  .production-view-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin: 0 0 12px;
+  }
+  .production-view-tabs button {
+    min-height: 36px;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+  .production-view-tabs button.active {
+    border-color: #c99dff;
+    color: #c99dff;
+    background: #1d1528;
+  }
   .square-dimension-display {
     margin-bottom: 18px;
   }
@@ -326,6 +342,107 @@
   .square-dimension-instance .section-title {
     margin-bottom: 0;
   }
+  .diverger-panel {
+    display: grid;
+    gap: 14px;
+  }
+  .diverger-display {
+    position: relative;
+    overflow: hidden;
+    min-height: 250px;
+    display: grid;
+    align-content: start;
+    gap: 7px;
+    padding: 22px 18px 18px;
+  }
+  .diverger-display .value,
+  .diverger-display .sub {
+    position: relative;
+    z-index: 1;
+  }
+  .diverger-display .value {
+    color: #d6f8ff;
+    text-shadow: 0 0 12px rgba(79, 209, 255, 0.24);
+  }
+  .diverger-graph {
+    position: absolute;
+    inset: auto 0 0;
+    height: 128px;
+    overflow: hidden;
+    border-top: 1px solid rgba(79, 209, 255, 0.25);
+    background: rgba(5, 22, 31, 0.72);
+  }
+  .diverger-graph-label {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    z-index: 1;
+    color: rgba(164, 235, 255, 0.68);
+    font-size: 9px;
+    letter-spacing: 1px;
+    pointer-events: none;
+  }
+  .diverger-graph-screen {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .diverger-graph-grid {
+    fill: none;
+    stroke: rgba(79, 209, 255, 0.16);
+    stroke-width: 0.35;
+    vector-effect: non-scaling-stroke;
+  }
+  .diverger-graph-line {
+    fill: none;
+    stroke: #59dafd;
+    stroke-width: 0.8;
+    vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 0 3px rgba(89, 218, 253, 0.64));
+  }
+  .diverger-stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .diverger-stats div {
+    min-width: 0;
+    padding: 9px 8px;
+    border: 1px solid #284657;
+    border-radius: 4px;
+    background: #101c25;
+  }
+  .diverger-stats span,
+  .diverger-stats strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .diverger-stats span {
+    margin-bottom: 4px;
+    color: #92b8c8;
+    font-size: 10px;
+  }
+  .diverger-stats strong {
+    color: #d6f8ff;
+    font-size: 13px;
+    font-weight: normal;
+  }
+  .diverger-upgrades {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .diverger-upgrades button {
+    min-height: 72px;
+    border-color: #315d70;
+    text-align: left;
+  }
+  .diverger-upgrades button:not(:disabled):hover {
+    border-color: #71dfff;
+    color: #d6f8ff;
+  }
   .square-upgrade-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -371,6 +488,12 @@
       grid-template-columns: 1fr;
     }
     .square-dimension-upgrades {
+      grid-template-columns: 1fr;
+    }
+    .diverger-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .diverger-upgrades {
       grid-template-columns: 1fr;
     }
   }
@@ -641,6 +764,29 @@
     border-color: #a97dd4;
     color: #c99dff;
     box-shadow: inset 0 0 0 1px rgba(169, 125, 212, 0.35);
+  }
+  .theory-research-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 52px;
+    gap: 6px;
+    align-items: stretch;
+  }
+  .theory-research-actions > button {
+    margin: 0;
+  }
+  .theory-research-actions > button:last-child {
+    width: 52px;
+    min-width: 52px;
+    height: 52px;
+    aspect-ratio: 1;
+    align-self: start;
+    padding: 6px;
+  }
+  .generalization-reset-btn {
+    width: 100%;
+    margin-top: 8px;
+    color: #ffb4b4;
+    border-color: #9b4d5c;
   }
   .manual-exchange-dock {
     position: fixed;

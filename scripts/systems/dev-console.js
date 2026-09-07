@@ -109,6 +109,23 @@ function removeDevUpgrade(kind, id) {
   return false;
 }
 
+function handleDivergerDevUndo(event) {
+  if (!devConsole.visible || event.type !== 'contextmenu' || !event.shiftKey) return;
+
+  const target = event.target.closest?.('[data-diverger-upgrade-id]');
+  if (!target) return;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const id = target.dataset.divergerUpgradeId;
+  if (removeDivergerUpgrade(id)) {
+    log(`[DEV] diverger ${id} 한 단계 취소`, true);
+    render();
+  }
+}
+
+document.addEventListener('contextmenu', handleDivergerDevUndo, true);
+
 function handleDevUpgradePointer(event) {
   if (!devConsole.visible) return;
 
@@ -217,9 +234,9 @@ function runDevCommand(commandText) {
 
   if (runNumberTraceCommand(command)) return;
 
-  const match = command.match(/^set\s+(number|sp|cp|lsp|tetrap)\s+(.+)$/i);
+  const match = command.match(/^set\s+(number|sp|cp|lsp|tetrap|theory)\s+(.+)$/i);
   if (!match) {
-    throw new Error('지원 명령어: set number/sp/cp/lsp/tetraP <숫자>, trace number on/off/clear');
+    throw new Error('지원 명령어: set number/sp/cp/lsp/tetraP/theory <숫자>, trace number on/off/clear');
   }
 
   const target = match[1].toLowerCase();
@@ -260,6 +277,18 @@ function runDevCommand(commandText) {
     return;
   }
 
+  if (target === 'theory') {
+    theory = value;
+    if (isPositiveNumberValue(value)) {
+      squareUnlocked = true;
+      squareConvergenceUnlocked = true;
+      setChapter('square-convergence');
+    }
+    render();
+    log(`[DEV] 이론 = ${formatDevValue(value)}`, true);
+    return;
+  }
+
   if (target === 'lsp') {
     lsp = value;
     showTetrationForDevCommand();
@@ -291,7 +320,7 @@ function ensureDevConsoleUi() {
   input.type = 'text';
   input.autocomplete = 'off';
   input.spellcheck = false;
-  input.placeholder = 'set cp 10';
+  input.placeholder = 'set theory 10';
   input.setAttribute('aria-label', '개발자 명령어');
 
   form.append(prompt, input);
@@ -327,7 +356,7 @@ function toggleDevConsole() {
   if (devConsole.visible) {
     devConsole.input.focus();
     renderNumberTrace();
-    log('[DEV] 콘솔 열림: set number/sp/cp/lsp/tetraP <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제', true);
+    log('[DEV] 콘솔 열림: set number/sp/cp/lsp/tetraP/theory <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 발산자 Shift+우클릭=한 단계 취소', true);
   }
 }
 

@@ -275,10 +275,22 @@ function renderTheoryResourceSelector() {
 
 function renderGeneralizationBoard() {
   theoryValue.textContent = `${fmt(theory)} 이론`;
-  theorySubValue.textContent = '선택한 화폐로 이론 +1 · 비용 상승폭 SP ×10 / CP ×2';
+  theorySubValue.textContent = '선택한 화폐로 이론 +1 · 비용 상승폭 SP ×10 (e300부터 ×1e100) / CP ×2';
   renderTheoryResourceSelector();
   renderGeneralizationResearchBoard();
-  researchTheoryBtn.disabled = !canResearchTheory();
+  const maximumPurchases = theoryMaximumPurchases();
+  researchTheoryBtn.disabled = maximumPurchases <= 0;
+  researchTheoryMaxBtn.disabled = maximumPurchases <= 0;
+  researchTheoryMaxBtn.title = maximumPurchases > 0
+    ? `이론 ${maximumPurchases}개를 한 번에 연구`
+    : '구매 가능한 이론이 없습니다';
+  generalizationResetCostEl.textContent = `비용: ${fmtPowerBase(generalizationResetCost)} CP`;
+  generalizationResetBtn.disabled = !canResetGeneralizationResearch();
+  generalizationResetBtn.title = canResetGeneralizationResearch()
+    ? '모든 일반화 연구를 초기화합니다'
+    : hasAnyGeneralizationResearch()
+      ? `CP ${fmtPowerBase(generalizationResetCost)} 필요`
+      : '초기화할 연구가 없습니다';
   renderConvergenceView();
 }
 
@@ -310,4 +322,6 @@ generalizationViewBtn.addEventListener('click', () => setConvergenceView('genera
 theorySquarePointResourceBtn.addEventListener('click', () => setTheoryCostResource(0));
 theoryConvergencePointResourceBtn.addEventListener('click', () => setTheoryCostResource(1));
 researchTheoryBtn.addEventListener('click', researchTheory);
+researchTheoryMaxBtn.addEventListener('click', researchTheoryMaximum);
+generalizationResetBtn.addEventListener('click', resetGeneralizationResearch);
 manualConvergenceExchangeBtn.addEventListener('click', exchangeSquareConvergencePointsManually);

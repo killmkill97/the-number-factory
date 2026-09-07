@@ -56,9 +56,38 @@ const squareDimensionStates = [
   makeSquareDimensionState(1n),
   makeSquareDimensionState(2n)
 ];
+let divergerN = 1n;
+let divergerPower = 0n;
+let divergerA = 1n;
+let divergerB = 1.05;
+let divergerC = 0;
+let divergerInterval = DIVERGER_BASE_INTERVAL;
+let divergerTimer = 0;
+let divergerATheoryCost = 4n;
+let divergerACpCost = 20n;
+let divergerBTheoryCost = 8n;
+let divergerBCpCost = 32n;
+let divergerCTheoryCost = 12n;
+let divergerCCpCost = 48n;
+let divergerSpeedTheoryCost = 1n;
+let divergerSpeedCpCost = 10000n;
+let divergerALevel = 0;
+let divergerBLevel = 0;
+let divergerCLevel = 0;
+let divergerSpeedLevel = 0;
+const divergerUpgradeHistory = {
+  a: [],
+  b: [],
+  c: [],
+  speed: []
+};
+const divergerGraphSamples = [];
+let divergerGraphScaleMinimum = null;
+let divergerGraphScaleMaximum = null;
 let theory = 0n;
 let theorySquarePointCost = THEORY_SQUARE_POINT_BASE_COST;
 let theoryConvergencePointCost = THEORY_CONVERGENCE_POINT_BASE_COST;
+let generalizationResetCost = GENERALIZATION_RESET_BASE_COST;
 let theoryCostResourceIndex = 0;
 let pendingSquarePrestigeValue = null;
 let pendingSquarePrestigePoints = null;
@@ -286,6 +315,378 @@ function minimumNumberValue(left, right) {
   return NumberMath.min(left, right);
 }
 
+function divergerAvailable() {
+  return hasGeneralizationResearch('3-2');
+}
+
+function divergerMinInterval() {
+  return hasGeneralizationResearch('4-3')
+    ? DIVERGER_RESEARCH_MIN_INTERVAL
+    : DIVERGER_MIN_INTERVAL;
+}
+
+function divergerDenominator() {
+  return BigInt(Math.max(1, 100 - divergerC));
+}
+
+function divergerLog10(value) {
+  const scientific = NumberMath.toScientific(value);
+  return scientific ? Math.log10(scientific.mantissa) + scientific.exponent : -Infinity;
+}
+
+function divergerProductionLog10(n = divergerN) {
+  const nLogarithm = divergerLog10(n);
+  const aLogarithm = divergerLog10(divergerA);
+  if (!Number.isFinite(nLogarithm) || !Number.isFinite(aLogarithm)) return -Infinity;
+  if (hasGeneralizationResearch('5-3')) {
+    return (aLogarithm * 2)
+      + (nLogarithm * divergerB * divergerC)
+      - Math.log10(Number(divergerDenominator()));
+  }
+  return aLogarithm + (nLogarithm * divergerB) - Math.log10(Number(divergerDenominator()));
+}
+
+function divergerScientificValueFromLog10(logarithm) {
+  if (!Number.isFinite(logarithm)) return 0n;
+  const exponent = Math.floor(logarithm);
+  return NumberMath.normalize(10 ** (logarithm - exponent), exponent) ?? 0n;
+}
+
+function divergerNumberValueFromSave(rawValue, fallback = 0n) {
+  const parsed = numberValueFromSave(rawValue, fallback);
+  if (isPositiveNumberValue(parsed)) return parsed;
+
+  const matched = String(rawValue ?? '').trim().match(/^(\d+(?:\.\d+)?)e(-\d+)$/i);
+  if (!matched) return parsed;
+  const mantissa = Number(matched[1]);
+  const exponent = Number(matched[2]);
+  return NumberMath.normalize(mantissa, exponent) ?? fallback;
+}
+
+// NumberMath normally returns plain integers below e33. Diverger power keeps a
+// scientific mantissa so its fractional early-game production is not discarded.
+function addDivergerPower(left, right) {
+  const leftScientific = NumberMath.toScientific(left);
+  const rightScientific = NumberMath.toScientific(right);
+  if (!leftScientific) return rightScientific ?? 0n;
+  if (!rightScientific) return leftScientific;
+
+  const high = leftScientific.exponent >= rightScientific.exponent ? leftScientific : rightScientific;
+  const low = high === leftScientific ? rightScientific : leftScientific;
+  const exponentGap = high.exponent - low.exponent;
+  if (exponentGap >= 12) return high;
+  return NumberMath.normalize(
+    high.mantissa + (low.mantissa * (10 ** -exponentGap)),
+    high.exponent
+  ) ?? high;
+}
+
+function divergerPowerSoftcapMultiplier() {
+  if (!divergerAvailable() || compareNumberValues(divergerPower, 0n) <= 0) return 1n;
+
+  const powerLogarithm = divergerLog10(divergerPower);
+  if (!Number.isFinite(powerLogarithm)) return 1n;
+
+  // log10(4^((log10(D)^2)/3)) is (log10(D)^2)/3 * log10(4). Keep the result in
+  // logarithmic form so the huge D value never has to become a JS number.
+  const logarithm = ((powerLogarithm * powerLogarithm) / 3) * Math.log10(4);
+  if (!Number.isFinite(logarithm)) return NumberMath.normalize(1, Number.MAX_VALUE);
+  const resultExponent = Math.floor(logarithm);
+  const resultMantissa = 10 ** (logarithm - resultExponent);
+  const roundedMantissa = Math.abs(resultMantissa - Math.round(resultMantissa)) < 1e-12
+    ? Math.round(resultMantissa)
+    : resultMantissa;
+  return NumberMath.normalize(
+    roundedMantissa,
+    resultExponent
+  ) ?? 1n;
+}
+
+function divergerCanAfford(theoryCost, cpCost) {
+  return divergerAvailable()
+    && compareNumberValues(theory, theoryCost) >= 0
+    && compareNumberValues(squareConvergencePoints, cpCost) >= 0;
+}
+
+function scaleDivergerIntegerCost(cost, numerator, denominator, rounding = 'floor') {
+  if (!isApproximateNumber(cost)) {
+    let scaled = BigInt(cost) * BigInt(numerator);
+    const divisor = BigInt(denominator);
+    if (rounding === 'round') scaled += divisor / 2n;
+    return scaled / divisor;
+  }
+
+  return divideNumberValue(multiplyNumberValue(cost, BigInt(numerator)), BigInt(denominator));
+}
+
+function applyDivergerAUpgrade(paid = true) {
+  divergerA = multiplyNumberValue(divergerA, 2n);
+  divergerATheoryCost = scaleDivergerIntegerCost(divergerATheoryCost, 5, 4, 'round');
+  divergerACpCost = multiplyNumberValue(divergerACpCost, 4n);
+  divergerALevel += 1;
+  divergerUpgradeHistory.a.push(paid);
+}
+
+function applyDivergerBUpgrade(paid = true) {
+  divergerB += divergerBUpgradeGain(divergerB);
+  divergerBTheoryCost = scaleDivergerIntegerCost(divergerBTheoryCost, 3, 2);
+  divergerBCpCost = multiplyNumberValue(divergerBCpCost, 8n);
+  divergerBLevel += 1;
+  divergerUpgradeHistory.b.push(paid);
+}
+
+function divergerBUpgradeGain(value) {
+  return Math.log2(value) * 1.5;
+}
+
+function applyDivergerCUpgrade(paid = true) {
+  divergerC = Math.min(DIVERGER_C_MAX, divergerC + 1);
+  divergerCTheoryCost = multiplyNumberValue(divergerCTheoryCost, 2n);
+  divergerCCpCost = multiplyNumberValue(divergerCCpCost, 16n);
+  divergerCLevel += 1;
+  divergerUpgradeHistory.c.push(paid);
+}
+
+function divergerIntervalAtLevel(level) {
+  const minimumInterval = divergerMinInterval();
+  let interval = DIVERGER_BASE_INTERVAL;
+  for (let index = 0; index < level; index++) {
+    interval = Math.max(minimumInterval, interval - Math.log10(interval));
+  }
+  return interval;
+}
+
+function applyDivergerSpeedUpgrade(paid = false) {
+  divergerInterval = Math.max(
+    divergerMinInterval(),
+    divergerInterval - Math.log10(divergerInterval)
+  );
+  divergerSpeedTheoryCost = multiplyNumberValue(divergerSpeedTheoryCost, 2n);
+  divergerSpeedCpCost = multiplyNumberValue(divergerSpeedCpCost, 4n);
+  divergerSpeedLevel += 1;
+  divergerUpgradeHistory.speed.push(paid);
+}
+
+function divergerSpeedLevelFromInterval(value) {
+  const target = Number(value);
+  const minimumInterval = divergerMinInterval();
+  if (!Number.isFinite(target) || target >= DIVERGER_BASE_INTERVAL) return 0;
+
+  let interval = DIVERGER_BASE_INTERVAL;
+  for (let level = 1; level <= 100000; level++) {
+    interval = Math.max(minimumInterval, interval - Math.log10(interval));
+    const tolerance = 1e-9 * Math.max(1, Math.abs(target));
+    if (Math.abs(interval - target) <= tolerance) return level;
+    if (interval < target - tolerance) return 0;
+  }
+  return 0;
+}
+
+function buyDivergerAUpgrade() {
+  if (!divergerCanAfford(divergerATheoryCost, divergerACpCost)) return false;
+  theory = subtractNumberValues(theory, divergerATheoryCost);
+  squareConvergencePoints = subtractNumberValues(squareConvergencePoints, divergerACpCost);
+  applyDivergerAUpgrade(true);
+  render();
+  return true;
+}
+
+function buyDivergerBUpgrade() {
+  if (!divergerCanAfford(divergerBTheoryCost, divergerBCpCost)) return false;
+  theory = subtractNumberValues(theory, divergerBTheoryCost);
+  squareConvergencePoints = subtractNumberValues(squareConvergencePoints, divergerBCpCost);
+  applyDivergerBUpgrade(true);
+  render();
+  return true;
+}
+
+function buyDivergerCUpgrade() {
+  if (divergerC >= DIVERGER_C_MAX || !divergerCanAfford(divergerCTheoryCost, divergerCCpCost)) {
+    return false;
+  }
+  theory = subtractNumberValues(theory, divergerCTheoryCost);
+  squareConvergencePoints = subtractNumberValues(squareConvergencePoints, divergerCCpCost);
+  applyDivergerCUpgrade(true);
+  render();
+  return true;
+}
+
+function buyDivergerSpeedUpgrade() {
+  if (!divergerAvailable() || divergerInterval <= divergerMinInterval()) return false;
+  if (!divergerCanAfford(divergerSpeedTheoryCost, divergerSpeedCpCost)) return false;
+  theory = subtractNumberValues(theory, divergerSpeedTheoryCost);
+  squareConvergencePoints = subtractNumberValues(squareConvergencePoints, divergerSpeedCpCost);
+  applyDivergerSpeedUpgrade(true);
+  render();
+  return true;
+}
+
+function divergerATheoryCostAtLevel(level) {
+  let cost = 4n;
+  for (let index = 0; index < level; index++) {
+    cost = scaleDivergerIntegerCost(cost, 5, 4, 'round');
+  }
+  return cost;
+}
+
+function divergerBTheoryCostAtLevel(level) {
+  let cost = 8n;
+  for (let index = 0; index < level; index++) {
+    cost = scaleDivergerIntegerCost(cost, 3, 2);
+  }
+  return cost;
+}
+
+function divergerACpCostAtLevel(level) {
+  let cost = 20n;
+  for (let index = 0; index < level; index++) cost = multiplyNumberValue(cost, 4n);
+  return cost;
+}
+
+function divergerBCpCostAtLevel(level) {
+  let cost = 32n;
+  for (let index = 0; index < level; index++) cost = multiplyNumberValue(cost, 8n);
+  return cost;
+}
+
+function divergerCTheoryCostAtLevel(level) {
+  let cost = 12n;
+  for (let index = 0; index < level; index++) cost = multiplyNumberValue(cost, 2n);
+  return cost;
+}
+
+function divergerCCpCostAtLevel(level) {
+  let cost = 48n;
+  for (let index = 0; index < level; index++) cost = multiplyNumberValue(cost, 16n);
+  return cost;
+}
+
+function divergerSpeedTheoryCostAtLevel(level) {
+  let cost = 1n;
+  for (let index = 0; index < level; index++) cost = multiplyNumberValue(cost, 2n);
+  return cost;
+}
+
+function divergerSpeedCpCostAtLevel(level) {
+  let cost = 10000n;
+  for (let index = 0; index < level; index++) cost = multiplyNumberValue(cost, 4n);
+  return cost;
+}
+
+function divergerUpgradeWasPaid(kind, level) {
+  const history = divergerUpgradeHistory[kind];
+  if (!history || level <= 0) return false;
+  if (history.length >= level) return history.pop() === true;
+  return true;
+}
+
+function removeDivergerUpgrade(id) {
+  if (id === 'a') {
+    if (divergerALevel <= 0) return false;
+    const previousLevel = divergerALevel - 1;
+    if (divergerUpgradeWasPaid('a', divergerALevel)) {
+      theory = addBaseNumbers(theory, divergerATheoryCostAtLevel(previousLevel));
+      squareConvergencePoints = addBaseNumbers(squareConvergencePoints, divergerACpCostAtLevel(previousLevel));
+    }
+    divergerA = divideNumberValue(divergerA, 2n);
+    divergerATheoryCost = divergerATheoryCostAtLevel(previousLevel);
+    divergerACpCost = divergerACpCostAtLevel(previousLevel);
+    divergerALevel = previousLevel;
+    return true;
+  }
+
+  if (id === 'b') {
+    if (divergerBLevel <= 0) return false;
+    const previousLevel = divergerBLevel - 1;
+    if (divergerUpgradeWasPaid('b', divergerBLevel)) {
+      theory = addBaseNumbers(theory, divergerBTheoryCostAtLevel(previousLevel));
+      squareConvergencePoints = addBaseNumbers(squareConvergencePoints, divergerBCpCostAtLevel(previousLevel));
+    }
+    divergerB = 1.05;
+    for (let index = 0; index < previousLevel; index++) divergerB += divergerBUpgradeGain(divergerB);
+    divergerBTheoryCost = divergerBTheoryCostAtLevel(previousLevel);
+    divergerBCpCost = divergerBCpCostAtLevel(previousLevel);
+    divergerBLevel = previousLevel;
+    return true;
+  }
+
+  if (id === 'c') {
+    if (divergerCLevel <= 0) return false;
+    const previousLevel = divergerCLevel - 1;
+    if (divergerUpgradeWasPaid('c', divergerCLevel)) {
+      theory = addBaseNumbers(theory, divergerCTheoryCostAtLevel(previousLevel));
+      squareConvergencePoints = addBaseNumbers(squareConvergencePoints, divergerCCpCostAtLevel(previousLevel));
+    }
+    divergerC = previousLevel;
+    divergerCTheoryCost = divergerCTheoryCostAtLevel(previousLevel);
+    divergerCCpCost = divergerCCpCostAtLevel(previousLevel);
+    divergerCLevel = previousLevel;
+    return true;
+  }
+
+  if (id === 'speed') {
+    if (divergerSpeedLevel <= 0) {
+      divergerSpeedLevel = divergerSpeedLevelFromInterval(divergerInterval);
+    }
+    if (divergerSpeedLevel <= 0) return false;
+    const previousLevel = divergerSpeedLevel - 1;
+    if (divergerUpgradeWasPaid('speed', divergerSpeedLevel)) {
+      theory = addBaseNumbers(theory, divergerSpeedTheoryCostAtLevel(previousLevel));
+      squareConvergencePoints = addBaseNumbers(squareConvergencePoints, divergerSpeedCpCostAtLevel(previousLevel));
+    }
+    divergerSpeedLevel = previousLevel;
+    divergerSpeedTheoryCost = divergerSpeedTheoryCostAtLevel(previousLevel);
+    divergerSpeedCpCost = divergerSpeedCpCostAtLevel(previousLevel);
+    divergerInterval = divergerIntervalAtLevel(divergerSpeedLevel);
+    return true;
+  }
+
+  return false;
+}
+
+function loadDivergerUpgradeHistory(savedHistory, levels = {}) {
+  const defaults = { a: true, b: true, c: true, speed: false };
+  for (const key of Object.keys(divergerUpgradeHistory)) {
+    const target = divergerUpgradeHistory[key];
+    target.length = 0;
+    const level = Math.max(0, Math.floor(Number(levels[key] ?? 0)));
+    const saved = Array.isArray(savedHistory?.[key]) ? savedHistory[key] : [];
+    for (let index = 0; index < level; index++) {
+      target.push(saved[index] === undefined ? defaults[key] : saved[index] === true);
+    }
+  }
+}
+
+function advanceDiverger(elapsedMs) {
+  if (!divergerAvailable() || overflowed || elapsedMs <= 0) return false;
+
+  divergerTimer += elapsedMs;
+  const cycles = Math.min(512, Math.floor(divergerTimer / divergerInterval));
+  if (cycles <= 0) return false;
+  divergerTimer -= cycles * divergerInterval;
+
+  for (let index = 0; index < cycles; index++) {
+    divergerN = addBaseNumbers(divergerN, 1n);
+    const productionLogarithm = divergerProductionLog10(divergerN);
+    const production = divergerScientificValueFromLog10(productionLogarithm);
+    divergerPower = addDivergerPower(divergerPower, production);
+    if (Number.isFinite(productionLogarithm)) {
+      divergerGraphSamples.push(productionLogarithm);
+      divergerGraphScaleMinimum = divergerGraphScaleMinimum === null
+        ? productionLogarithm
+        : Math.min(divergerGraphScaleMinimum, productionLogarithm);
+      divergerGraphScaleMaximum = divergerGraphScaleMaximum === null
+        ? productionLogarithm
+        : Math.max(divergerGraphScaleMaximum, productionLogarithm);
+    }
+  }
+
+  if (divergerGraphSamples.length > 120) {
+    divergerGraphSamples.splice(0, divergerGraphSamples.length - 120);
+  }
+  return true;
+}
+
 // 퍼센트 병렬화: 2번째 레인은 20만, 이후 레인 해금 비용은 2배씩 증가
 let percentLaneCount = 1;
 let nextPercentLaneUnlockCost = 200000n;
@@ -405,7 +806,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 3,
     row: 2,
     title: '발산자',
-    description: '발산자를 해금합니다. 현재는 기능이 없습니다.',
+    description: '생산 탭에 발산자를 해금합니다. 발산력은 퍼센트 소프트캡을 확장합니다.',
     parents: ['2-2'],
     theoryCost: 6n
   },
@@ -437,6 +838,15 @@ const GENERALIZATION_RESEARCHES = [
     theoryCost: 6n
   },
   {
+    id: '4-3',
+    column: 4,
+    row: 3,
+    title: '발산자 하한 확장',
+    description: '발산자의 최소 간격이 100ms가 됩니다.',
+    parents: ['3-2'],
+    theoryCost: 4n
+  },
+  {
     id: '5-1',
     column: 5,
     row: 1,
@@ -452,6 +862,15 @@ const GENERALIZATION_RESEARCHES = [
     title: '제곱 포인트 획득 공식 개선',
     description: 'SP 획득량을 [수^(1/2400) / 종료수] 공식으로 계산합니다. 최소 획득량은 1 SP입니다.',
     parents: ['4-2'],
+    theoryCost: 6n
+  },
+  {
+    id: '5-3',
+    column: 5,
+    row: 3,
+    title: '발산자 공식 개선',
+    description: '발산력 생산 공식이 D(n) = a^2 × n^(b×c) / (100 - c)로 변경됩니다.',
+    parents: ['4-3', '4-2'],
     theoryCost: 6n
   },
   {
@@ -486,7 +905,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 6,
     row: 4,
     title: '제곱력 소프트캡 강화',
-    description: '제곱력의 지수를 3제곱한 만큼 퍼센트 소프트캡을 확장합니다.',
+    description: '제곱력의 지수를 2.5제곱한 만큼 퍼센트 소프트캡을 확장합니다.',
     parents: ['5-1'],
     theoryCost: 8n
   },
@@ -842,7 +1261,10 @@ function squareDimensionPowerExponent(index = 0) {
 
 function squareDimensionPower(index = 0) {
   if (!squareDimensionIsAvailable(index)) return 1n;
-  return NumberMath.powerApproximate(squareDimensionVolume(index), squareDimensionPowerExponent(index));
+  return NumberMath.powerApproximate(
+    squareDimensionVolume(index),
+    squareDimensionPowerExponent(index)
+  );
 }
 
 function squareDimensionNumberMultiplier(index = null) {
@@ -887,10 +1309,11 @@ function squareDimensionPercentSoftcapExponent() {
 
   const logarithm = realNumberFromValue(NumberMath.log10(squareDimensionTotalPower()));
   if (!Number.isFinite(logarithm) || logarithm <= 0) return 0;
-  const cubeRootMax = Math.cbrt(Number.MAX_VALUE);
-  return logarithm > cubeRootMax
+  const power = 2.5;
+  const powerInputMax = Number.MAX_VALUE ** (1 / power);
+  return logarithm > powerInputMax
     ? Number.MAX_VALUE
-    : Math.floor(logarithm ** 3);
+    : Math.floor(logarithm ** power);
 }
 
 function squareDimensionPercentSoftcapMultiplier() {
@@ -1318,7 +1741,10 @@ function percentPowerUpgradeCostForNextLevel(currentPower, baseCost = 40000n) {
 function percentPowerSoftcap(power) {
   const level = normalizedPercentPower(power) + percentPowerSoftcapBonusLevels() - 1;
   const baseSoftcap = multiplyNumberValue(PERCENT_POWER_SOFTCAP_START, powerOfTenValue(level));
-  return multiplyNumberValue(baseSoftcap, squareDimensionPercentSoftcapMultiplier());
+  return multiplyNumberValue(
+    multiplyNumberValue(baseSoftcap, squareDimensionPercentSoftcapMultiplier()),
+    divergerPowerSoftcapMultiplier()
+  );
 }
 
 function percentPowerGrowthLimit(power) {
@@ -1527,6 +1953,9 @@ function resetGeneralizationResearchState() {
   for (const research of GENERALIZATION_RESEARCHES) {
     generalizationResearchState[research.id] = false;
   }
+  divergerInterval = Math.max(DIVERGER_MIN_INTERVAL, divergerInterval);
+  squareDimensionAutoUpgradeEnabled = false;
+  squareDimensionAutoUpgradeTimer = 0;
 }
 
 function loadGeneralizationResearchState(savedState) {
@@ -1627,6 +2056,103 @@ function canAffordTheoryResource(resourceIndex) {
   return false;
 }
 
+function theoryCostGrowthForResource(resourceIndex) {
+  return resourceIndex === 0 ? THEORY_SQUARE_POINT_COST_GROWTH : THEORY_CONVERGENCE_POINT_COST_GROWTH;
+}
+
+function theoryCostAfterPurchases(currentCost, growth, purchases, resourceIndex = null) {
+  if (!Number.isSafeInteger(purchases) || purchases <= 0) return currentCost;
+  if (resourceIndex !== 0) return multiplyNumberValue(currentCost, NumberMath.power(growth, purchases));
+
+  let cost = currentCost;
+  let remaining = purchases;
+  while (remaining > 0 && compareNumberValues(cost, THEORY_SQUARE_POINT_COST_ACCELERATION_THRESHOLD) < 0) {
+    cost = multiplyNumberValue(cost, growth);
+    remaining--;
+  }
+  if (remaining > 0) {
+    cost = multiplyNumberValue(
+      cost,
+      NumberMath.power(THEORY_SQUARE_POINT_COST_ACCELERATED_GROWTH, remaining)
+    );
+  }
+  return cost;
+}
+
+function theoryBulkCost(currentCost, growth, purchases, resourceIndex = null) {
+  if (!Number.isSafeInteger(purchases) || purchases <= 0) return 0n;
+  if (resourceIndex !== 0) {
+    if (growth === 1n) return multiplyNumberValue(currentCost, BigInt(purchases));
+
+    const growthPower = NumberMath.power(growth, purchases);
+    const numerator = subtractNumberValues(growthPower, 1n);
+    return divideNumberValue(
+      multiplyNumberValue(currentCost, numerator),
+      growth - 1n
+    );
+  }
+
+  let total = 0n;
+  let cost = currentCost;
+  let remaining = purchases;
+  let acceleratedPurchases = 0;
+  while (remaining > 0 && compareNumberValues(cost, THEORY_SQUARE_POINT_COST_ACCELERATION_THRESHOLD) < 0) {
+    total = addBaseNumbers(total, cost);
+    cost = multiplyNumberValue(cost, growth);
+    remaining--;
+  }
+  if (remaining > 0) {
+    acceleratedPurchases = remaining;
+    const growthPower = NumberMath.power(THEORY_SQUARE_POINT_COST_ACCELERATED_GROWTH, remaining);
+    const numerator = subtractNumberValues(growthPower, 1n);
+    total = addBaseNumbers(
+      total,
+      divideNumberValue(
+        multiplyNumberValue(cost, numerator),
+        THEORY_SQUARE_POINT_COST_ACCELERATED_GROWTH - 1n
+      )
+    );
+  }
+  if (acceleratedPurchases > 0 && purchases > 1 && isApproximateNumber(total)) {
+    const scientific = NumberMath.toScientific(total);
+    if (scientific) {
+      return NumberMath.normalize(
+        scientific.mantissa * (1 + (10 ** -APPROXIMATE_COST_IGNORE_EXPONENT_GAP)),
+        scientific.exponent
+      ) ?? total;
+    }
+  }
+  return total;
+}
+
+function theoryMaximumPurchases() {
+  if (!canOpenSquareConvergence()) return 0;
+
+  const selectedResource = theoryCostResourceIndex;
+  const available = selectedResource === 0 ? squarePoints : squareConvergencePoints;
+  const currentCost = theoryCostForResource(selectedResource);
+  const growth = theoryCostGrowthForResource(selectedResource);
+  if (compareNumberValues(available, currentCost) < 0) return 0;
+
+  let affordable = 1;
+  let unaffordable = 2;
+  while (compareNumberValues(available, theoryBulkCost(currentCost, growth, unaffordable, selectedResource)) >= 0) {
+    affordable = unaffordable;
+    if (unaffordable > Math.floor(Number.MAX_SAFE_INTEGER / 2)) return affordable;
+    unaffordable *= 2;
+  }
+
+  while (unaffordable - affordable > 1) {
+    const middle = affordable + Math.floor((unaffordable - affordable) / 2);
+    if (compareNumberValues(available, theoryBulkCost(currentCost, growth, middle, selectedResource)) >= 0) {
+      affordable = middle;
+    } else {
+      unaffordable = middle;
+    }
+  }
+  return affordable;
+}
+
 function setTheoryCostResource(resourceIndex) {
   const nextIndex = Number(resourceIndex);
   if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex > 1) return false;
@@ -1635,23 +2161,34 @@ function setTheoryCostResource(resourceIndex) {
   return true;
 }
 
-function researchTheory() {
-  if (!canResearchTheory()) return false;
+function purchaseTheory(purchases) {
+  if (!Number.isSafeInteger(purchases) || purchases <= 0 || theoryMaximumPurchases() < purchases) return false;
 
   const selectedResource = theoryCostResourceIndex;
+  const currentCost = theoryCostForResource(selectedResource);
+  const growth = theoryCostGrowthForResource(selectedResource);
+  const totalCost = theoryBulkCost(currentCost, growth, purchases, selectedResource);
   const paidResourceLabel = theoryCostResourceLabel(selectedResource);
-  if (theoryCostResourceIndex === 0) {
-    squarePoints = subtractNumberValues(squarePoints, theorySquarePointCost);
-    theorySquarePointCost = multiplyNumberValue(theorySquarePointCost, THEORY_SQUARE_POINT_COST_GROWTH);
+  if (selectedResource === 0) {
+    squarePoints = subtractNumberValues(squarePoints, totalCost);
+    theorySquarePointCost = theoryCostAfterPurchases(currentCost, growth, purchases, selectedResource);
   } else {
-    squareConvergencePoints = subtractNumberValues(squareConvergencePoints, theoryConvergencePointCost);
-    theoryConvergencePointCost = multiplyNumberValue(theoryConvergencePointCost, THEORY_CONVERGENCE_POINT_COST_GROWTH);
+    squareConvergencePoints = subtractNumberValues(squareConvergencePoints, totalCost);
+    theoryConvergencePointCost = theoryCostAfterPurchases(currentCost, growth, purchases, selectedResource);
   }
 
-  theory = addBaseNumbers(theory, 1n);
-  log(`${paidResourceLabel}로 이론을 연구했습니다. 현재 ${fmt(theory)} 이론`, true);
+  theory = addBaseNumbers(theory, BigInt(purchases));
+  log(`${paidResourceLabel}로 이론 ${purchases}개를 연구했습니다. 현재 ${fmt(theory)} 이론`, true);
   render();
   return true;
+}
+
+function researchTheory() {
+  return purchaseTheory(1);
+}
+
+function researchTheoryMaximum() {
+  return purchaseTheory(theoryMaximumPurchases());
 }
 
 function canResearchGeneralization(id) {
@@ -1673,6 +2210,27 @@ function researchGeneralization(id) {
     squareDimensionAutoUpgradeTimer = 0;
   }
   log(`${research.id} ${research.title} 연구를 완료했습니다.`, true);
+  render();
+  return true;
+}
+
+function hasAnyGeneralizationResearch() {
+  return GENERALIZATION_RESEARCHES.some(research => hasGeneralizationResearch(research.id));
+}
+
+function canResetGeneralizationResearch() {
+  return canOpenSquareConvergence()
+    && hasAnyGeneralizationResearch()
+    && compareNumberValues(squareConvergencePoints, generalizationResetCost) >= 0;
+}
+
+function resetGeneralizationResearch() {
+  if (!canResetGeneralizationResearch()) return false;
+
+  squareConvergencePoints = subtractNumberValues(squareConvergencePoints, generalizationResetCost);
+  resetGeneralizationResearchState();
+  generalizationResetCost = multiplyNumberValue(generalizationResetCost, 2n);
+  log(`일반화 연구를 초기화했습니다. 다음 초기화 비용: ${fmt(generalizationResetCost)} CP`, true);
   render();
   return true;
 }

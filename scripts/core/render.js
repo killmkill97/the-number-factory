@@ -40,6 +40,7 @@ function renderNow() {
   squarePointSubValue.textContent = `제곱 포인트 교환 요구량 ${fmtPowerBase(squarePointExchangeRequirement())} · 교환마다 +${fmtPowerBase(squarePointGain())} SP · ${fmt(squareConvergenceExchangeRequirement())} SP마다 수동 교환으로 CP 획득`;
   renderSquareUpgradeBoard();
   renderSquareDimensionView();
+  renderDivergerView();
   renderSquareBreakthroughBoard();
   renderSquareConvergenceBoard();
   renderGeneralizationBoard();

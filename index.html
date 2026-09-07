@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>숫자의 끝을 보는 타이쿤 - 프로토타입</title>
-<link rel="stylesheet" href="./styles/number-tycoon.css?v=20260905-cache-refresh">
+<link rel="stylesheet" href="./styles/number-tycoon.css?v=20260905-diverger">
 </head>
 <body>
 <div class="news-ticker" aria-live="polite">
@@ -150,7 +150,7 @@
 
     <div class="square-view-tabs" role="tablist" aria-label="제곱 화면">
       <button id="squareUpgradesViewBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="squareUpgradesViewPanel">제곱 업그레이드</button>
-      <button id="squareDimensionsViewBtn" class="hidden" type="button" role="tab" aria-selected="false" aria-controls="squareDimensionsViewPanel">제곱 차원</button>
+      <button id="squareDimensionsViewBtn" class="hidden" type="button" role="tab" aria-selected="false" aria-controls="squareDimensionsViewPanel">생산</button>
     </div>
 
     <div id="squareUpgradesViewPanel">
@@ -165,6 +165,12 @@
     </div>
 
     <div id="squareDimensionsViewPanel" class="hidden">
+      <div class="production-view-tabs" role="tablist" aria-label="생산 화면">
+        <button id="squareDimensionProductionTabBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="squareDimensionProductionPanel">제곱 차원</button>
+        <button id="divergerProductionTabBtn" class="hidden" type="button" role="tab" aria-selected="false" aria-controls="divergerProductionPanel">발산자</button>
+      </div>
+
+      <div id="squareDimensionProductionPanel">
       <div class="display square-display square-dimension-display">
         <div class="value" id="squareDimensionPowerValue">2.34e0</div>
         <div class="sub" id="squareDimensionPowerSubValue">제곱력 = (x × y)^(1/4) · 생산 주기 1초</div>
@@ -226,6 +232,50 @@
         <span class="cost" id="squareDimensionAutoUpgradeStatus">7-3 연구 필요</span>
       </button>
       <div id="squareDimensionAdditional" class="square-dimension-additional hidden"></div>
+      </div>
+
+      <div id="divergerProductionPanel" class="diverger-panel hidden">
+        <div class="display square-display diverger-display">
+          <div class="value" id="divergerPowerValue">0e0</div>
+          <div class="sub" id="divergerPowerSubValue">발산자 연구 필요</div>
+          <div class="sub" id="divergerSoftcapValue"></div>
+          <div class="diverger-graph" aria-label="발산력 변화 그래프">
+            <div class="diverger-graph-label">RELATIVE DIVERGENCE OUTPUT</div>
+            <svg class="diverger-graph-screen" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+              <path class="diverger-graph-grid" d="M0 10H100M0 20H100M0 30H100M20 0V40M40 0V40M60 0V40M80 0V40"></path>
+              <polyline id="divergerGraphLine" class="diverger-graph-line" points="0,20 100,20"></polyline>
+            </svg>
+          </div>
+        </div>
+
+        <div class="diverger-stats" aria-label="발산자 변수">
+          <div><span>n</span><strong id="divergerNValue">1</strong></div>
+          <div><span>a</span><strong id="divergerAValue">1</strong></div>
+          <div><span>b</span><strong id="divergerBValue">1.05</strong></div>
+          <div><span>c</span><strong id="divergerCValue">0</strong></div>
+          <div><span>간격</span><strong id="divergerIntervalValue">1초</strong></div>
+        </div>
+
+        <div class="section-title">발산자 업그레이드</div>
+        <div class="diverger-upgrades">
+          <button id="divergerAUpgradeBtn" type="button" data-diverger-upgrade-id="a">
+            <span id="divergerAUpgradeLabel">a 강화</span>
+            <span class="cost" id="divergerAUpgradeCost"></span>
+          </button>
+          <button id="divergerBUpgradeBtn" type="button" data-diverger-upgrade-id="b">
+            <span id="divergerBUpgradeLabel">b 강화</span>
+            <span class="cost" id="divergerBUpgradeCost"></span>
+          </button>
+          <button id="divergerCUpgradeBtn" type="button" data-diverger-upgrade-id="c">
+            <span id="divergerCUpgradeLabel">c 강화</span>
+            <span class="cost" id="divergerCUpgradeCost"></span>
+          </button>
+          <button id="divergerSpeedUpgradeBtn" type="button" data-diverger-upgrade-id="speed">
+            <span id="divergerSpeedUpgradeLabel">발산자 속도 강화</span>
+            <span class="cost" id="divergerSpeedUpgradeCost">비용 없음</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -270,9 +320,16 @@
             <button id="theorySquarePointResourceBtn" type="button">SP<span class="cost" id="theorySquarePointResourceCost"></span></button>
             <button id="theoryConvergencePointResourceBtn" type="button">CP<span class="cost" id="theoryConvergencePointResourceCost"></span></button>
           </div>
-          <button id="researchTheoryBtn" type="button">
-            이론 연구 +1
-            <span class="cost" id="researchTheoryCost"></span>
+          <div class="theory-research-actions">
+            <button id="researchTheoryBtn" type="button">
+              이론 연구 +1
+              <span class="cost" id="researchTheoryCost"></span>
+            </button>
+            <button id="researchTheoryMaxBtn" type="button" title="구매 가능한 이론을 최대한 확보" aria-label="이론 최대 연구">최대</button>
+          </div>
+          <button id="generalizationResetBtn" class="generalization-reset-btn" type="button">
+            일반화 연구 초기화
+            <span class="cost" id="generalizationResetCost"></span>
           </button>
       </article>
       <div id="generalizationTree" class="generalization-tree" aria-label="일반화 연구 트리">
@@ -418,29 +475,30 @@
 </div>
 
 <script src="./scripts/data/chapter-roadmap.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/constants.js?v=20260905-cache-refresh"></script>
+<script src="./scripts/core/constants.js?v=20260908-diverger-speed-research"></script>
 <script src="./scripts/core/number-math.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/state.js?v=20260905-research-5-2"></script>
-<script src="./scripts/core/dom.js?v=20260905-cache-refresh"></script>
+<script src="./scripts/core/state.js?v=20260908-diverger-formula-a2-nbc"></script>
+<script src="./scripts/core/dom.js?v=20260906-generalization-reset"></script>
 <script src="./scripts/core/chapter-ui.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/percent-lanes.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/square-upgrades.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/square-breakthrough.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/square-convergence.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/square-dimensions.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/render.js?v=20260905-cache-refresh"></script>
+<script src="./scripts/systems/square-convergence.js?v=20260908-diverger-speed-research"></script>
+<script src="./scripts/systems/square-dimensions.js?v=20260905-diverger"></script>
+<script src="./scripts/systems/diverger.js?v=20260908-diverger-formula-a2-nbc"></script>
+<script src="./scripts/core/render.js?v=20260905-diverger-undo"></script>
 <script src="./scripts/systems/clickers.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/percent-system.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/auto-upgrades.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/news-ticker.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/chapters/square.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/chapters/tetration.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/save.js?v=20260905-cache-refresh"></script>
+<script src="./scripts/core/save.js?v=20260908-diverger-speed-research"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/automatium/n-parser.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/automatium/n-runtime.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/automatium.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/dev-console.js?v=20260905-cache-refresh"></script>
+<script src="./scripts/systems/dev-console.js?v=20260906-dev-theory"></script>
 <script src="./scripts/main.js?v=20260905-cache-refresh"></script>
 </body>
 </html>
