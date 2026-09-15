@@ -666,6 +666,7 @@
     border-radius: 4px;
     cursor: grab;
     user-select: none;
+    touch-action: none;
   }
   .generalization-tree.is-panning {
     cursor: grabbing;

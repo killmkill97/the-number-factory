@@ -7,6 +7,8 @@ const devConsole = {
   visible: false
 };
 
+let devTitleClickCount = 0;
+
 function devConsoleIsOpen() {
   return devConsole.visible;
 }
@@ -211,6 +213,17 @@ function runNumberTraceCommand(command) {
   return true;
 }
 
+function stopDevDebugMode() {
+  if (!devConsole.visible) return;
+
+  devTitleClickCount = 0;
+  devConsole.visible = false;
+  devConsole.form?.classList.add('hidden');
+  devConsole.debugBoard?.classList.add('hidden');
+  document.body.classList.remove('dev-console-open');
+  render();
+}
+
 function clearOverflowForDevCommand() {
   overflowed = false;
   pendingSquarePrestigeValue = null;
@@ -378,11 +391,16 @@ function runDevCommand(commandText) {
   const command = commandText.trim();
   if (!command) return;
 
+  if (/^stop$/i.test(command)) {
+    stopDevDebugMode();
+    return;
+  }
+
   if (runNumberTraceCommand(command)) return;
 
   const match = command.match(/^set\s+(number|sp|cp|lsp|tetrap|theory)\s+(.+)$/i);
   if (!match) {
-    throw new Error('지원 명령어: set number/sp/cp/lsp/tetraP/theory <숫자>, trace number on/off/clear');
+    throw new Error('지원 명령어: stop, set number/sp/cp/lsp/tetraP/theory <숫자>, trace number on/off/clear');
   }
 
   const target = match[1].toLowerCase();
@@ -508,9 +526,19 @@ function toggleDevConsole() {
     devConsole.input.focus();
     renderDevDebugBoard();
     renderNumberTrace();
-    log('[DEV] 콘솔 열림: set number/sp/cp/lsp/tetraP/theory <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 발산자 Shift+우클릭=한 단계 취소', true);
+    log('[DEV] 콘솔 열림: stop, set number/sp/cp/lsp/tetraP/theory <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 발산자 Shift+우클릭=한 단계 취소', true);
   }
 }
+
+function handleGameTitleDebugToggle() {
+  devTitleClickCount += 1;
+  if (devTitleClickCount < 8) return;
+
+  devTitleClickCount = 0;
+  toggleDevConsole();
+}
+
+gameTitle?.addEventListener('click', handleGameTitleDebugToggle);
 
 setInterval(() => {
   if (devConsole.visible) renderDevDebugBoard();

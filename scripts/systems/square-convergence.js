@@ -81,23 +81,32 @@ function initializeGeneralizationTreePan() {
 
   generalizationTree.addEventListener('contextmenu', event => event.preventDefault());
   generalizationTree.addEventListener('pointerdown', event => {
-    if (event.button !== 2) return;
-    event.preventDefault();
+    // Any pointer button, touch, and pen input can begin a pan. Wait until the
+    // pointer actually moves so a left click on a research card stays a click.
+    if (event.button !== 0) event.preventDefault();
     researchTreePanState = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       originX: researchTreePanX,
-      originY: researchTreePanY
+      originY: researchTreePanY,
+      moved: false
     };
-    generalizationTree.classList.add('is-panning');
-    generalizationTree.setPointerCapture(event.pointerId);
   });
   generalizationTree.addEventListener('pointermove', event => {
     if (!researchTreePanState || event.pointerId !== researchTreePanState.pointerId) return;
+    const deltaX = event.clientX - researchTreePanState.startX;
+    const deltaY = event.clientY - researchTreePanState.startY;
+    if (!researchTreePanState.moved && Math.hypot(deltaX, deltaY) < 4) return;
+
+    if (!researchTreePanState.moved) {
+      researchTreePanState.moved = true;
+      generalizationTree.classList.add('is-panning');
+      generalizationTree.setPointerCapture(event.pointerId);
+    }
     event.preventDefault();
-    researchTreePanX = researchTreePanState.originX + event.clientX - researchTreePanState.startX;
-    researchTreePanY = researchTreePanState.originY + event.clientY - researchTreePanState.startY;
+    researchTreePanX = researchTreePanState.originX + deltaX;
+    researchTreePanY = researchTreePanState.originY + deltaY;
     if (generalizationTreeCanvas) {
       generalizationTreeCanvas.style.transform = `translate(${researchTreePanX}px, ${researchTreePanY}px)`;
     }

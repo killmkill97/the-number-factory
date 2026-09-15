@@ -1,5 +1,6 @@
 const mainValue = document.getElementById('mainValue');
 const subValue = document.getElementById('subValue');
+const gameTitle = document.getElementById('gameTitle');
 const displayBox = document.getElementById('displayBox');
 const addBtn = document.getElementById('addBtn');
 const chapterTabs = document.getElementById('chapterTabs');
