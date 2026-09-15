@@ -63,13 +63,13 @@ let divergerB = 1.05;
 let divergerC = 0;
 let divergerInterval = DIVERGER_BASE_INTERVAL;
 let divergerTimer = 0;
-let divergerATheoryCost = 4n;
+let divergerASpCost = 4n * DIVERGER_SP_COST_MULTIPLIER;
 let divergerACpCost = 20n;
-let divergerBTheoryCost = 8n;
+let divergerBSpCost = 8n * DIVERGER_SP_COST_MULTIPLIER;
 let divergerBCpCost = 32n;
-let divergerCTheoryCost = 12n;
+let divergerCSpCost = 12n * DIVERGER_SP_COST_MULTIPLIER;
 let divergerCCpCost = 48n;
-let divergerSpeedTheoryCost = 1n;
+let divergerSpeedSpCost = DIVERGER_SP_COST_MULTIPLIER;
 let divergerSpeedCpCost = 10000n;
 let divergerALevel = 0;
 let divergerBLevel = 0;
@@ -340,7 +340,7 @@ function divergerProductionLog10(n = divergerN) {
   if (!Number.isFinite(nLogarithm) || !Number.isFinite(aLogarithm)) return -Infinity;
   if (hasGeneralizationResearch('5-3')) {
     return (aLogarithm * 2)
-      + (nLogarithm * divergerB * divergerC)
+      + (nLogarithm * (divergerB + (divergerC / 2)))
       - Math.log10(Number(divergerDenominator()));
   }
   return aLogarithm + (nLogarithm * divergerB) - Math.log10(Number(divergerDenominator()));
@@ -381,7 +381,7 @@ function addDivergerPower(left, right) {
   ) ?? high;
 }
 
-function divergerPowerSoftcapMultiplier() {
+function divergerSquareDimensionMultiplier() {
   if (!divergerAvailable() || compareNumberValues(divergerPower, 0n) <= 0) return 1n;
 
   const powerLogarithm = divergerLog10(divergerPower);
@@ -402,9 +402,9 @@ function divergerPowerSoftcapMultiplier() {
   ) ?? 1n;
 }
 
-function divergerCanAfford(theoryCost, cpCost) {
+function divergerCanAfford(spCost, cpCost) {
   return divergerAvailable()
-    && compareNumberValues(theory, theoryCost) >= 0
+    && compareNumberValues(squarePoints, spCost) >= 0
     && compareNumberValues(squareConvergencePoints, cpCost) >= 0;
 }
 
@@ -421,7 +421,7 @@ function scaleDivergerIntegerCost(cost, numerator, denominator, rounding = 'floo
 
 function applyDivergerAUpgrade(paid = true) {
   divergerA = multiplyNumberValue(divergerA, 2n);
-  divergerATheoryCost = scaleDivergerIntegerCost(divergerATheoryCost, 5, 4, 'round');
+  divergerASpCost = scaleDivergerIntegerCost(divergerASpCost, 5, 4, 'round');
   divergerACpCost = multiplyNumberValue(divergerACpCost, 4n);
   divergerALevel += 1;
   divergerUpgradeHistory.a.push(paid);
@@ -429,7 +429,7 @@ function applyDivergerAUpgrade(paid = true) {
 
 function applyDivergerBUpgrade(paid = true) {
   divergerB += divergerBUpgradeGain(divergerB);
-  divergerBTheoryCost = scaleDivergerIntegerCost(divergerBTheoryCost, 3, 2);
+  divergerBSpCost = scaleDivergerIntegerCost(divergerBSpCost, 3, 2);
   divergerBCpCost = multiplyNumberValue(divergerBCpCost, 8n);
   divergerBLevel += 1;
   divergerUpgradeHistory.b.push(paid);
@@ -441,7 +441,7 @@ function divergerBUpgradeGain(value) {
 
 function applyDivergerCUpgrade(paid = true) {
   divergerC = Math.min(DIVERGER_C_MAX, divergerC + 1);
-  divergerCTheoryCost = multiplyNumberValue(divergerCTheoryCost, 2n);
+  divergerCSpCost = multiplyNumberValue(divergerCSpCost, 2n);
   divergerCCpCost = multiplyNumberValue(divergerCCpCost, 16n);
   divergerCLevel += 1;
   divergerUpgradeHistory.c.push(paid);
@@ -461,7 +461,7 @@ function applyDivergerSpeedUpgrade(paid = false) {
     divergerMinInterval(),
     divergerInterval - Math.log10(divergerInterval)
   );
-  divergerSpeedTheoryCost = multiplyNumberValue(divergerSpeedTheoryCost, 2n);
+  divergerSpeedSpCost = multiplyNumberValue(divergerSpeedSpCost, 2n);
   divergerSpeedCpCost = multiplyNumberValue(divergerSpeedCpCost, 4n);
   divergerSpeedLevel += 1;
   divergerUpgradeHistory.speed.push(paid);
@@ -483,8 +483,8 @@ function divergerSpeedLevelFromInterval(value) {
 }
 
 function buyDivergerAUpgrade() {
-  if (!divergerCanAfford(divergerATheoryCost, divergerACpCost)) return false;
-  theory = subtractNumberValues(theory, divergerATheoryCost);
+  if (!divergerCanAfford(divergerASpCost, divergerACpCost)) return false;
+  squarePoints = subtractNumberValues(squarePoints, divergerASpCost);
   squareConvergencePoints = subtractNumberValues(squareConvergencePoints, divergerACpCost);
   applyDivergerAUpgrade(true);
   render();
@@ -492,8 +492,8 @@ function buyDivergerAUpgrade() {
 }
 
 function buyDivergerBUpgrade() {
-  if (!divergerCanAfford(divergerBTheoryCost, divergerBCpCost)) return false;
-  theory = subtractNumberValues(theory, divergerBTheoryCost);
+  if (!divergerCanAfford(divergerBSpCost, divergerBCpCost)) return false;
+  squarePoints = subtractNumberValues(squarePoints, divergerBSpCost);
   squareConvergencePoints = subtractNumberValues(squareConvergencePoints, divergerBCpCost);
   applyDivergerBUpgrade(true);
   render();
@@ -501,10 +501,10 @@ function buyDivergerBUpgrade() {
 }
 
 function buyDivergerCUpgrade() {
-  if (divergerC >= DIVERGER_C_MAX || !divergerCanAfford(divergerCTheoryCost, divergerCCpCost)) {
+  if (divergerC >= DIVERGER_C_MAX || !divergerCanAfford(divergerCSpCost, divergerCCpCost)) {
     return false;
   }
-  theory = subtractNumberValues(theory, divergerCTheoryCost);
+  squarePoints = subtractNumberValues(squarePoints, divergerCSpCost);
   squareConvergencePoints = subtractNumberValues(squareConvergencePoints, divergerCCpCost);
   applyDivergerCUpgrade(true);
   render();
@@ -513,24 +513,24 @@ function buyDivergerCUpgrade() {
 
 function buyDivergerSpeedUpgrade() {
   if (!divergerAvailable() || divergerInterval <= divergerMinInterval()) return false;
-  if (!divergerCanAfford(divergerSpeedTheoryCost, divergerSpeedCpCost)) return false;
-  theory = subtractNumberValues(theory, divergerSpeedTheoryCost);
+  if (!divergerCanAfford(divergerSpeedSpCost, divergerSpeedCpCost)) return false;
+  squarePoints = subtractNumberValues(squarePoints, divergerSpeedSpCost);
   squareConvergencePoints = subtractNumberValues(squareConvergencePoints, divergerSpeedCpCost);
   applyDivergerSpeedUpgrade(true);
   render();
   return true;
 }
 
-function divergerATheoryCostAtLevel(level) {
-  let cost = 4n;
+function divergerASpCostAtLevel(level) {
+  let cost = 4n * DIVERGER_SP_COST_MULTIPLIER;
   for (let index = 0; index < level; index++) {
     cost = scaleDivergerIntegerCost(cost, 5, 4, 'round');
   }
   return cost;
 }
 
-function divergerBTheoryCostAtLevel(level) {
-  let cost = 8n;
+function divergerBSpCostAtLevel(level) {
+  let cost = 8n * DIVERGER_SP_COST_MULTIPLIER;
   for (let index = 0; index < level; index++) {
     cost = scaleDivergerIntegerCost(cost, 3, 2);
   }
@@ -549,8 +549,8 @@ function divergerBCpCostAtLevel(level) {
   return cost;
 }
 
-function divergerCTheoryCostAtLevel(level) {
-  let cost = 12n;
+function divergerCSpCostAtLevel(level) {
+  let cost = 12n * DIVERGER_SP_COST_MULTIPLIER;
   for (let index = 0; index < level; index++) cost = multiplyNumberValue(cost, 2n);
   return cost;
 }
@@ -561,8 +561,8 @@ function divergerCCpCostAtLevel(level) {
   return cost;
 }
 
-function divergerSpeedTheoryCostAtLevel(level) {
-  let cost = 1n;
+function divergerSpeedSpCostAtLevel(level) {
+  let cost = DIVERGER_SP_COST_MULTIPLIER;
   for (let index = 0; index < level; index++) cost = multiplyNumberValue(cost, 2n);
   return cost;
 }
@@ -573,23 +573,28 @@ function divergerSpeedCpCostAtLevel(level) {
   return cost;
 }
 
-function divergerUpgradeWasPaid(kind, level) {
+function divergerUpgradeRefunds(kind, level) {
   const history = divergerUpgradeHistory[kind];
-  if (!history || level <= 0) return false;
-  if (history.length >= level) return history.pop() === true;
-  return true;
+  if (!history || level <= 0) return { sp: false, cp: false };
+  const entry = history.length >= level ? history.pop() : true;
+  if (entry === 'legacy-theory') return { sp: false, cp: true };
+  if (entry === true) return { sp: true, cp: true };
+  return { sp: false, cp: false };
 }
 
 function removeDivergerUpgrade(id) {
   if (id === 'a') {
     if (divergerALevel <= 0) return false;
     const previousLevel = divergerALevel - 1;
-    if (divergerUpgradeWasPaid('a', divergerALevel)) {
-      theory = addBaseNumbers(theory, divergerATheoryCostAtLevel(previousLevel));
+    const refund = divergerUpgradeRefunds('a', divergerALevel);
+    if (refund.sp) {
+      squarePoints = addBaseNumbers(squarePoints, divergerASpCostAtLevel(previousLevel));
+    }
+    if (refund.cp) {
       squareConvergencePoints = addBaseNumbers(squareConvergencePoints, divergerACpCostAtLevel(previousLevel));
     }
     divergerA = divideNumberValue(divergerA, 2n);
-    divergerATheoryCost = divergerATheoryCostAtLevel(previousLevel);
+    divergerASpCost = divergerASpCostAtLevel(previousLevel);
     divergerACpCost = divergerACpCostAtLevel(previousLevel);
     divergerALevel = previousLevel;
     return true;
@@ -598,13 +603,16 @@ function removeDivergerUpgrade(id) {
   if (id === 'b') {
     if (divergerBLevel <= 0) return false;
     const previousLevel = divergerBLevel - 1;
-    if (divergerUpgradeWasPaid('b', divergerBLevel)) {
-      theory = addBaseNumbers(theory, divergerBTheoryCostAtLevel(previousLevel));
+    const refund = divergerUpgradeRefunds('b', divergerBLevel);
+    if (refund.sp) {
+      squarePoints = addBaseNumbers(squarePoints, divergerBSpCostAtLevel(previousLevel));
+    }
+    if (refund.cp) {
       squareConvergencePoints = addBaseNumbers(squareConvergencePoints, divergerBCpCostAtLevel(previousLevel));
     }
     divergerB = 1.05;
     for (let index = 0; index < previousLevel; index++) divergerB += divergerBUpgradeGain(divergerB);
-    divergerBTheoryCost = divergerBTheoryCostAtLevel(previousLevel);
+    divergerBSpCost = divergerBSpCostAtLevel(previousLevel);
     divergerBCpCost = divergerBCpCostAtLevel(previousLevel);
     divergerBLevel = previousLevel;
     return true;
@@ -613,12 +621,15 @@ function removeDivergerUpgrade(id) {
   if (id === 'c') {
     if (divergerCLevel <= 0) return false;
     const previousLevel = divergerCLevel - 1;
-    if (divergerUpgradeWasPaid('c', divergerCLevel)) {
-      theory = addBaseNumbers(theory, divergerCTheoryCostAtLevel(previousLevel));
+    const refund = divergerUpgradeRefunds('c', divergerCLevel);
+    if (refund.sp) {
+      squarePoints = addBaseNumbers(squarePoints, divergerCSpCostAtLevel(previousLevel));
+    }
+    if (refund.cp) {
       squareConvergencePoints = addBaseNumbers(squareConvergencePoints, divergerCCpCostAtLevel(previousLevel));
     }
     divergerC = previousLevel;
-    divergerCTheoryCost = divergerCTheoryCostAtLevel(previousLevel);
+    divergerCSpCost = divergerCSpCostAtLevel(previousLevel);
     divergerCCpCost = divergerCCpCostAtLevel(previousLevel);
     divergerCLevel = previousLevel;
     return true;
@@ -630,12 +641,15 @@ function removeDivergerUpgrade(id) {
     }
     if (divergerSpeedLevel <= 0) return false;
     const previousLevel = divergerSpeedLevel - 1;
-    if (divergerUpgradeWasPaid('speed', divergerSpeedLevel)) {
-      theory = addBaseNumbers(theory, divergerSpeedTheoryCostAtLevel(previousLevel));
+    const refund = divergerUpgradeRefunds('speed', divergerSpeedLevel);
+    if (refund.sp) {
+      squarePoints = addBaseNumbers(squarePoints, divergerSpeedSpCostAtLevel(previousLevel));
+    }
+    if (refund.cp) {
       squareConvergencePoints = addBaseNumbers(squareConvergencePoints, divergerSpeedCpCostAtLevel(previousLevel));
     }
     divergerSpeedLevel = previousLevel;
-    divergerSpeedTheoryCost = divergerSpeedTheoryCostAtLevel(previousLevel);
+    divergerSpeedSpCost = divergerSpeedSpCostAtLevel(previousLevel);
     divergerSpeedCpCost = divergerSpeedCpCostAtLevel(previousLevel);
     divergerInterval = divergerIntervalAtLevel(divergerSpeedLevel);
     return true;
@@ -644,15 +658,25 @@ function removeDivergerUpgrade(id) {
   return false;
 }
 
-function loadDivergerUpgradeHistory(savedHistory, levels = {}) {
-  const defaults = { a: true, b: true, c: true, speed: false };
+function loadDivergerUpgradeHistory(savedHistory, levels = {}, legacyTheoryPaid = false) {
+  const defaults = legacyTheoryPaid
+    ? { a: 'legacy-theory', b: 'legacy-theory', c: 'legacy-theory', speed: false }
+    : { a: true, b: true, c: true, speed: false };
   for (const key of Object.keys(divergerUpgradeHistory)) {
     const target = divergerUpgradeHistory[key];
     target.length = 0;
     const level = Math.max(0, Math.floor(Number(levels[key] ?? 0)));
     const saved = Array.isArray(savedHistory?.[key]) ? savedHistory[key] : [];
     for (let index = 0; index < level; index++) {
-      target.push(saved[index] === undefined ? defaults[key] : saved[index] === true);
+      if (saved[index] === undefined) {
+        target.push(defaults[key]);
+      } else if (legacyTheoryPaid && saved[index] === true) {
+        target.push('legacy-theory');
+      } else if (saved[index] === 'legacy-theory') {
+        target.push('legacy-theory');
+      } else {
+        target.push(saved[index] === true);
+      }
     }
   }
 }
@@ -806,7 +830,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 3,
     row: 2,
     title: '발산자',
-    description: '생산 탭에 발산자를 해금합니다. 발산력은 퍼센트 소프트캡을 확장합니다.',
+    description: '생산 탭에 발산자를 해금합니다. 발산력은 제곱 차원을 강화합니다.',
     parents: ['2-2'],
     theoryCost: 6n
   },
@@ -815,9 +839,18 @@ const GENERALIZATION_RESEARCHES = [
     column: 3,
     row: 3,
     title: '퍼센트 가격 감쇠',
-    description: 'e500 이후 퍼센트 업그레이드 가격의 거듭제곱을 1.5에서 1.1로 낮춥니다.',
+    description: 'e500 이후 퍼센트 업그레이드 가격이 매번 1e1000배씩 증가합니다.',
     parents: ['2-4'],
     theoryCost: 6n
+  },
+  {
+    id: '3-4',
+    column: 3,
+    row: 4,
+    title: '자동 업그레이드 일괄 구매',
+    description: '자동 업그레이드 속도가 1틱보다 빠르면 각 구매 가능한 업그레이드를 한 번에 여러 번 구매합니다.',
+    parents: ['2-4'],
+    theoryCost: 2n
   },
   {
     id: '4-1',
@@ -847,6 +880,15 @@ const GENERALIZATION_RESEARCHES = [
     theoryCost: 4n
   },
   {
+    id: '4-4',
+    column: 4,
+    row: 4,
+    title: '수렴 시작 지원금',
+    description: '새로운 수렴을 시작할 때 10b SP를 지급합니다.',
+    parents: ['3-4'],
+    theoryCost: 2n
+  },
+  {
     id: '5-1',
     column: 5,
     row: 1,
@@ -869,9 +911,18 @@ const GENERALIZATION_RESEARCHES = [
     column: 5,
     row: 3,
     title: '발산자 공식 개선',
-    description: '발산력 생산 공식이 D(n) = a^2 × n^(b×c) / (100 - c)로 변경됩니다.',
+    description: '발산력 생산 공식이 D(n) = a^2 × n^(b+c/2) / (100 - c)로 변경됩니다.',
     parents: ['4-3', '4-2'],
     theoryCost: 6n
+  },
+  {
+    id: '5-4',
+    column: 5,
+    row: 4,
+    title: '소프트캡 공식 개선',
+    description: '소프트캡 공식이 1e12 × 10^(P^1.5 - 1 + O)로 변경됩니다.',
+    parents: ['4-4'],
+    theoryCost: 8n
   },
   {
     id: '6-1',
@@ -905,7 +956,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 6,
     row: 4,
     title: '제곱력 소프트캡 강화',
-    description: '제곱력의 지수를 2.5제곱한 만큼 퍼센트 소프트캡을 확장합니다.',
+    description: 'unknown',
     parents: ['5-1'],
     theoryCost: 8n
   },
@@ -1261,10 +1312,11 @@ function squareDimensionPowerExponent(index = 0) {
 
 function squareDimensionPower(index = 0) {
   if (!squareDimensionIsAvailable(index)) return 1n;
-  return NumberMath.powerApproximate(
+  const basePower = NumberMath.powerApproximate(
     squareDimensionVolume(index),
     squareDimensionPowerExponent(index)
   );
+  return multiplyNumberValue(basePower, divergerSquareDimensionMultiplier());
 }
 
 function squareDimensionNumberMultiplier(index = null) {
@@ -1305,15 +1357,8 @@ function squareDimensionTotalPower() {
 }
 
 function squareDimensionPercentSoftcapExponent() {
-  if (!hasGeneralizationResearch('6-4') || !squareDimensionAvailable()) return 0;
-
-  const logarithm = realNumberFromValue(NumberMath.log10(squareDimensionTotalPower()));
-  if (!Number.isFinite(logarithm) || logarithm <= 0) return 0;
-  const power = 2.5;
-  const powerInputMax = Number.MAX_VALUE ** (1 / power);
-  return logarithm > powerInputMax
-    ? Number.MAX_VALUE
-    : Math.floor(logarithm ** power);
+  // 연구 6-4의 퍼센트 소프트캡 효과는 현재 비활성화되어 있다.
+  return 0;
 }
 
 function squareDimensionPercentSoftcapMultiplier() {
@@ -1739,12 +1784,16 @@ function percentPowerUpgradeCostForNextLevel(currentPower, baseCost = 40000n) {
 }
 
 function percentPowerSoftcap(power) {
-  const level = normalizedPercentPower(power) + percentPowerSoftcapBonusLevels() - 1;
-  const baseSoftcap = multiplyNumberValue(PERCENT_POWER_SOFTCAP_START, powerOfTenValue(level));
-  return multiplyNumberValue(
-    multiplyNumberValue(baseSoftcap, squareDimensionPercentSoftcapMultiplier()),
-    divergerPowerSoftcapMultiplier()
-  );
+  const powerLevel = normalizedPercentPower(power);
+  const powerExponent = hasGeneralizationResearch('5-4')
+    ? Math.pow(powerLevel, 1.5)
+    : powerLevel;
+  const exponent = powerExponent + percentPowerSoftcapBonusLevels() - 1;
+  const scale = hasGeneralizationResearch('5-4')
+    ? NumberMath.powerApproximate(10n, exponent)
+    : powerOfTenValue(exponent);
+  const baseSoftcap = multiplyNumberValue(PERCENT_POWER_SOFTCAP_START, scale);
+  return multiplyNumberValue(baseSoftcap, squareDimensionPercentSoftcapMultiplier());
 }
 
 function percentPowerGrowthLimit(power) {
@@ -1828,8 +1877,10 @@ function discountedCost(cost) {
   return discounted;
 }
 
-function percentPowerCostExponent() {
-  return hasGeneralizationResearch('3-3') ? 1.1 : 1.5;
+function percentPowerCostStep(currentCost) {
+  return hasGeneralizationResearch('3-3')
+    ? multiplyNumberValue(currentCost, powerOfTenValue(1000))
+    : NumberMath.power(currentCost, 1.5);
 }
 
 function percentPowerCost(cost, compounding = false) {
@@ -1837,12 +1888,12 @@ function percentPowerCost(cost, compounding = false) {
   const adjustedCost = discountedCost(cost);
   const threshold = powerOfTenValue(500);
   return compareNumberValues(adjustedCost, threshold) >= 0
-    ? NumberMath.power(adjustedCost, percentPowerCostExponent())
+    ? percentPowerCostStep(adjustedCost)
     : adjustedCost;
 }
 
 function nextCompoundingPercentPowerCost(currentCost) {
-  return NumberMath.power(currentCost, percentPowerCostExponent());
+  return percentPowerCostStep(currentCost);
 }
 
 function updatePercentPowerCostAfterPurchase() {
@@ -2028,6 +2079,9 @@ function collectSquareConvergenceIfReady() {
 
   squarePoints = 0n;
   squareConvergencePoints = addBaseNumbers(squareConvergencePoints, gainedConvergencePoints);
+  if (hasGeneralizationResearch('4-4')) {
+    squarePoints = addBaseNumbers(squarePoints, GENERALIZATION_CONVERGENCE_SP_REWARD);
+  }
   squareConvergenceUnlocked = true;
   squareUnlocked = true;
   resetSquareDimensionState();

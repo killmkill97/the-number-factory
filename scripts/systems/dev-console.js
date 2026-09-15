@@ -2,6 +2,7 @@ const devConsole = {
   form: null,
   input: null,
   trace: null,
+  debugBoard: null,
   traceTimer: null,
   visible: false
 };
@@ -222,6 +223,151 @@ function clearOverflowForDevCommand() {
   addBtn.disabled = false;
 }
 
+function debugBoardNumberLog10(value) {
+  const scientific = NumberMath.toScientific(value);
+  return scientific
+    ? Math.log10(scientific.mantissa) + scientific.exponent
+    : -Infinity;
+}
+
+function debugBoardLog10GrowthPerSecond(value, rate) {
+  if (!isPositiveNumberValue(rate)) return 0;
+
+  const valueLogarithm = debugBoardNumberLog10(value);
+  const rateLogarithm = debugBoardNumberLog10(rate);
+  if (!Number.isFinite(valueLogarithm)) return Infinity;
+
+  const logarithmGap = rateLogarithm - valueLogarithm;
+  if (logarithmGap >= 12) return logarithmGap;
+  if (logarithmGap <= -12) return (10 ** logarithmGap) / Math.log(10);
+  return Math.log10(1 + (10 ** logarithmGap));
+}
+
+function debugBoardRateValue(value, cyclesPerSecond) {
+  if (!Number.isFinite(cyclesPerSecond) || cyclesPerSecond <= 0) return 0n;
+  return multiplyNumberValue(value, numberValueFromReal(cyclesPerSecond));
+}
+
+function debugBoardGameCyclesPerSecond(interval) {
+  if (!Number.isFinite(interval) || interval <= 0) return 0;
+  return gameTick(1000) / interval;
+}
+
+function debugBoardAutoClickRate() {
+  if (!autoClickerUnlocked || overflowed) return 0n;
+  const cyclesPerSecond = debugBoardGameCyclesPerSecond(autoClickerSpeed);
+  const clicksPerSecond = cyclesPerSecond * Number(autoClickerParallel);
+  return debugBoardRateValue(effectivePerClick(), clicksPerSecond);
+}
+
+function debugBoardPercentLaneRate(laneNumber, lane = null) {
+  if (!percentUnlocked || overflowed || squareMode) return 0n;
+
+  const unlocked = laneNumber === 1 ? percentAutoUnlocked : lane?.autoUnlocked === true;
+  if (!unlocked) return 0n;
+
+  const power = laneNumber === 1 ? percentPower : lane.power;
+  const speed = laneNumber === 1 ? percentAutoSpeed : lane.autoSpeed;
+  const gain = percentGain(getBaseNumber(), power);
+  return debugBoardRateValue(gain, debugBoardGameCyclesPerSecond(speed));
+}
+
+function debugBoardContributionRows() {
+  const rows = [
+    ['수동 클릭', `${fmtPowerBase(effectivePerClick())} / 클릭`],
+    ['오토 클릭커', `${fmtPowerBase(debugBoardAutoClickRate())} / 초`]
+  ];
+
+  if (percentUnlocked) {
+    rows.push(['퍼센트 1번', `${fmtPowerBase(debugBoardPercentLaneRate(1))} / 초`]);
+    for (const lane of extraPercentLanes) {
+      rows.push([`퍼센트 ${lane.laneNumber}번`, `${fmtPowerBase(debugBoardPercentLaneRate(lane.laneNumber, lane))} / 초`]);
+    }
+  } else {
+    rows.push(['퍼센트 시스템', '잠김']);
+  }
+
+  rows.push([
+    '제곱 차원',
+    squareDimensionAvailable() ? `×${fmtPowerBase(squareDimensionNumberMultiplier())}` : '잠김'
+  ]);
+  rows.push([
+    '발산자',
+    divergerAvailable() ? `제곱력 ×${fmtPowerBase(divergerSquareDimensionMultiplier())}` : '잠김'
+  ]);
+  return rows;
+}
+
+function ensureDevDebugBoardUi() {
+  if (devConsole.debugBoard) return;
+
+  const board = document.createElement('aside');
+  board.className = 'debug-board hidden';
+  board.setAttribute('aria-label', '디버그 보드');
+  board.innerHTML = `
+    <div class="debug-board-header">
+      <strong>디버그 보드</strong>
+      <span>실시간 추정</span>
+    </div>
+    <div class="debug-board-summary">
+      <div class="debug-board-row"><span>초당 log10 증가량</span><strong id="debugBoardLog10Rate">-</strong></div>
+      <div class="debug-board-row"><span>현재 적용 중인 소프트캡</span><strong id="debugBoardSoftcap">-</strong></div>
+      <div class="debug-board-row"><span>1분 뒤 예상 수</span><strong id="debugBoardFutureNumber">-</strong></div>
+    </div>
+    <div class="debug-board-section-title">생산 시스템 최종 기여량</div>
+    <div id="debugBoardContributions" class="debug-board-contributions"></div>
+  `;
+  document.body.appendChild(board);
+  devConsole.debugBoard = board;
+}
+
+function renderDevDebugBoard() {
+  if (!devConsole.debugBoard) return;
+  devConsole.debugBoard.classList.toggle('hidden', !devConsole.visible);
+  if (!devConsole.visible) return;
+
+  const currentNumber = getBaseNumber();
+  const automaticContributions = [
+    debugBoardAutoClickRate(),
+    debugBoardPercentLaneRate(1)
+  ];
+  for (const lane of extraPercentLanes) {
+    automaticContributions.push(debugBoardPercentLaneRate(lane.laneNumber, lane));
+  }
+
+  let totalRate = 0n;
+  for (const contribution of automaticContributions) {
+    totalRate = addBaseNumbers(totalRate, contribution);
+  }
+
+  const log10Rate = debugBoardLog10GrowthPerSecond(currentNumber, totalRate);
+  const softcap = percentUnlocked ? percentPowerSoftcap(percentPower) : 0n;
+  const futureNumber = addBaseNumbers(
+    currentNumber,
+    multiplyNumberValue(totalRate, 60n)
+  );
+  const log10RateText = Number.isFinite(log10Rate) ? `${log10Rate.toFixed(6)} / 초` : '∞ / 초';
+
+  document.getElementById('debugBoardLog10Rate').textContent = log10RateText;
+  document.getElementById('debugBoardSoftcap').textContent = percentUnlocked
+    ? fmtPowerBase(softcap)
+    : '퍼센트 잠김';
+  document.getElementById('debugBoardFutureNumber').textContent = `${fmtPowerBase(futureNumber)} · 현재 속도 기준`;
+
+  const contributions = document.getElementById('debugBoardContributions');
+  contributions.replaceChildren();
+  for (const [label, value] of debugBoardContributionRows()) {
+    const row = document.createElement('div');
+    row.className = 'debug-board-row';
+    const labelElement = document.createElement('span');
+    labelElement.textContent = label;
+    const valueElement = document.createElement('strong');
+    valueElement.textContent = value;
+    row.append(labelElement, valueElement);
+    contributions.appendChild(row);
+  }
+}
+
 function showTetrationForDevCommand() {
   squareUnlocked = true;
   tetrationUnlocked = true;
@@ -307,7 +453,10 @@ function runDevCommand(commandText) {
 }
 
 function ensureDevConsoleUi() {
-  if (devConsole.form) return;
+  if (devConsole.form) {
+    ensureDevDebugBoardUi();
+    return;
+  }
 
   const form = document.createElement('form');
   form.className = 'dev-console hidden';
@@ -344,21 +493,28 @@ function ensureDevConsoleUi() {
   devConsole.form = form;
   devConsole.input = input;
   devConsole.trace = trace;
+  ensureDevDebugBoardUi();
 }
 
 function toggleDevConsole() {
   ensureDevConsoleUi();
   devConsole.visible = !devConsole.visible;
   devConsole.form.classList.toggle('hidden', !devConsole.visible);
+  devConsole.debugBoard.classList.toggle('hidden', !devConsole.visible);
   document.body.classList.toggle('dev-console-open', devConsole.visible);
   render();
 
   if (devConsole.visible) {
     devConsole.input.focus();
+    renderDevDebugBoard();
     renderNumberTrace();
     log('[DEV] 콘솔 열림: set number/sp/cp/lsp/tetraP/theory <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 발산자 Shift+우클릭=한 단계 취소', true);
   }
 }
+
+setInterval(() => {
+  if (devConsole.visible) renderDevDebugBoard();
+}, 250);
 
 document.addEventListener('keydown', event => {
   if (event.key !== 'Tab' || !event.shiftKey) return;

@@ -58,6 +58,7 @@ let automatiumAutocompleteItems = [];
 let automatiumAutocompleteIndex = 0;
 const automatiumExecutions = new Map();
 let automatiumLastNumberClickAt = Number.NEGATIVE_INFINITY;
+let automatiumBulkPurchasesRemaining = AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
 
 function automatiumId() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -487,9 +488,24 @@ const automatiumGameAdapter = {
   },
 
   buy(kind, upgrade, upgradeIndex, node) {
-    const snapshot = nUpgradeSnapshot(kind, upgrade, node, upgradeIndex);
-    if (!snapshot.available) return false;
-    return snapshot.buy() === true;
+    const bulkEnabled = normalizeNName(kind) === 'base' && hasGeneralizationResearch('3-4');
+    const purchaseLimit = bulkEnabled
+      ? Math.min(
+        automatiumBulkPurchasesRemaining,
+        automaticUpgradeBatchSizeForElapsed(AUTOMATIUM_TICK_MS)
+      )
+      : 1;
+    let purchased = 0;
+
+    while (purchased < purchaseLimit) {
+      // 가격과 최대 단계는 구매마다 변하므로 스냅샷도 매번 새로 계산한다.
+      const snapshot = nUpgradeSnapshot(kind, upgrade, node, upgradeIndex);
+      if (!snapshot.available || snapshot.buy() !== true) break;
+      purchased++;
+    }
+
+    if (bulkEnabled) automatiumBulkPurchasesRemaining -= purchased;
+    return purchased > 0;
   },
 
   square(statement, requestedSp = null, programId = null) {
@@ -684,7 +700,7 @@ get.base.percent_auto.upgraded[lane]</code></pre>
 buy square_break doctor_octopus
 buy square_break doctor_octopus s
 buy base percent_auto[2]</code></pre>
-    <p><code>buy</code>는 구매할 수 없으면 다음 줄로 넘어갑니다. 끝에 <code>s</code>를 붙이면 구매 가능할 때까지 현재 프로그램만 대기하고, 구매한 뒤 다음 줄을 실행합니다.</p>
+    <p><code>buy</code>는 구매할 수 없으면 다음 줄로 넘어갑니다. 끝에 <code>s</code>를 붙이면 구매 가능할 때까지 현재 프로그램만 대기하고, 구매한 뒤 다음 줄을 실행합니다. 일반화 연구 3-4가 있으면 <code>buy base</code>도 자동 업그레이드 가속량만큼 한 번에 대량 구매합니다.</p>
 
     <h4>숫자 클릭</h4>
     <pre><code>click
@@ -1425,6 +1441,8 @@ function runAutomatiumTick() {
   if (!hasSquareConvergenceUpgrade('automatium')) return;
   const enabledPrograms = automatiumPrograms.filter(program => program.enabled);
   if (enabledPrograms.length === 0) return;
+
+  automatiumBulkPurchasesRemaining = AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
 
   const blockedThisTick = new Set();
   for (const program of enabledPrograms) {

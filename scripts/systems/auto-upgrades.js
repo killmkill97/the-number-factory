@@ -1,8 +1,17 @@
-function tryAutomaticUpgrade() {
-  if (!hasSquareUpgrade('auto_upgrade_top_down')) return false;
-  if (!autoUpgradeEnabled) return false;
-  if (overflowed || squareMode) return false;
+const AUTO_UPGRADE_INTERVAL_MS = 250;
+const AUTO_UPGRADE_POLL_MS = 50;
+const AUTO_UPGRADE_BATCH_OPERATION_LIMIT = 100000;
 
+function automaticUpgradeBatchSizeForElapsed(elapsedMs) {
+  const acceleratedTime = gameTick(elapsedMs) * autoUpgradeSpeedMultiplier();
+  if (!Number.isFinite(acceleratedTime)) return AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
+  return Math.max(
+    1,
+    Math.min(AUTO_UPGRADE_BATCH_OPERATION_LIMIT, Math.floor(acceleratedTime / AUTO_UPGRADE_INTERVAL_MS))
+  );
+}
+
+function automaticUpgradeChoices() {
   const upgradeChoices = [
     upgradePerClick,
     buyAutoClicker,
@@ -29,32 +38,79 @@ function tryAutomaticUpgrade() {
     [upgradeChoices[i], upgradeChoices[swapIndex]] = [upgradeChoices[swapIndex], upgradeChoices[i]];
   }
 
-  for (const upgrade of upgradeChoices) {
+  return upgradeChoices;
+}
+
+function automaticUpgradeCanRun() {
+  return hasSquareUpgrade('auto_upgrade_top_down')
+    && autoUpgradeEnabled
+    && !overflowed
+    && !squareMode;
+}
+
+function tryAutomaticUpgrade() {
+  if (!automaticUpgradeCanRun()) return false;
+
+  for (const upgrade of automaticUpgradeChoices()) {
     if (upgrade()) return true;
   }
 
   return false;
 }
 
+function tryAutomaticUpgradeBatch(maxPurchasesPerUpgrade) {
+  if (!automaticUpgradeCanRun()) return 0;
+
+  const purchaseLimit = Math.max(1, Math.floor(maxPurchasesPerUpgrade));
+  let totalPurchased = 0;
+
+  // 3-4는 한 업그레이드가 누적 횟수를 독점하지 않는다. 현재 구매 가능한
+  // 모든 업그레이드가 각각 같은 수의 자동 구매 기회를 병렬로 받는다.
+  for (const upgrade of automaticUpgradeChoices()) {
+    let purchased = 0;
+    while (
+      purchased < purchaseLimit
+      && totalPurchased < AUTO_UPGRADE_BATCH_OPERATION_LIMIT
+      && upgrade()
+    ) {
+      purchased++;
+      totalPurchased++;
+    }
+
+    if (totalPurchased >= AUTO_UPGRADE_BATCH_OPERATION_LIMIT) break;
+  }
+
+  return totalPurchased;
+}
+
 setInterval(() => {
-  if (!hasSquareUpgrade('auto_upgrade_top_down') || !autoUpgradeEnabled || overflowed || squareMode) {
+  if (!automaticUpgradeCanRun()) {
     autoUpgradeTimer = 0;
     return;
   }
 
-  autoUpgradeTimer += gameTick(50) * autoUpgradeSpeedMultiplier();
-  if (!Number.isFinite(autoUpgradeTimer)) autoUpgradeTimer = 250 * 64;
-
-  let attempts = Math.floor(autoUpgradeTimer / 250);
-  if (attempts <= 0) return;
-  attempts = Math.min(64, attempts);
-
-  let spentTime = 0;
-  for (let index = 0; index < attempts; index++) {
-    spentTime += 250;
-    if (!tryAutomaticUpgrade()) break;
+  autoUpgradeTimer += gameTick(AUTO_UPGRADE_POLL_MS) * autoUpgradeSpeedMultiplier();
+  if (!Number.isFinite(autoUpgradeTimer)) {
+    autoUpgradeTimer = AUTO_UPGRADE_INTERVAL_MS * AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
   }
 
+  let attempts = Math.floor(autoUpgradeTimer / AUTO_UPGRADE_INTERVAL_MS);
+  if (attempts <= 0) return;
+
+  if (hasGeneralizationResearch('3-4')) {
+    tryAutomaticUpgradeBatch(attempts);
+    // 실패한 구매 시도도 이미 시간이 지난 시도다. 남은 250ms 미만만 보존해
+    // 구매 불가 상태에서 거대한 배치 시간이 쌓이지 않도록 한다.
+    autoUpgradeTimer %= AUTO_UPGRADE_INTERVAL_MS;
+    return;
+  }
+
+  attempts = Math.min(64, attempts);
+  let spentTime = 0;
+  for (let index = 0; index < attempts; index++) {
+    spentTime += AUTO_UPGRADE_INTERVAL_MS;
+    if (!tryAutomaticUpgrade()) break;
+  }
   autoUpgradeTimer = Math.max(0, autoUpgradeTimer - spentTime);
-  if (autoUpgradeTimer > 250) autoUpgradeTimer = 250;
-}, 50);
+  if (autoUpgradeTimer > AUTO_UPGRADE_INTERVAL_MS) autoUpgradeTimer = AUTO_UPGRADE_INTERVAL_MS;
+}, AUTO_UPGRADE_POLL_MS);

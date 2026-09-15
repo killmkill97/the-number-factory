@@ -877,6 +877,69 @@
     color: var(--text-dim);
     font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
   }
+  .debug-board {
+    position: fixed;
+    top: 64px;
+    left: 16px;
+    z-index: 980;
+    width: min(360px, calc(100vw - 32px));
+    max-height: calc(100vh - 80px);
+    overflow: auto;
+    padding: 10px;
+    background: rgba(22, 27, 34, 0.98);
+    border: 1px solid var(--amber);
+    border-radius: 4px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.42);
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.45;
+    pointer-events: none;
+  }
+  .debug-board-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  .debug-board-header span {
+    color: var(--amber);
+    font-size: 10px;
+  }
+  .debug-board-summary {
+    display: grid;
+    gap: 5px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .debug-board-section-title {
+    padding: 8px 0 5px;
+    color: var(--text);
+  }
+  .debug-board-contributions {
+    display: grid;
+    gap: 4px;
+  }
+  .debug-board-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+    align-items: start;
+    gap: 10px;
+  }
+  .debug-board-row strong {
+    min-width: 0;
+    color: var(--text);
+    font-weight: normal;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  body.square-mode .debug-board {
+    border-color: #a97dd4;
+  }
+  body.tetration-mode .debug-board {
+    border-color: #56d364;
+  }
   body.square-mode .dev-console-prompt {
     color: #c99dff;
   }

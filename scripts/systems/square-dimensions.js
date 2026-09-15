@@ -36,7 +36,7 @@ const primarySquareDimensionUi = {
 function formatSquareDimensionScientific(value) {
   const scientific = NumberMath.toScientific(value);
   if (!scientific) return '0e0';
-  return `${compactMantissa(scientific.mantissa)}e${scientific.exponent}`;
+  return formatScientificParts(scientific.mantissa, scientific.exponent);
 }
 
 function formatSquareDimensionSide(sideValue) {
@@ -194,16 +194,13 @@ function renderSquareDimensionCard(ui, index) {
   const contributionPower = generalized ? 3 : 2;
   const squaredContribution = hasGeneralizationResearch('6-1');
   const powerStrengthResearch = hasGeneralizationResearch('6-2');
-  const softcapExtensionResearch = hasGeneralizationResearch('6-4');
   const contributionExponent = contributionPower * (squaredContribution ? 2 : 1);
 
   ui.powerValue.textContent = formatSquareDimensionNumber(squareDimensionPower(index));
   ui.powerSubValue.textContent = `제곱력 = ${squareDimensionPowerFormulaText(index, exponent)} · 숫자 생산 기여 제곱력^${contributionExponent} · 생산 주기 ${formatSquareDimensionDuration(dimension.powerInterval)}`;
   ui.multiplierValue.textContent = `기본 숫자 생산 배율 ×${formatSquareDimensionNumber(squareDimensionNumberMultiplier(index))}`;
-  ui.softcapValue.classList.toggle('hidden', !softcapExtensionResearch);
-  ui.softcapValue.textContent = softcapExtensionResearch
-    ? `제곱력 ${fmtPowerBase(squareDimensionTotalPower())} · 소프트캡 확장 ×${fmtPowerBase(squareDimensionPercentSoftcapMultiplier())} · 현재 소프트캡 ${fmtPowerBase(percentPowerSoftcap(percentPower))}`
-    : '';
+  ui.softcapValue.classList.add('hidden');
+  ui.softcapValue.textContent = '';
   ui.shapeLabel.textContent = generalized ? `${xText} × ${yText} × ${zText}` : `${xText} × ${yText}`;
   ui.xValue.textContent = xText;
   ui.yValue.textContent = yText;

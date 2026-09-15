@@ -176,8 +176,28 @@ function compactMantissa(value) {
   return Number(value.toPrecision(3)).toString();
 }
 
+function formatExponent(exponent) {
+  const numericExponent = Number(exponent);
+  if (!Number.isFinite(numericExponent)) return String(numericExponent);
+
+  const integerExponent = Math.floor(numericExponent);
+  if (integerExponent < 1000) return String(integerExponent);
+
+  const magnitude = Math.floor(Math.log10(integerExponent));
+  const mantissa = integerExponent / (10 ** magnitude);
+  if (magnitude >= 33) {
+    return `${compactMantissa(mantissa)}e${magnitude}`;
+  }
+
+  return formatWithExponent(mantissa, magnitude);
+}
+
+function formatScientificParts(mantissa, exponent, sign = '') {
+  return `${sign}${compactMantissa(mantissa)}e${formatExponent(exponent)}`;
+}
+
 function formatWithExponent(mantissa, exponent, sign = '') {
-  if (exponent >= 33) return `${sign}${compactMantissa(mantissa)}e${exponent}`;
+  if (exponent >= 33) return formatScientificParts(mantissa, exponent, sign);
   if (exponent < 3) {
     const ordinary = mantissa * (10 ** exponent);
     return `${sign}${Math.floor(ordinary).toLocaleString('en-US')}`;

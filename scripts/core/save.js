@@ -84,17 +84,17 @@ function saveGame() {
     divergerB,
     divergerC,
     divergerInterval,
-    divergerATheoryCost: serializeNumberValue(divergerATheoryCost),
+    divergerASpCost: serializeNumberValue(divergerASpCost),
     divergerACpCost: serializeNumberValue(divergerACpCost),
-    divergerBTheoryCost: serializeNumberValue(divergerBTheoryCost),
+    divergerBSpCost: serializeNumberValue(divergerBSpCost),
     divergerBCpCost: serializeNumberValue(divergerBCpCost),
-    divergerCTheoryCost: serializeNumberValue(divergerCTheoryCost),
+    divergerCSpCost: serializeNumberValue(divergerCSpCost),
     divergerCCpCost: serializeNumberValue(divergerCCpCost),
     divergerALevel,
     divergerBLevel,
     divergerCLevel,
     divergerSpeedLevel,
-    divergerSpeedTheoryCost: serializeNumberValue(divergerSpeedTheoryCost),
+    divergerSpeedSpCost: serializeNumberValue(divergerSpeedSpCost),
     divergerSpeedCpCost: serializeNumberValue(divergerSpeedCpCost),
     divergerUpgradeHistory,
     theory: serializeNumberValue(theory),
@@ -161,11 +161,17 @@ function loadGame() {
     divergerInterval = Number.isFinite(savedDivergerInterval)
       ? Math.min(DIVERGER_BASE_INTERVAL, Math.max(divergerMinInterval(), savedDivergerInterval))
       : DIVERGER_BASE_INTERVAL;
-    divergerATheoryCost = numberValueFromSave(d.divergerATheoryCost, 4n);
+    divergerASpCost = d.divergerASpCost === undefined
+      ? multiplyNumberValue(numberValueFromSave(d.divergerATheoryCost, 4n), DIVERGER_SP_COST_MULTIPLIER)
+      : numberValueFromSave(d.divergerASpCost, 4n * DIVERGER_SP_COST_MULTIPLIER);
     divergerACpCost = numberValueFromSave(d.divergerACpCost, 20n);
-    divergerBTheoryCost = numberValueFromSave(d.divergerBTheoryCost, 8n);
+    divergerBSpCost = d.divergerBSpCost === undefined
+      ? multiplyNumberValue(numberValueFromSave(d.divergerBTheoryCost, 8n), DIVERGER_SP_COST_MULTIPLIER)
+      : numberValueFromSave(d.divergerBSpCost, 8n * DIVERGER_SP_COST_MULTIPLIER);
     divergerBCpCost = numberValueFromSave(d.divergerBCpCost, 32n);
-    divergerCTheoryCost = numberValueFromSave(d.divergerCTheoryCost, 12n);
+    divergerCSpCost = d.divergerCSpCost === undefined
+      ? multiplyNumberValue(numberValueFromSave(d.divergerCTheoryCost, 12n), DIVERGER_SP_COST_MULTIPLIER)
+      : numberValueFromSave(d.divergerCSpCost, 12n * DIVERGER_SP_COST_MULTIPLIER);
     divergerCCpCost = numberValueFromSave(d.divergerCCpCost, 48n);
     const savedDivergerALevel = Number(d.divergerALevel ?? d.divergerUpgradeHistory?.a?.length ?? 0);
     const savedDivergerBLevel = Number(d.divergerBLevel ?? d.divergerUpgradeHistory?.b?.length ?? 0);
@@ -179,10 +185,14 @@ function loadGame() {
     divergerSpeedLevel = Number.isFinite(savedDivergerSpeedLevel)
       ? Math.max(0, Math.floor(savedDivergerSpeedLevel))
       : divergerSpeedLevelFromInterval(divergerInterval);
-    divergerSpeedTheoryCost = numberValueFromSave(
-      d.divergerSpeedTheoryCost,
-      divergerSpeedTheoryCostAtLevel(divergerSpeedLevel)
-    );
+    divergerSpeedSpCost = d.divergerSpeedSpCost === undefined
+      ? d.divergerSpeedTheoryCost === undefined
+        ? divergerSpeedSpCostAtLevel(divergerSpeedLevel)
+        : multiplyNumberValue(
+          numberValueFromSave(d.divergerSpeedTheoryCost, 1n),
+          DIVERGER_SP_COST_MULTIPLIER
+        )
+      : numberValueFromSave(d.divergerSpeedSpCost, divergerSpeedSpCostAtLevel(divergerSpeedLevel));
     divergerSpeedCpCost = numberValueFromSave(
       d.divergerSpeedCpCost,
       divergerSpeedCpCostAtLevel(divergerSpeedLevel)
@@ -192,7 +202,7 @@ function loadGame() {
       b: divergerBLevel,
       c: divergerCLevel,
       speed: divergerSpeedLevel
-    });
+    }, !Number.isFinite(saveVersion) || saveVersion < SAVE_VERSION);
     divergerTimer = 0;
     divergerGraphSamples.length = 0;
     divergerGraphScaleMinimum = null;
