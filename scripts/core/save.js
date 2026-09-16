@@ -1,4 +1,34 @@
+let saveStatsLoadedFromStorage = false;
+
+function normalizeSaveCounter(value) {
+  const counter = Number(value);
+  return Number.isSafeInteger(counter) && counter >= 0 ? counter : 0;
+}
+
+function loadPersistedSaveStats() {
+  try {
+    const raw = localStorage.getItem(SAVE_STATS_KEY);
+    if (!raw) return;
+    const stats = JSON.parse(raw);
+    saveCount = normalizeSaveCounter(stats.saveCount);
+    loadCount = normalizeSaveCounter(stats.loadCount);
+    saveStatsLoadedFromStorage = true;
+  } catch {
+    saveCount = 0;
+    loadCount = 0;
+  }
+}
+
+function persistSaveStats() {
+  localStorage.setItem(SAVE_STATS_KEY, JSON.stringify({ saveCount, loadCount }));
+}
+
+loadPersistedSaveStats();
+
 function saveGame() {
+  updateAchievements();
+  if (baseNumberIsInNoUnit()) unlockAchievement('no_unit_save');
+  const nextSaveCount = saveCount + 1;
   const primarySquareDimension = squareDimensionState(0);
   const data = {
     version: SAVE_VERSION,
@@ -98,6 +128,11 @@ function saveGame() {
     divergerSpeedCpCost: serializeNumberValue(divergerSpeedCpCost),
     divergerUpgradeHistory,
     theory: serializeNumberValue(theory),
+    totalTheoryPurchased: serializeNumberValue(totalTheoryPurchased),
+    generalizationResetCount,
+    saveCount: nextSaveCount,
+    loadCount,
+    achievementState,
     theorySquarePointCost: serializeNumberValue(theorySquarePointCost),
     theoryConvergencePointCost: serializeNumberValue(theoryConvergencePointCost),
     generalizationResetCost: serializeNumberValue(generalizationResetCost),
@@ -121,6 +156,9 @@ function saveGame() {
   };
 
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  saveCount = nextSaveCount;
+  saveStatsLoadedFromStorage = true;
+  persistSaveStats();
   log('게임을 이 브라우저에 저장했습니다.', true);
 }
 
@@ -136,7 +174,16 @@ function loadGame() {
     const saveVersion = Number(d.version ?? 1);
     const isLegacySave = !Number.isFinite(saveVersion) || saveVersion < 5;
 
+    if (!saveStatsLoadedFromStorage) {
+      saveCount = normalizeSaveCounter(d.saveCount);
+      loadCount = normalizeSaveCounter(d.loadCount);
+      saveStatsLoadedFromStorage = true;
+    }
+
     theory = numberValueFromSave(d.theory);
+    totalTheoryPurchased = numberValueFromSave(d.totalTheoryPurchased, theory);
+    generalizationResetCount = normalizeSaveCounter(d.generalizationResetCount);
+    loadAchievementState(d.achievementState);
     theorySquarePointCost = numberValueFromSave(d.theorySquarePointCost, THEORY_SQUARE_POINT_BASE_COST);
     theoryConvergencePointCost = numberValueFromSave(d.theoryConvergencePointCost, THEORY_CONVERGENCE_POINT_BASE_COST);
     generalizationResetCost = numberValueFromSave(d.generalizationResetCost, GENERALIZATION_RESET_BASE_COST);
@@ -462,6 +509,10 @@ function loadGame() {
     addBtn.textContent = `+${perClick.toString()}`;
     upgradeClickBtn.classList.remove('hidden');
 
+    resetAchievementTimers();
+    loadCount += 1;
+    persistSaveStats();
+    updateAchievements();
     render();
     log(
       isLegacySave

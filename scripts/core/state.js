@@ -85,6 +85,10 @@ const divergerGraphSamples = [];
 let divergerGraphScaleMinimum = null;
 let divergerGraphScaleMaximum = null;
 let theory = 0n;
+let totalTheoryPurchased = 0n;
+let generalizationResetCount = 0;
+let saveCount = 0;
+let loadCount = 0;
 let theorySquarePointCost = THEORY_SQUARE_POINT_BASE_COST;
 let theoryConvergencePointCost = THEORY_CONVERGENCE_POINT_BASE_COST;
 let generalizationResetCost = GENERALIZATION_RESET_BASE_COST;
@@ -2232,6 +2236,7 @@ function purchaseTheory(purchases) {
   }
 
   theory = addBaseNumbers(theory, BigInt(purchases));
+  totalTheoryPurchased = addBaseNumbers(totalTheoryPurchased, BigInt(purchases));
   log(`${paidResourceLabel}로 이론 ${purchases}개를 연구했습니다. 현재 ${fmt(theory)} 이론`, true);
   render();
   return true;
@@ -2290,6 +2295,7 @@ function resetGeneralizationResearch() {
   squareConvergencePoints = subtractNumberValues(squareConvergencePoints, generalizationResetCost);
   theory = addBaseNumbers(theory, refundedTheory);
   resetGeneralizationResearchState();
+  generalizationResetCount += 1;
   generalizationResetCost = multiplyNumberValue(generalizationResetCost, 2n);
   log(`일반화 연구를 초기화했습니다. ${fmt(refundedTheory)} 이론을 반환했습니다. 다음 초기화 비용: ${fmt(generalizationResetCost)} CP`, true);
   render();

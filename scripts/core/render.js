@@ -23,6 +23,8 @@ function render() {
 }
 
 function renderNow() {
+  updateAchievements();
+  renderAchievements();
   mainValue.textContent = fmtPowerBase(getBaseNumber());
   if (currencyNumberValue) currencyNumberValue.textContent = fmtPowerBase(getBaseNumber());
   traceNumberEvent('render', {

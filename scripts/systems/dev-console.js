@@ -520,6 +520,7 @@ function toggleDevConsole() {
   devConsole.form.classList.toggle('hidden', !devConsole.visible);
   devConsole.debugBoard.classList.toggle('hidden', !devConsole.visible);
   document.body.classList.toggle('dev-console-open', devConsole.visible);
+  if (devConsole.visible) unlockAchievement('debug_mode');
   render();
 
   if (devConsole.visible) {

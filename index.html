@@ -53,10 +53,16 @@
   </div>
 
   <div class="chapter-panel" id="multiplicationPanel">
-    <div class="display" id="displayBox">
+    <div class="multiplication-view-tabs" role="tablist" aria-label="일반 화면">
+      <button id="multiplicationNumberViewBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="multiplicationNumberViewPanel">수</button>
+      <button id="achievementsViewBtn" type="button" role="tab" aria-selected="false" aria-controls="achievementsViewPanel">업적</button>
+    </div>
+
+    <div id="multiplicationNumberViewPanel">
+      <div class="display" id="displayBox">
       <div class="value" id="mainValue">0</div>
       <div class="sub" id="subValue"></div>
-    </div>
+      </div>
 
     <button class="main" id="addBtn">+1</button>
 
@@ -139,7 +145,18 @@
 
     <div id="dialogueBox" class="dialogue-box"></div>
 
-    <button id="prestigeBtn" class="hidden main">제곱 프레스티지로 넘어가기</button>
+      <button id="prestigeBtn" class="hidden main">제곱 프레스티지로 넘어가기</button>
+    </div>
+
+    <div id="achievementsViewPanel" class="hidden">
+      <div class="section-title">업적</div>
+      <div class="achievement-category-tabs" role="tablist" aria-label="업적 종류">
+        <button id="generalAchievementsTabBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="achievementList">일반</button>
+        <button id="secretAchievementsTabBtn" type="button" role="tab" aria-selected="false" aria-controls="secretAchievementList">비밀</button>
+      </div>
+      <div id="achievementList" class="achievement-list"></div>
+      <div id="secretAchievementList" class="achievement-list hidden"></div>
+    </div>
   </div>
 
   <div class="chapter-panel hidden" id="squarePanel">
@@ -475,10 +492,10 @@
 </div>
 
 <script src="./scripts/data/chapter-roadmap.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/constants.js?v=20260915-percent-cost-research"></script>
+<script src="./scripts/core/constants.js?v=20260916-secret-achievements"></script>
 <script src="./scripts/core/number-math.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/state.js?v=20260915-percent-price-1000"></script>
-<script src="./scripts/core/dom.js?v=20260916-debug-title"></script>
+<script src="./scripts/core/state.js?v=20260916-secret-achievements"></script>
+<script src="./scripts/core/dom.js?v=20260916-secret-achievements"></script>
 <script src="./scripts/core/chapter-ui.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/percent-lanes.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/square-upgrades.js?v=20260905-cache-refresh"></script>
@@ -486,14 +503,15 @@
 <script src="./scripts/systems/square-convergence.js?v=20260916-tree-all-drag"></script>
 <script src="./scripts/systems/square-dimensions.js?v=20260914-exponent-format"></script>
 <script src="./scripts/systems/diverger.js?v=20260915-diverger-formula"></script>
-<script src="./scripts/core/render.js?v=20260905-diverger-undo"></script>
+<script src="./scripts/systems/achievements.js?v=20260916-secret-achievements"></script>
+<script src="./scripts/core/render.js?v=20260916-secret-achievements"></script>
 <script src="./scripts/systems/clickers.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/percent-system.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/auto-upgrades.js?v=20260915-automatium-bulk"></script>
 <script src="./scripts/systems/news-ticker.js?v=20260915-news-expansion-v2"></script>
 <script src="./scripts/chapters/square.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/chapters/tetration.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/save.js?v=20260908-diverger-sp-cost"></script>
+<script src="./scripts/core/save.js?v=20260916-secret-achievements"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/automatium/n-parser.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/automatium/n-runtime.js?v=20260905-cache-refresh"></script>
