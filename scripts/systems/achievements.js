@@ -4,6 +4,17 @@ const ACHIEVEMENT_E9000 = 10n ** 9000n;
 const ACHIEVEMENT_NO_UNIT_MINIMUM = 10n ** 30n;
 const ACHIEVEMENT_NO_UNIT_MAXIMUM = 10n ** 33n;
 const ACHIEVEMENT_OBFUSCATION_GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*+=?<>[]{}';
+const SECRET_ACHIEVEMENT_HINTS = {
+  number_69_hold: '69의 의지',
+  add_button_hold: '이것이 홀드로 되면 좋겠다고 생각한 거',
+  negative_number: '물리세요',
+  zero_ten_minutes: '기다려봐',
+  exact_9000: '9000의 의지는 이어져야한다',
+  research_reset_20: '이론 돌려막기',
+  no_unit_save: 'no',
+  load_save_ratio: '아무것도 얻지 않는 불러오기',
+  all_currencies_same: '우린 하나야 영원한 평화속에서'
+};
 
 const ACHIEVEMENTS = [
   {
@@ -281,14 +292,16 @@ function ensureAchievementUi(achievement) {
   title.className = 'achievement-title';
   const description = document.createElement('span');
   description.className = 'achievement-description';
+  const hint = document.createElement('span');
+  hint.className = 'achievement-hint';
   const status = document.createElement('span');
   status.className = 'achievement-status';
-  button.append(title, description, status);
+  button.append(title, description, hint, status);
 
   const list = achievement.category === 'secret' ? secretAchievementList : achievementList;
   list?.appendChild(button);
 
-  const ui = { button, title, description, status };
+  const ui = { button, title, description, hint, status };
   achievementUi.set(achievement.id, ui);
   return ui;
 }
@@ -301,6 +314,12 @@ function renderAchievements() {
     const achieved = achievementState[achievement.id] === true;
     const expanded = expandedAchievementId === achievement.id;
     const isSecretAndHidden = achievement.category === 'secret' && !achieved;
+    const hintText = achievement.category === 'secret'
+      && achievement.id !== 'debug_mode'
+      && achievementState.debug_mode === true
+      && !achieved
+      ? SECRET_ACHIEVEMENT_HINTS[achievement.id]
+      : '';
     ui.button.classList.toggle('achieved', achieved);
     ui.button.classList.toggle('is-expanded', expanded);
     ui.button.setAttribute('aria-expanded', String(expanded));
@@ -310,6 +329,8 @@ function renderAchievements() {
     ui.description.textContent = isSecretAndHidden
       ? obfuscateAchievementText(achievement.description)
       : achievement.description;
+    ui.hint.textContent = hintText ? `힌트: ${hintText}` : '';
+    ui.hint.hidden = !hintText;
     ui.status.textContent = achieved ? '달성 완료' : '미달성';
     ui.description.hidden = !expanded;
     ui.status.hidden = !expanded;
