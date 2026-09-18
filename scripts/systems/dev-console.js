@@ -515,6 +515,13 @@ function ensureDevConsoleUi() {
 }
 
 function toggleDevConsole() {
+  if (!devConsole.visible && !window.numberTycoonAuth?.isAuthorized?.()) {
+    unlockAchievement('debug_mode');
+    window.numberTycoonAuth?.notify?.('killmkill97@gmail.com 계정으로 로그인해야 디버그 모드를 사용할 수 있습니다.');
+    render();
+    return false;
+  }
+
   ensureDevConsoleUi();
   devConsole.visible = !devConsole.visible;
   devConsole.form.classList.toggle('hidden', !devConsole.visible);
@@ -551,3 +558,6 @@ document.addEventListener('keydown', event => {
   event.preventDefault();
   toggleDevConsole();
 });
+
+window.devConsoleIsOpen = devConsoleIsOpen;
+window.stopDevDebugMode = stopDevDebugMode;

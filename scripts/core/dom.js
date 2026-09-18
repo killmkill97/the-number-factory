@@ -176,6 +176,15 @@ const currencyCpValue = document.getElementById('currencyCpValue');
 const currencyLspValue = document.getElementById('currencyLspValue');
 const currencyTetraPValue = document.getElementById('currencyTetraPValue');
 const currencyTheoryValue = document.getElementById('currencyTheoryValue');
+const authSignedOutPanel = document.getElementById('authSignedOutPanel');
+const authSignedInPanel = document.getElementById('authSignedInPanel');
+const googleSignInBtn = document.getElementById('googleSignInBtn');
+const googleSignOutBtn = document.getElementById('googleSignOutBtn');
+const authProfilePhoto = document.getElementById('authProfilePhoto');
+const authProfileName = document.getElementById('authProfileName');
+const authProfileEmail = document.getElementById('authProfileEmail');
+const authDebugAccessStatus = document.getElementById('authDebugAccessStatus');
+const authStatus = document.getElementById('authStatus');
 
 function log() {}
 

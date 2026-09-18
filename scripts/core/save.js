@@ -162,8 +162,8 @@ function saveGame() {
   log('게임을 이 브라우저에 저장했습니다.', true);
 }
 
-function loadGame() {
-  const raw = localStorage.getItem(SAVE_KEY);
+function loadGame(rawOverride = null) {
+  const raw = rawOverride ?? localStorage.getItem(SAVE_KEY);
   if (!raw) {
     log('저장 데이터가 없습니다.', true);
     return;
@@ -171,6 +171,7 @@ function loadGame() {
 
   try {
     const d = JSON.parse(raw);
+    if (rawOverride !== null) localStorage.setItem(SAVE_KEY, raw);
     const saveVersion = Number(d.version ?? 1);
     const isLegacySave = !Number.isFinite(saveVersion) || saveVersion < 5;
 
@@ -529,12 +530,20 @@ function loadGame() {
 function requestSaveGame() {
   if (!window.confirm('저장하시겠습니까?')) return;
   saveGame();
+  window.numberTycoonCloud?.saveCurrent?.();
 }
 
 function requestLoadGame() {
   if (!window.confirm('불러오시겠습니까?')) return;
-  loadGame();
+  if (window.numberTycoonCloud?.isReady?.()) {
+    window.numberTycoonCloud.loadCurrent();
+  } else {
+    loadGame();
+  }
 }
 
 saveBtn.addEventListener('click', requestSaveGame);
 loadBtn.addEventListener('click', requestLoadGame);
+
+window.saveGame = saveGame;
+window.loadGame = loadGame;

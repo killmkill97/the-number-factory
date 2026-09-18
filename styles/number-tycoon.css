@@ -113,6 +113,65 @@
     width: 100%;
     accent-color: var(--amber);
   }
+  .account-settings {
+    display: grid;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .account-settings-title {
+    color: var(--text);
+    font-weight: bold;
+  }
+  .account-settings-note,
+  .account-settings-status {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .account-settings-status {
+    min-height: 1.45em;
+    color: var(--amber);
+  }
+  .account-action-btn {
+    width: 100%;
+    min-height: 32px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .account-profile {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .account-profile-photo {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    object-fit: cover;
+  }
+  .account-profile-copy {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+  .account-profile-copy strong,
+  .account-profile-copy span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .account-profile-copy strong {
+    color: var(--text);
+  }
+  .account-profile-copy span {
+    color: var(--text-dim);
+    font-size: 11px;
+  }
   .currency-status {
     position: fixed;
     top: 64px;

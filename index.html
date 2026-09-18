@@ -27,6 +27,25 @@
     <span>화폐 표시 크기 <output id="currencyStatusScaleValue">1.0배</output></span>
     <input id="currencyStatusScaleInput" type="range" min="1" max="4" step="0.1" value="1" aria-label="화폐 표시 크기">
   </label>
+  <section class="account-settings" aria-labelledby="accountSettingsTitle">
+    <div class="account-settings-title" id="accountSettingsTitle">계정</div>
+    <div id="authSignedOutPanel">
+      <p class="account-settings-note">로그인하지 않으면 디버그 모드를 사용할 수 없습니다.</p>
+      <button id="googleSignInBtn" class="account-action-btn" type="button">Google로 로그인</button>
+    </div>
+    <div id="authSignedInPanel" class="hidden">
+      <div class="account-profile">
+        <img id="authProfilePhoto" class="account-profile-photo hidden" alt="프로필 사진">
+        <div class="account-profile-copy">
+          <strong id="authProfileName"></strong>
+          <span id="authProfileEmail"></span>
+        </div>
+      </div>
+      <div id="authDebugAccessStatus" class="account-settings-note"></div>
+      <button id="googleSignOutBtn" class="account-action-btn" type="button">로그아웃</button>
+    </div>
+    <div id="authStatus" class="account-settings-status" role="status" aria-live="polite"></div>
+  </section>
 </div>
 <aside class="currency-status" id="currencyStatus" aria-label="보유 화폐">
   <div class="currency-status-row"><span>숫자:</span><strong id="currencyNumberValue">0</strong></div>
@@ -511,12 +530,14 @@
 <script src="./scripts/systems/news-ticker.js?v=20260915-news-expansion-v2"></script>
 <script src="./scripts/chapters/square.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/chapters/tetration.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/save.js?v=20260916-secret-achievements"></script>
+<script src="./scripts/core/save.js?v=20260918-cloud-save"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/automatium/n-parser.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/automatium/n-runtime.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/automatium.js?v=20260915-automatium-bulk"></script>
 <script src="./scripts/systems/dev-console.js?v=20260916-debug-title"></script>
 <script src="./scripts/main.js?v=20260905-cache-refresh"></script>
+<script src="./scripts/config/firebase-config.js?v=20260918-auth"></script>
+<script type="module" src="./scripts/systems/firebase-auth.js?v=20260918-cloud-save"></script>
 </body>
 </html>
