@@ -39,3 +39,4 @@ const SQUARE_CONVERGENCE_IMPROVED_EXCHANGE_REQUIREMENT = 9n * (10n ** 25n);
 const SAVE_VERSION = 40;
 const SAVE_KEY = 'numberTycoonSave_v1';
 const SAVE_STATS_KEY = 'numberTycoonSaveStats_v1';
+const AUTH_SIGN_OUT_COUNT_KEY = 'numberTycoonAuthSignOutCount';

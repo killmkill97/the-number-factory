@@ -127,10 +127,12 @@ async function writeCloudSave(user = authState.user) {
   return true;
 }
 
-async function applyCloudSave(cloudSave, user = authState.user) {
+async function applyCloudSave(cloudSave, user = authState.user, options = {}) {
   if (!cloudSave || typeof window.loadGame !== 'function') return false;
 
-  window.loadGame(JSON.stringify(cloudSave.data));
+  window.loadGame(JSON.stringify(cloudSave.data), {
+    countAsLoad: options.countAsLoad !== false
+  });
   rememberCloudSync(user, cloudSave.updatedAt);
   return true;
 }
@@ -154,7 +156,7 @@ async function synchronizeSignedInUser(user) {
     if (meta?.uid === user.uid && meta.updatedAt === cloudSave.updatedAt) return;
 
     if (!localData) {
-      await applyCloudSave(cloudSave, user);
+      await applyCloudSave(cloudSave, user, { countAsLoad: false });
       setAuthMessage('클라우드 저장 데이터를 불러왔습니다.');
       return;
     }
@@ -276,6 +278,14 @@ async function signOutGoogle() {
   renderAuthUi();
   try {
     await signOut(auth);
+    const previousCount = Number(localStorage.getItem(AUTH_SIGN_OUT_COUNT_KEY));
+    const nextCount = Number.isSafeInteger(previousCount) && previousCount >= 0
+      ? previousCount + 1
+      : 1;
+    localStorage.setItem(AUTH_SIGN_OUT_COUNT_KEY, String(nextCount));
+    window.dispatchEvent(new CustomEvent('numberTycoonAuthChanged', {
+      detail: { signOutCount: nextCount }
+    }));
   } catch {
     setAuthMessage('로그아웃에 실패했습니다. 다시 시도하세요.');
   } finally {
@@ -316,6 +326,7 @@ if (authState.configured) {
       authState.user = user;
       authState.initialized = true;
       authState.message = '';
+      window.dispatchEvent(new CustomEvent('numberTycoonAuthChanged', { detail: user }));
       if (!isAuthorizedDebugUser(user)
         && typeof window.devConsoleIsOpen === 'function'
         && window.devConsoleIsOpen()) {

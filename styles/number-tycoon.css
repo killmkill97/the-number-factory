@@ -52,6 +52,11 @@
   .news-ticker-text.is-running {
     animation: newsTickerScroll var(--ticker-duration, 4s) linear 1;
   }
+  .news-ticker-text.is-clickable {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 4px;
+  }
   .news-ticker-settings {
     position: absolute;
     top: 50%;
@@ -69,6 +74,41 @@
     padding: 6px 8px;
     background: rgba(22, 27, 34, 0.92);
     font-size: 12px;
+  }
+  .achievement-toast {
+    position: fixed;
+    top: 56px;
+    left: 50%;
+    z-index: 1005;
+    width: min(420px, calc(100vw - 32px));
+    min-height: 42px;
+    display: grid;
+    place-items: center;
+    padding: 8px 14px;
+    border: 1px solid var(--achievement-toast-border, var(--border));
+    border-top: 0;
+    background: var(--achievement-toast-bg, rgba(22, 27, 34, 0.98));
+    color: var(--achievement-toast-text, var(--text));
+    font-size: 15px;
+    font-weight: bold;
+    text-align: center;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, -120%);
+  }
+  .achievement-toast.is-general {
+    --achievement-toast-border: #39d353;
+    --achievement-toast-bg: rgba(11, 45, 25, 0.98);
+    --achievement-toast-text: #7ee787;
+  }
+  .achievement-toast.is-secret {
+    --achievement-toast-border: #ffb000;
+    --achievement-toast-bg: rgba(58, 42, 0, 0.98);
+    --achievement-toast-text: #ffd666;
+  }
+  .achievement-toast.is-visible {
+    animation: achievementToastDrop 3s ease-in-out both;
   }
   .news-mode-select {
     width: 172px;
@@ -204,6 +244,16 @@
   @keyframes newsTickerScroll {
     from { transform: translate(var(--ticker-start, 100vw), -50%); }
     to { transform: translate(var(--ticker-end, -100%), -50%); }
+  }
+  @keyframes achievementToastDrop {
+    0%, 100% {
+      opacity: 0;
+      transform: translate(-50%, -120%);
+    }
+    15%, 85% {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
   }
   body.square-mode {
     background: #120a1f;

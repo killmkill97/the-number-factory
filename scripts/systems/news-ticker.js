@@ -1,4 +1,6 @@
 const HUMAN_NEWS_TICKER_MESSAGES = [
+  '이 뉴스를 클릭해 새로운 업적 달성',
+  '보고있다면 잘 봐. 이거 한번만 눌러봐',
   '똥마렵다',
   '근데 이거 아직 멀었음',
   '라면 먹는 라요',
@@ -199,6 +201,10 @@ const CURRENCY_STATUS_SCALE_KEY = 'numberTycoonCurrencyStatusScale';
 const NEWS_TICKER_MODES = new Set(['all', 'human', 'ai']);
 const NEWS_TICKER_SPEED_PX_PER_SECOND = 450;
 const NEWS_TICKER_SIDE_PADDING = 24;
+const CLICKABLE_ACHIEVEMENT_NEWS = new Set([
+  '이 뉴스를 클릭해 새로운 업적 달성',
+  '보고있다면 잘 봐. 이거 한번만 눌러봐'
+]);
 let newsTickerMode = localStorage.getItem(NEWS_TICKER_MODE_KEY) || 'all';
 
 if (!NEWS_TICKER_MODES.has(newsTickerMode)) {
@@ -249,6 +255,10 @@ function startNewsTickerMessage(message) {
 
   newsTickerText.style.visibility = 'hidden';
   newsTickerText.classList.remove('is-running');
+  newsTickerText.classList.toggle('is-clickable', CLICKABLE_ACHIEVEMENT_NEWS.has(message));
+  newsTickerText.title = CLICKABLE_ACHIEVEMENT_NEWS.has(message)
+    ? '클릭해서 업적 달성'
+    : '';
   newsTickerText.textContent = message;
 
   const trackWidth = newsTickerText.parentElement.getBoundingClientRect().width || window.innerWidth;
@@ -280,6 +290,11 @@ if (newsTickerText) {
   }
   setRandomNewsTickerMessage();
   newsTickerText.addEventListener('animationend', setRandomNewsTickerMessage);
+  newsTickerText.addEventListener('click', () => {
+    if (CLICKABLE_ACHIEVEMENT_NEWS.has(newsTickerText.textContent)) {
+      unlockAchievement('real_one');
+    }
+  });
 }
 
 if (newsSettingsBtn && newsModeSelect && newsSettingsPanel && currencyStatusScaleInput) {
@@ -299,5 +314,6 @@ if (newsSettingsBtn && newsModeSelect && newsSettingsPanel && currencyStatusScal
   currencyStatusScaleInput.addEventListener('input', () => {
     const scale = applyCurrencyStatusScale(currencyStatusScaleInput.value);
     localStorage.setItem(CURRENCY_STATUS_SCALE_KEY, String(scale));
+    if (updateAchievements() && typeof render === 'function') render();
   });
 }

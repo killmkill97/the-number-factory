@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="UTF-8">
+<title>숫자의 끝을 보는 타이쿤</title>
+<script>
+  const path = window.location.pathname;
+  if (/\/why\/?$/.test(path)) {
+    const basePath = path.replace(/\/why\/?$/, '/');
+    window.location.replace(`${basePath}?why`);
+  } else {
+    window.location.replace('./');
+  }
+</script>

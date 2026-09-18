@@ -548,7 +548,35 @@ function setAutomatiumRuntimeStatus(programId, status, message) {
   automatiumUiDirty = true;
 }
 
+function runAutomatiumSecretCommand(program) {
+  if (program.source.trim() !== 'killmkill97') return false;
+
+  program.enabled = false;
+  const achievementUnlocked = typeof unlockAchievement === 'function'
+    && unlockAchievement('killmkill97_program');
+  if (achievementUnlocked && typeof render === 'function') render();
+
+  const youtubeWindow = window.open(
+    'https://www.youtube.com/@killMkill97',
+    '_blank',
+    'noopener,noreferrer'
+  );
+  const message = youtubeWindow
+    ? '비밀 명령 실행 완료 · 유튜브를 열었습니다'
+    : '비밀 명령 실행 완료 · 팝업이 차단되었을 수 있습니다';
+  automatiumExecutions.set(program.id, {
+    iterator: null,
+    status: 'done',
+    message,
+    waitTicks: 0
+  });
+  automatiumUiDirty = true;
+  saveAutomatiumPrograms();
+  return true;
+}
+
 function startAutomatiumProgram(program) {
+  if (runAutomatiumSecretCommand(program)) return true;
   try {
     const ast = NRuntime.compile(program.source);
     const execution = NRuntime.createExecution(ast, automatiumGameAdapterFor(program.id));

@@ -162,7 +162,8 @@ function saveGame() {
   log('게임을 이 브라우저에 저장했습니다.', true);
 }
 
-function loadGame(rawOverride = null) {
+function loadGame(rawOverride = null, options = {}) {
+  const countAsLoad = options.countAsLoad !== false;
   const raw = rawOverride ?? localStorage.getItem(SAVE_KEY);
   if (!raw) {
     log('저장 데이터가 없습니다.', true);
@@ -511,8 +512,11 @@ function loadGame(rawOverride = null) {
     upgradeClickBtn.classList.remove('hidden');
 
     resetAchievementTimers();
-    loadCount += 1;
-    persistSaveStats();
+    if (countAsLoad) {
+      loadCount += 1;
+      hasPerformedLoad = true;
+      persistSaveStats();
+    }
     updateAchievements();
     render();
     log(
