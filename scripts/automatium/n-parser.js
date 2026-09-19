@@ -58,7 +58,8 @@ const NParser = (() => {
       const token = this.current();
       if (this.isWord('buy')) return this.parseBuy();
       if (this.isWord('click')) return this.parseClick();
-      if (this.isWord('square') || this.isWord('sp')) return this.parseSquare();
+      if (this.isWord('wait')) return this.parseWait();
+      if (this.isWord('square') || this.isWord('sp') || this.isWord('cp')) return this.parsePointExchange();
       if (this.isWord('if')) return this.parseIf();
       if (this.isWord('while')) return this.parseWhile();
       if (this.isWord('whiletick')) return this.parseWhileTick();
@@ -89,7 +90,20 @@ const NParser = (() => {
     parseBuy() {
       const start = this.consume('identifier', 'buy');
       const kind = this.consumeWord('업그레이드 종류가 필요합니다.');
-      const upgrade = this.consumeWord('업그레이드 이름이 필요합니다.');
+      let upgrade;
+      if (
+        ['generalization', 'gz'].includes(kind.value.toLowerCase()) &&
+        this.is('number_literal') &&
+        this.is('operator', '-', 1) &&
+        this.is('number_literal', undefined, 2)
+      ) {
+        const column = this.consume('number_literal');
+        this.consume('operator', '-');
+        const row = this.consume('number_literal');
+        upgrade = { ...column, value: `${column.value}-${row.value}` };
+      } else {
+        upgrade = this.consumeWord('업그레이드 이름이 필요합니다.');
+      }
       const upgradeIndex = this.parseOptionalIndex();
       let wait = false;
       if (this.isWord('s')) {
@@ -114,7 +128,19 @@ const NParser = (() => {
       return { type: 'Click', line: start.line };
     }
 
-    parseSquare() {
+    parseWait() {
+      const start = this.consume('identifier', 'wait');
+      const amount = this.consume('number_literal', undefined, '대기 시간이 필요합니다.');
+      const unit = this.consumeWord('대기 시간 단위(ms, s, m, h)가 필요합니다.');
+      const normalizedUnit = unit.value.toLowerCase();
+      if (!['ms', 's', 'm', 'h'].includes(normalizedUnit)) {
+        throw new NLanguageError('대기 시간 단위는 ms, s, m, h 중 하나여야 합니다.', unit);
+      }
+      this.finishStatement();
+      return { type: 'Wait', amount: amount.value, unit: normalizedUnit, line: start.line };
+    }
+
+    parsePointExchange() {
       const start = this.consumeWord();
       let amount = null;
       if (!this.isLineEnd() && !this.isWord('s')) {
@@ -126,7 +152,13 @@ const NParser = (() => {
         wait = true;
       }
       this.finishStatement();
-      return { type: 'Square', amount, wait, line: start.line };
+      return {
+        type: 'PointExchange',
+        currency: start.value === 'cp' ? 'cp' : 'sp',
+        amount,
+        wait,
+        line: start.line
+      };
     }
 
     parseIf() {
@@ -232,7 +264,23 @@ const NParser = (() => {
       const token = this.current();
       if (this.is('number_literal')) {
         this.index++;
-        const value = /[.eE]/.test(token.value) ? Number(token.value) : BigInt(token.value);
+        let value;
+        const hasExponent = /[eE]/.test(token.value);
+        const exponent = hasExponent ? Number(token.value.split(/[eE]/)[1]) : 0;
+
+        if (
+          hasExponent
+          && exponent >= 0
+          && typeof NumberMath !== 'undefined'
+          && typeof NumberMath.fromString === 'function'
+        ) {
+          value = NumberMath.fromString(token.value, null);
+          if (value === null) {
+            throw new NLanguageError('올바르지 않은 숫자입니다.', token);
+          }
+        } else {
+          value = /[.eE]/.test(token.value) ? Number(token.value) : BigInt(token.value);
+        }
         if (typeof value === 'number' && !Number.isFinite(value)) {
           throw new NLanguageError('숫자가 너무 큽니다.', token);
         }

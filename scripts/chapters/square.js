@@ -131,12 +131,6 @@ function renderManualExchangeDock() {
     ? `획득 ${fmt(squareConvergencePointGain())} CP`
     : `필요 ${fmt(squareConvergenceExchangeRequirement())} SP`;
 
-  const tetrationReady = isTetrationAvailable();
-  manualTetrationExchangeBtn.classList.toggle('hidden', !tetrationReady);
-  manualTetrationExchangeBtn.disabled = !tetrationReady || compareNumberValues(squarePoints, LONG_MAX) < 0;
-  manualTetrationExchangeCost.textContent = compareNumberValues(squarePoints, LONG_MAX) >= 0
-    ? '획득 1 tetraP'
-    : `필요 ${fmt(LONG_MAX)} SP`;
 }
 
 prestigeBtn.addEventListener('click', () => completeSquarePrestige());

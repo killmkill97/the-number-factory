@@ -199,18 +199,36 @@ const NRuntime = (() => {
     return integer;
   }
 
-  function squarePointTarget(value, node) {
+  function pointTarget(value, node, currency) {
+    const label = currency === 'cp' ? 'CP' : 'SP';
     requireNumber(value, node);
-    if (isScientificNumber(value)) runtimeError('SP 목표는 일반 정수여야 합니다.', node);
+    if (isScientificNumber(value)) {
+      if (compareNumberValues(value, 0n) <= 0) {
+        runtimeError(`${label} 목표는 1 이상이어야 합니다.`, node);
+      }
+      return value;
+    }
     if (typeof value === 'number' && !Number.isInteger(value)) {
-      runtimeError('SP 목표는 정수여야 합니다.', node);
+      runtimeError(`${label} 목표는 정수여야 합니다.`, node);
     }
     if (typeof value === 'number' && !Number.isSafeInteger(value)) {
-      runtimeError('SP 목표는 안전한 정수여야 합니다. 큰 수는 일반 정수 표기로 입력하세요.', node);
+      runtimeError(`${label} 목표는 안전한 정수여야 합니다. 큰 수는 일반 정수 표기로 입력하세요.`, node);
     }
     const integer = typeof value === 'bigint' ? value : BigInt(value);
-    if (integer <= 0n) runtimeError('SP 목표는 1 이상이어야 합니다.', node);
+    if (integer <= 0n) runtimeError(`${label} 목표는 1 이상이어야 합니다.`, node);
     return integer;
+  }
+
+  function waitDurationMs(statement) {
+    const amount = Number(statement.amount);
+    if (!Number.isFinite(amount)) runtimeError('대기 시간이 너무 큽니다.', statement);
+    if (amount < 0) runtimeError('대기 시간은 0 이상이어야 합니다.', statement);
+    const unitMultiplier = { ms: 1, s: 1000, m: 60000, h: 3600000 }[statement.unit];
+    const durationMs = amount * unitMultiplier;
+    if (!Number.isFinite(durationMs) || durationMs > Number.MAX_SAFE_INTEGER - Date.now()) {
+      runtimeError('대기 시간이 너무 큽니다.', statement);
+    }
+    return durationMs;
   }
 
   function* executeStatements(statements, context, loopDepth) {
@@ -242,6 +260,17 @@ const NRuntime = (() => {
       return null;
     }
 
+    if (statement.type === 'Wait') {
+      const durationMs = waitDurationMs(statement);
+      yield {
+        kind: 'wait-time',
+        durationMs,
+        line: statement.line,
+        message: `${statement.amount}${statement.unit} 대기`
+      };
+      return null;
+    }
+
     if (statement.type === 'Buy') {
       const upgradeIndex = statement.upgradeIndex === null
         ? null
@@ -254,17 +283,24 @@ const NRuntime = (() => {
       return null;
     }
 
-    if (statement.type === 'Square') {
+    if (statement.type === 'PointExchange') {
       const requestedTarget = statement.amount === null
         ? null
-        : squarePointTarget(evaluate(statement.amount, context), statement.amount);
-      const target = requestedTarget === null || typeof context.adapter.normalizeSquareTarget !== 'function'
-        ? requestedTarget
-        : context.adapter.normalizeSquareTarget(requestedTarget, statement);
-      while (!context.adapter.square(statement, target)) {
-        if (!statement.wait && target === null) return null;
-        const targetText = target === null ? '' : ` ${String(target)}`;
-        yield { kind: 'blocked', line: statement.line, message: `${targetText} SP 획득 대기`.trim() };
+        : pointTarget(evaluate(statement.amount, context), statement.amount, statement.currency);
+      const exchange = statement.currency === 'cp' ? context.adapter.cp : context.adapter.square;
+      if (typeof exchange !== 'function') runtimeError(`${statement.currency.toUpperCase()} 교환 기능을 사용할 수 없습니다.`, statement);
+      while (!exchange(statement, requestedTarget)) {
+        if (!statement.wait) return null;
+        const targetText = requestedTarget === null
+          ? ''
+          : ` ${isScientificNumber(requestedTarget)
+            ? `${requestedTarget.mantissa}e${requestedTarget.exponent}`
+            : String(requestedTarget)}`;
+        yield {
+          kind: 'blocked',
+          line: statement.line,
+          message: `${targetText} ${statement.currency.toUpperCase()} 획득 대기`.trim()
+        };
       }
       return null;
     }

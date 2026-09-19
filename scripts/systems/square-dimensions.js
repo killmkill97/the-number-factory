@@ -1,4 +1,7 @@
 let activeSquareView = 'upgrades';
+
+// 제곱의 하위 화면들은 하나의 챕터 패널 안에서 같은 탭 바를 공유한다.
+squarePanel.append(squareBreakthroughPanel, squareConvergencePanel);
 let secondarySquareDimensionUi = null;
 
 const primarySquareDimensionUi = {
@@ -195,10 +198,11 @@ function renderSquareDimensionCard(ui, index) {
   const squaredContribution = hasGeneralizationResearch('6-1');
   const powerStrengthResearch = hasGeneralizationResearch('6-2');
   const contributionExponent = contributionPower * (squaredContribution ? 2 : 1);
+  const divergerMultiplier = divergerSquareDimensionMultiplier();
 
   ui.powerValue.textContent = formatSquareDimensionNumber(squareDimensionPower(index));
-  ui.powerSubValue.textContent = `제곱력 = ${squareDimensionPowerFormulaText(index, exponent)} · 숫자 생산 기여 제곱력^${contributionExponent} · 생산 주기 ${formatSquareDimensionDuration(dimension.powerInterval)}`;
-  ui.multiplierValue.textContent = `기본 숫자 생산 배율 ×${formatSquareDimensionNumber(squareDimensionNumberMultiplier(index))}`;
+  ui.powerSubValue.textContent = `제곱력 = ${squareDimensionPowerFormulaText(index, exponent)} · 발산력 생산 강화 ×${formatSquareDimensionNumber(divergerMultiplier)} · 숫자 생산 기여 제곱력^${contributionExponent} · 생산 주기 ${formatSquareDimensionDuration(dimension.powerInterval)}`;
+  ui.multiplierValue.textContent = `제곱력 기본 기여 ×${formatSquareDimensionNumber(squareDimensionNumberMultiplier(index))} · 최종 생산에 발산력 ×${formatSquareDimensionNumber(divergerMultiplier)}`;
   ui.softcapValue.classList.add('hidden');
   ui.softcapValue.textContent = '';
   ui.shapeLabel.textContent = generalized ? `${xText} × ${yText} × ${zText}` : `${xText} × ${yText}`;
@@ -268,16 +272,32 @@ function renderSquareDimensionView() {
 
   const dimensionsAvailable = squareDimensionAvailable();
   const productionAvailable = dimensionsAvailable || divergerAvailable();
+  const breakthroughAvailable = canOpenSquareBreakthrough();
+  const convergenceAvailable = canOpenSquareConvergence();
   squareDimensionsViewBtn.classList.toggle('hidden', !productionAvailable);
+  squareBreakthroughViewBtn.classList.toggle('hidden', !breakthroughAvailable);
+  squareConvergenceChapterViewBtn.classList.toggle('hidden', !convergenceAvailable);
   if (!productionAvailable && activeSquareView === 'dimensions') activeSquareView = 'upgrades';
+  if (!breakthroughAvailable && activeSquareView === 'breakthrough') activeSquareView = 'upgrades';
+  if (!convergenceAvailable && activeSquareView === 'convergence') activeSquareView = 'upgrades';
 
-  const showingProduction = productionAvailable && activeSquareView === 'dimensions';
-  squareUpgradesViewPanel.classList.toggle('hidden', showingProduction);
-  squareDimensionsViewPanel.classList.toggle('hidden', !showingProduction);
-  squareUpgradesViewBtn.classList.toggle('active', !showingProduction);
-  squareDimensionsViewBtn.classList.toggle('active', showingProduction);
-  squareUpgradesViewBtn.setAttribute('aria-selected', String(!showingProduction));
-  squareDimensionsViewBtn.setAttribute('aria-selected', String(showingProduction));
+  const panels = {
+    upgrades: squareUpgradesViewPanel,
+    breakthrough: squareBreakthroughPanel,
+    convergence: squareConvergencePanel,
+    dimensions: squareDimensionsViewPanel
+  };
+  const buttons = {
+    upgrades: squareUpgradesViewBtn,
+    breakthrough: squareBreakthroughViewBtn,
+    convergence: squareConvergenceChapterViewBtn,
+    dimensions: squareDimensionsViewBtn
+  };
+  for (const [view, panel] of Object.entries(panels)) {
+    panel.classList.toggle('hidden', activeSquareView !== view);
+    buttons[view].classList.toggle('active', activeSquareView === view);
+    buttons[view].setAttribute('aria-selected', String(activeSquareView === view));
+  }
 
   if (typeof renderProductionSubView === 'function') renderProductionSubView();
   if (!dimensionsAvailable) {
@@ -294,7 +314,7 @@ function renderSquareDimensionView() {
     : '제곱 차원 자동 업그레이드 · 잠김';
   squareDimensionAutoUpgradeStatus.textContent = autoUpgradeAvailable
     ? '변·생산 시간·생산력 업글 자동 구매'
-    : '일반화 7-3 연구 필요';
+    : '일반화 7-2 연구 필요';
 
   renderSquareDimensionCard(primarySquareDimensionUi, 0);
   if (squareDimensionCount() > 1) {
@@ -307,12 +327,27 @@ function renderSquareDimensionView() {
 }
 
 function setSquareView(view) {
-  activeSquareView = view === 'dimensions' ? 'dimensions' : 'upgrades';
+  activeSquareView = ['upgrades', 'breakthrough', 'convergence', 'dimensions'].includes(view)
+    ? view
+    : 'upgrades';
+  if (activeSquareView === 'breakthrough' && !squareBreakthroughEntered) {
+    squareBreakthroughEntered = true;
+  }
+  renderSquareDimensionView();
+}
+
+function refreshSquareView() {
   renderSquareDimensionView();
 }
 
 if (squareUpgradesViewBtn) {
   squareUpgradesViewBtn.addEventListener('click', () => setSquareView('upgrades'));
+}
+if (squareBreakthroughViewBtn) {
+  squareBreakthroughViewBtn.addEventListener('click', () => setSquareView('breakthrough'));
+}
+if (squareConvergenceChapterViewBtn) {
+  squareConvergenceChapterViewBtn.addEventListener('click', () => setSquareView('convergence'));
 }
 if (squareDimensionsViewBtn) {
   squareDimensionsViewBtn.addEventListener('click', () => setSquareView('dimensions'));

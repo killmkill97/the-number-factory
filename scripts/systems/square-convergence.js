@@ -6,9 +6,90 @@ const RESEARCH_NODE_HEIGHT = 190;
 const RESEARCH_COLUMN_GAP = 56;
 const RESEARCH_ROW_GAP = 56;
 const RESEARCH_TREE_PADDING = 24;
+const RESEARCH_TREE_MIN_ZOOM = 0.5;
+const RESEARCH_TREE_MAX_ZOOM = 2;
+const RESEARCH_TREE_ZOOM_STEP = 0.1;
 let researchTreePanX = 0;
 let researchTreePanY = 0;
+let researchTreeZoom = 1;
 let researchTreePanState = null;
+let focusedGeneralizationResearchId = null;
+
+function generalizationResearchAncestry(researchId) {
+  const researchById = new Map(GENERALIZATION_RESEARCHES.map(research => [research.id, research]));
+  const ancestry = new Set();
+  const visit = id => {
+    if (ancestry.has(id)) return;
+    const research = researchById.get(id);
+    if (!research) return;
+    ancestry.add(id);
+    for (const parentId of research.parents ?? []) visit(parentId);
+  };
+  visit(researchId);
+  return ancestry;
+}
+
+function applyGeneralizationResearchFocus() {
+  if (!generalizationTree) return;
+  const focusedIds = focusedGeneralizationResearchId
+    ? generalizationResearchAncestry(focusedGeneralizationResearchId)
+    : null;
+  generalizationTree.classList.toggle('has-research-focus', Boolean(focusedIds));
+
+  for (const [researchId, ui] of Object.entries(generalizationResearchUi)) {
+    ui.node.classList.toggle('research-focus-path', focusedIds?.has(researchId) === true);
+  }
+  for (const path of generalizationConnections?.querySelectorAll('.research-connection') ?? []) {
+    const onFocusedPath = focusedIds?.has(path.dataset.parentId) === true
+      && focusedIds?.has(path.dataset.childId) === true;
+    path.classList.toggle('research-focus-path', onFocusedPath);
+  }
+}
+
+function setGeneralizationResearchFocus(researchId) {
+  focusedGeneralizationResearchId = researchId;
+  applyGeneralizationResearchFocus();
+}
+
+function updateGeneralizationTreeViewportExtent() {
+  if (!generalizationTree || generalizationPanel?.classList.contains('hidden')) return;
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const treeTop = Math.max(0, Math.min(viewportHeight, generalizationTree.getBoundingClientRect().top));
+  generalizationTree.style.setProperty('--generalization-tree-top', `${treeTop}px`);
+}
+
+function applyGeneralizationTreeTransform() {
+  if (generalizationTreeCanvas) {
+    generalizationTreeCanvas.style.transform = `translate(${researchTreePanX}px, ${researchTreePanY}px) scale(${researchTreeZoom})`;
+  }
+  if (generalizationZoomValue) {
+    generalizationZoomValue.textContent = `${Math.round(researchTreeZoom * 100)}%`;
+  }
+  if (generalizationZoomOutBtn) {
+    generalizationZoomOutBtn.disabled = researchTreeZoom <= RESEARCH_TREE_MIN_ZOOM;
+  }
+  if (generalizationZoomInBtn) {
+    generalizationZoomInBtn.disabled = researchTreeZoom >= RESEARCH_TREE_MAX_ZOOM;
+  }
+}
+
+function setGeneralizationTreeZoom(nextZoom, anchorX = null, anchorY = null) {
+  if (!generalizationTree) return false;
+  const clampedZoom = Math.min(RESEARCH_TREE_MAX_ZOOM, Math.max(RESEARCH_TREE_MIN_ZOOM, nextZoom));
+  if (Math.abs(clampedZoom - researchTreeZoom) < 0.0001) return false;
+
+  const bounds = generalizationTree.getBoundingClientRect();
+  const localX = anchorX ?? bounds.width / 2;
+  const localY = anchorY ?? bounds.height / 2;
+  const contentX = (localX - researchTreePanX) / researchTreeZoom;
+  const contentY = (localY - researchTreePanY) / researchTreeZoom;
+
+  researchTreePanX = localX - contentX * clampedZoom;
+  researchTreePanY = localY - contentY * clampedZoom;
+  researchTreeZoom = clampedZoom;
+  applyGeneralizationTreeTransform();
+  return true;
+}
 
 function researchNodePosition(research) {
   return {
@@ -19,6 +100,8 @@ function researchNodePosition(research) {
 
 function renderGeneralizationTreeLayout() {
   if (!generalizationTreeCanvas || !generalizationConnections) return;
+
+  updateGeneralizationTreeViewportExtent();
 
   const maxColumn = Math.max(...GENERALIZATION_RESEARCHES.map(research => research.column ?? 1), 1);
   const maxRow = Math.max(...GENERALIZATION_RESEARCHES.map(research => research.row ?? 1), 1);
@@ -31,7 +114,7 @@ function renderGeneralizationTreeLayout() {
 
   generalizationTreeCanvas.style.width = `${canvasWidth}px`;
   generalizationTreeCanvas.style.height = `${canvasHeight}px`;
-  generalizationTreeCanvas.style.transform = `translate(${researchTreePanX}px, ${researchTreePanY}px)`;
+  applyGeneralizationTreeTransform();
   generalizationConnections.setAttribute('viewBox', `0 0 ${canvasWidth} ${canvasHeight}`);
   generalizationConnections.setAttribute('width', String(canvasWidth));
   generalizationConnections.setAttribute('height', String(canvasHeight));
@@ -68,16 +151,23 @@ function renderGeneralizationTreeLayout() {
         : `M ${startX} ${startY} C ${startX} ${startY + (endY > startY ? curveOffset : -curveOffset)}, ${endX} ${endY - (endY > startY ? curveOffset : -curveOffset)}, ${endX} ${endY}`;
       path.setAttribute('d', pathData);
       path.classList.add('research-connection');
+      path.dataset.parentId = parent.id;
+      path.dataset.childId = research.id;
       if (hasGeneralizationResearch(parent.id) && hasGeneralizationResearch(research.id)) {
         path.classList.add('complete');
       }
       generalizationConnections.appendChild(path);
     }
   }
+  applyGeneralizationResearchFocus();
 }
 
 function initializeGeneralizationTreePan() {
   if (!generalizationTree) return;
+
+  window.addEventListener('resize', updateGeneralizationTreeViewportExtent);
+  window.addEventListener('scroll', updateGeneralizationTreeViewportExtent, { passive: true });
+  window.visualViewport?.addEventListener('resize', updateGeneralizationTreeViewportExtent);
 
   generalizationTree.addEventListener('contextmenu', event => event.preventDefault());
   generalizationTree.addEventListener('pointerdown', event => {
@@ -107,9 +197,7 @@ function initializeGeneralizationTreePan() {
     event.preventDefault();
     researchTreePanX = researchTreePanState.originX + deltaX;
     researchTreePanY = researchTreePanState.originY + deltaY;
-    if (generalizationTreeCanvas) {
-      generalizationTreeCanvas.style.transform = `translate(${researchTreePanX}px, ${researchTreePanY}px)`;
-    }
+    applyGeneralizationTreeTransform();
   });
 
   const stopPan = event => {
@@ -122,6 +210,28 @@ function initializeGeneralizationTreePan() {
   };
   generalizationTree.addEventListener('pointerup', stopPan);
   generalizationTree.addEventListener('pointercancel', stopPan);
+  generalizationTree.addEventListener('wheel', event => {
+    if (event.deltaY === 0) return;
+    event.preventDefault();
+    const bounds = generalizationTree.getBoundingClientRect();
+    const direction = event.deltaY < 0 ? 1 : -1;
+    setGeneralizationTreeZoom(
+      researchTreeZoom + direction * RESEARCH_TREE_ZOOM_STEP,
+      event.clientX - bounds.left,
+      event.clientY - bounds.top
+    );
+  }, { passive: false });
+
+  generalizationZoomOutBtn?.addEventListener('click', () => {
+    setGeneralizationTreeZoom(researchTreeZoom - RESEARCH_TREE_ZOOM_STEP);
+  });
+  generalizationZoomInBtn?.addEventListener('click', () => {
+    setGeneralizationTreeZoom(researchTreeZoom + RESEARCH_TREE_ZOOM_STEP);
+  });
+  generalizationZoomResetBtn?.addEventListener('click', () => {
+    setGeneralizationTreeZoom(1);
+  });
+  applyGeneralizationTreeTransform();
 }
 
 initializeGeneralizationTreePan();
@@ -139,13 +249,14 @@ function renderConvergenceView() {
   generalizationViewBtn.classList.toggle('active', showingGeneralization);
   squareConvergenceViewBtn.setAttribute('aria-selected', String(!showingGeneralization));
   generalizationViewBtn.setAttribute('aria-selected', String(showingGeneralization));
+  if (showingGeneralization) requestAnimationFrame(updateGeneralizationTreeViewportExtent);
 }
 
 function buySquareConvergenceUpgrade(id) {
   const upgrade = SQUARE_CONVERGENCE_UPGRADES.find(item => item.id === id);
   if (!upgrade) return false;
   const level = squareConvergenceUpgradeLevel(id);
-  if (hasSquareConvergenceUpgrade(id) && (!upgrade.max || level >= upgrade.max)) {
+  if (hasSquareConvergenceUpgrade(id) && !upgrade.repeatable && (!upgrade.max || level >= upgrade.max)) {
     if (id === 'automatium') return openAutomatiumEditor();
     return false;
   }
@@ -169,6 +280,9 @@ function squareConvergenceCostText(upgrade) {
   if (upgrade.max) {
     if (level >= upgrade.max) return `최대 레벨 ${upgrade.max}/${upgrade.max}`;
     return `레벨 ${level}/${upgrade.max} · 비용: ${fmt(squareConvergenceUpgradeCost(upgrade))} CP`;
+  }
+  if (upgrade.repeatable) {
+    return `레벨 ${level} · 비용: ${fmt(squareConvergenceUpgradeCost(upgrade))} CP`;
   }
   if (!hasSquareConvergenceUpgrade(upgrade.id)) return `비용: ${fmt(upgrade.cost)} CP`;
   return upgrade.id === 'automatium' ? '구매 완료 · 편집기 열기' : '구매 완료';
@@ -203,7 +317,7 @@ function renderSquareConvergenceBoard() {
     const devMode = typeof devConsoleIsOpen === 'function' && devConsoleIsOpen();
     const opensEditor = bought && upgrade.id === 'automatium';
     const atMaximum = upgrade.max ? level >= upgrade.max : false;
-    const fixedUpgradeBought = bought && !upgrade.max && !opensEditor;
+    const fixedUpgradeBought = bought && !upgrade.max && !upgrade.repeatable && !opensEditor;
     const cannotAfford = compareNumberValues(squareConvergencePoints, squareConvergenceUpgradeCost(upgrade)) < 0;
     button.disabled = devMode ? false : opensEditor ? false : fixedUpgradeBought || atMaximum || cannotAfford;
   }
@@ -214,6 +328,8 @@ function ensureGeneralizationResearchUi(research) {
 
   const node = document.createElement('article');
   node.className = 'research-node';
+  node.addEventListener('mouseenter', () => setGeneralizationResearchFocus(research.id));
+  node.addEventListener('mouseleave', () => setGeneralizationResearchFocus(null));
 
   const id = document.createElement('div');
   id.className = 'research-node-id';
@@ -315,7 +431,6 @@ function finishSquareConvergence(gainedConvergencePoints) {
   prestigeBtn.classList.add('hidden');
   extraPercentLanesEl.innerHTML = '';
 
-  setChapter('square-convergence');
   log(`${fmt(gainedConvergencePoints)} CP를 얻고 제곱 업그레이드와 제곱돌파 업그레이드가 초기화되었습니다.`, true);
   render();
   return true;

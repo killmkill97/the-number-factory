@@ -23,6 +23,7 @@ function render() {
 }
 
 function renderNow() {
+  if (typeof refreshChapterTabs === 'function') refreshChapterTabs();
   updateAchievements();
   renderAchievements();
   mainValue.textContent = fmtPowerBase(getBaseNumber());
@@ -33,11 +34,13 @@ function renderNow() {
   });
   if (currencySpValue) currencySpValue.textContent = fmtPowerBase(squarePoints);
   if (currencyCpValue) currencyCpValue.textContent = fmtPowerBase(squareConvergencePoints);
-  if (currencyLspValue) currencyLspValue.textContent = fmtPowerBase(lsp);
-  if (currencyTetraPValue) currencyTetraPValue.textContent = fmtPowerBase(tetraP);
+  if (currencyKunuthValue) currencyKunuthValue.textContent = fmtPowerBase(kunuthPoints);
+  if (kunuthPointValue) kunuthPointValue.textContent = `${fmtPowerBase(kunuthPoints)} KP`;
   if (currencyTheoryValue) currencyTheoryValue.textContent = fmtPowerBase(theory);
   subValue.textContent = `클릭당 +${fmt(effectivePerClick())}`;
-  addBtn.textContent = `+${fmt(effectivePerClick())}`;
+  addBtn.textContent = pendingKunuthPointClaim
+    ? '나는 제곱에 얽매이면 안 돼... 난 더 무한해야 돼...'
+    : `+${fmt(effectivePerClick())}`;
   squarePointValue.textContent = `${fmt(squarePoints)} SP`;
   squarePointSubValue.textContent = `제곱 포인트 교환 요구량 ${fmtPowerBase(squarePointExchangeRequirement())} · 교환마다 +${fmtPowerBase(squarePointGain())} SP · ${fmt(squareConvergenceExchangeRequirement())} SP마다 수동 교환으로 CP 획득`;
   renderSquareUpgradeBoard();
@@ -46,54 +49,11 @@ function renderNow() {
   renderSquareBreakthroughBoard();
   renderSquareConvergenceBoard();
   renderGeneralizationBoard();
+  if (typeof renderKunuthBoard === 'function') renderKunuthBoard();
   renderManualExchangeDock();
   renderAutomatiumAccess();
-  squareBreakthroughTabBtn.classList.toggle('hidden', !canOpenSquareBreakthrough());
-  squareConvergenceTabBtn.classList.toggle('hidden', !canOpenSquareConvergence());
-  if (activeChapter === 'square-breakthrough' && !canOpenSquareBreakthrough()) {
-    setChapter(squareUnlocked ? 'square' : 'multiplication');
-  }
-  if (activeChapter === 'square-convergence' && !canOpenSquareConvergence()) {
-    setChapter(squareUnlocked ? 'square' : 'multiplication');
-  }
   squareConvergencePointValue.textContent = `${fmt(squareConvergencePoints)} CP`;
   squareConvergenceSubValue.textContent = `${fmt(squareConvergenceExchangeRequirement())} SP당 CP 1 · 수동 교환 시 가능한 CP를 한 번에 획득 · 남은 SP 제거 · 수렴 시 제곱/제곱돌파 업그레이드 초기화`;
-  lspValue.textContent = `${fmtPowerBase(lsp)} LSP`;
-  lspSubValue.textContent = `${fmtPowerBase(LSP_PER_SP)} LSP마다 1 SP로 변환 · 현재 변환 가능 ${fmt(convertibleLspToSpAmount())} SP`;
-  tetraPointValue.textContent = `${fmtPowerBase(tetraP)} tetraP · ${fmtPowerBase(LONG_MAX)} SP마다 +1`;
-  convertLspCost.textContent = `필요: ${fmtPowerBase(LSP_PER_SP)} LSP`;
-  convertLspBtn.disabled = !isTetrationAvailable() || !isPositiveNumberValue(convertibleLspToSpAmount());
-  autoLspConverterBtn.classList.toggle('toggle-active', autoLspConverterUnlocked && autoLspConverterEnabled);
-  autoLspConverterBtn.classList.toggle('toggle-inactive', autoLspConverterUnlocked && !autoLspConverterEnabled);
-  if (!isTetrationAvailable()) {
-    autoLspConverterLabel.textContent = '자동 LSP 변환기';
-    autoLspConverterCost.textContent = '테트레이션 필요';
-    autoLspConverterBtn.disabled = true;
-  } else if (autoLspConverterUnlocked) {
-    autoLspConverterLabel.textContent = `자동 LSP 변환기 ${autoLspConverterEnabled ? 'ON' : 'OFF'}`;
-    autoLspConverterCost.textContent = '구매 완료 · 클릭해서 작동 토글';
-    autoLspConverterBtn.disabled = false;
-  } else {
-    autoLspConverterLabel.textContent = '자동 LSP 변환기';
-    autoLspConverterCost.textContent = `비용: ${fmt(AUTO_LSP_CONVERTER_COST)} SP`;
-    autoLspConverterBtn.disabled = compareNumberValues(squarePoints, AUTO_LSP_CONVERTER_COST) < 0;
-  }
-  renderTetrationUpgradeBoard();
-  renderTetrationDimensions();
-
-  if (!isTetrationAvailable()) {
-    unlockTetrationBtn.firstChild.textContent = '테트레이션 임시 잠김';
-    unlockTetrationCost.textContent = '제곱돌파 개편 중';
-    unlockTetrationBtn.disabled = true;
-  } else if (!tetrationDimensionsUnlocked) {
-    unlockTetrationBtn.firstChild.textContent = '테트레이션 차원 임시 잠김';
-    unlockTetrationCost.textContent = '제곱돌파 개편 중';
-    unlockTetrationBtn.disabled = true;
-  } else {
-    unlockTetrationBtn.firstChild.textContent = '테트레이션 차원';
-    unlockTetrationBtn.disabled = true;
-    unlockTetrationCost.textContent = '해금 완료';
-  }
 
   const autoClickerCost = discountedCost(autoClickerPrice);
   const autoClickerSpeedCost = discountedCost(autoClickerSpeedPrice);

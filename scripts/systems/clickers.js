@@ -1,4 +1,5 @@
 function performManualNumberClick() {
+  if (pendingKunuthPointClaim) return claimKunuthPoint();
   if (overflowed) return false;
   addToBaseNumber(effectivePerClick(), 'manual-click');
   if (percentUnlocked) {

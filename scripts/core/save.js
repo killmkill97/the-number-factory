@@ -76,8 +76,13 @@ function saveGame() {
 
     squareUnlocked,
     squareBreakthroughEntered,
-    tetrationUnlocked,
-    tetrationDimensionsUnlocked,
+    kunuthUnlocked,
+    kunuthPoints: serializeNumberValue(kunuthPoints),
+    hasClaimedKunuthPoint,
+    pendingKunuthPointClaim,
+    kunuthOperationLevel,
+    kunuthResetEquipmentOnNextPrestige,
+    kunuthEquippedUpgradeIds: [...kunuthEquippedUpgradeIds],
     activeChapter,
     squarePoints: serializeNumberValue(squarePoints),
     squareConvergenceUnlocked,
@@ -114,17 +119,13 @@ function saveGame() {
     divergerB,
     divergerC,
     divergerInterval,
-    divergerASpCost: serializeNumberValue(divergerASpCost),
     divergerACpCost: serializeNumberValue(divergerACpCost),
-    divergerBSpCost: serializeNumberValue(divergerBSpCost),
     divergerBCpCost: serializeNumberValue(divergerBCpCost),
-    divergerCSpCost: serializeNumberValue(divergerCSpCost),
     divergerCCpCost: serializeNumberValue(divergerCCpCost),
     divergerALevel,
     divergerBLevel,
     divergerCLevel,
     divergerSpeedLevel,
-    divergerSpeedSpCost: serializeNumberValue(divergerSpeedSpCost),
     divergerSpeedCpCost: serializeNumberValue(divergerSpeedCpCost),
     divergerUpgradeHistory,
     theory: serializeNumberValue(theory),
@@ -142,17 +143,9 @@ function saveGame() {
     squareBreakthroughLevels,
     squareConvergenceUpgradeState,
     squareConvergenceUpgradeLevels,
+    activeSquareView,
     autoUpgradeEnabled,
-    squareDimensionAutoUpgradeEnabled,
-    tetrationUpgradeState,
-
-    lsp: serializeNumberValue(lsp),
-    tetraP: serializeNumberValue(tetraP),
-    autoLspConverterUnlocked,
-    autoLspConverterEnabled,
-    tetrationDimensions: tetrationDimensions.map(serializeNumberValue),
-    tetrationDimensionPurchases: tetrationDimensionPurchases.map(serializeNumberValue),
-    tetrationDimensionCosts: tetrationDimensionCosts.map(serializeNumberValue)
+    squareDimensionAutoUpgradeEnabled
   };
 
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -196,7 +189,11 @@ function loadGame(rawOverride = null, options = {}) {
     if (!Number.isInteger(theoryCostResourceIndex) || theoryCostResourceIndex < 0 || theoryCostResourceIndex > 1) {
       theoryCostResourceIndex = 0;
     }
-    loadGeneralizationResearchState(d.generalizationResearchState);
+    const savedGeneralizationResearchState = d.generalizationResearchState;
+    loadGeneralizationResearchState(savedGeneralizationResearchState);
+    if (savedGeneralizationResearchState?.['6-4'] === true) {
+      theory = addBaseNumbers(theory, 8n);
+    }
     divergerN = divergerNumberValueFromSave(d.divergerN, 1n);
     divergerPower = divergerNumberValueFromSave(d.divergerPower, 0n);
     divergerA = numberValueFromSave(d.divergerA, 1n);
@@ -210,18 +207,6 @@ function loadGame(rawOverride = null, options = {}) {
     divergerInterval = Number.isFinite(savedDivergerInterval)
       ? Math.min(DIVERGER_BASE_INTERVAL, Math.max(divergerMinInterval(), savedDivergerInterval))
       : DIVERGER_BASE_INTERVAL;
-    divergerASpCost = d.divergerASpCost === undefined
-      ? multiplyNumberValue(numberValueFromSave(d.divergerATheoryCost, 4n), DIVERGER_SP_COST_MULTIPLIER)
-      : numberValueFromSave(d.divergerASpCost, 4n * DIVERGER_SP_COST_MULTIPLIER);
-    divergerACpCost = numberValueFromSave(d.divergerACpCost, 20n);
-    divergerBSpCost = d.divergerBSpCost === undefined
-      ? multiplyNumberValue(numberValueFromSave(d.divergerBTheoryCost, 8n), DIVERGER_SP_COST_MULTIPLIER)
-      : numberValueFromSave(d.divergerBSpCost, 8n * DIVERGER_SP_COST_MULTIPLIER);
-    divergerBCpCost = numberValueFromSave(d.divergerBCpCost, 32n);
-    divergerCSpCost = d.divergerCSpCost === undefined
-      ? multiplyNumberValue(numberValueFromSave(d.divergerCTheoryCost, 12n), DIVERGER_SP_COST_MULTIPLIER)
-      : numberValueFromSave(d.divergerCSpCost, 12n * DIVERGER_SP_COST_MULTIPLIER);
-    divergerCCpCost = numberValueFromSave(d.divergerCCpCost, 48n);
     const savedDivergerALevel = Number(d.divergerALevel ?? d.divergerUpgradeHistory?.a?.length ?? 0);
     const savedDivergerBLevel = Number(d.divergerBLevel ?? d.divergerUpgradeHistory?.b?.length ?? 0);
     const savedDivergerCLevel = Number(d.divergerCLevel ?? d.divergerUpgradeHistory?.c?.length ?? divergerC);
@@ -234,18 +219,11 @@ function loadGame(rawOverride = null, options = {}) {
     divergerSpeedLevel = Number.isFinite(savedDivergerSpeedLevel)
       ? Math.max(0, Math.floor(savedDivergerSpeedLevel))
       : divergerSpeedLevelFromInterval(divergerInterval);
-    divergerSpeedSpCost = d.divergerSpeedSpCost === undefined
-      ? d.divergerSpeedTheoryCost === undefined
-        ? divergerSpeedSpCostAtLevel(divergerSpeedLevel)
-        : multiplyNumberValue(
-          numberValueFromSave(d.divergerSpeedTheoryCost, 1n),
-          DIVERGER_SP_COST_MULTIPLIER
-        )
-      : numberValueFromSave(d.divergerSpeedSpCost, divergerSpeedSpCostAtLevel(divergerSpeedLevel));
-    divergerSpeedCpCost = numberValueFromSave(
-      d.divergerSpeedCpCost,
-      divergerSpeedCpCostAtLevel(divergerSpeedLevel)
-    );
+    // 발산자 강화는 CP 전용으로 변경되었으므로 이전 저장의 가격 대신 현재 레벨 기준으로 재계산한다.
+    divergerACpCost = divergerACpCostAtLevel(divergerALevel);
+    divergerBCpCost = divergerBCpCostAtLevel(divergerBLevel);
+    divergerCCpCost = divergerCCpCostAtLevel(divergerCLevel);
+    divergerSpeedCpCost = divergerSpeedCpCostAtLevel(divergerSpeedLevel);
     loadDivergerUpgradeHistory(d.divergerUpgradeHistory, {
       a: divergerALevel,
       b: divergerBLevel,
@@ -256,7 +234,7 @@ function loadGame(rawOverride = null, options = {}) {
     divergerGraphSamples.length = 0;
     divergerGraphScaleMinimum = null;
     divergerGraphScaleMaximum = null;
-    squareDimensionAutoUpgradeEnabled = hasGeneralizationResearch('7-3')
+    squareDimensionAutoUpgradeEnabled = hasGeneralizationResearch('7-2')
       && (d.squareDimensionAutoUpgradeEnabled ?? true);
     squareDimensionAutoUpgradeTimer = 0;
 
@@ -318,22 +296,41 @@ function loadGame(rawOverride = null, options = {}) {
     if (isLegacySave) {
       squareUnlocked = d.squareUnlocked ?? d.squareMode ?? false;
       squareBreakthroughEntered = false;
-      tetrationUnlocked = false;
-      tetrationDimensionsUnlocked = false;
+      kunuthUnlocked = false;
+      kunuthPoints = 0n;
+      hasClaimedKunuthPoint = false;
+      pendingKunuthPointClaim = false;
+      kunuthOperationLevel = 0;
+      kunuthResetEquipmentOnNextPrestige = false;
+      kunuthEquippedUpgradeIds.clear();
       activeChapter = squareUnlocked ? 'square' : 'multiplication';
       squarePoints = numberValueFromSave(d.squarePoints, squareUnlocked ? 1n : 0n);
       squareConvergenceUnlocked = false;
       squareConvergencePoints = 0n;
-      tetraP = 0n;
       resetSquareUpgradeState();
       resetSquareBreakthroughState();
       resetSquareConvergenceUpgradeState();
-      resetTetrationUpgradeState();
-      resetTetrationProductionState();
     } else {
       squareUnlocked = d.squareUnlocked ?? false;
-      tetrationUnlocked = d.tetrationUnlocked ?? false;
-      tetrationDimensionsUnlocked = d.tetrationDimensionsUnlocked ?? tetrationUnlocked;
+      kunuthUnlocked = d.kunuthUnlocked === true;
+      kunuthPoints = numberValueFromSave(d.kunuthPoints);
+      hasClaimedKunuthPoint = d.hasClaimedKunuthPoint === true || isPositiveNumberValue(kunuthPoints);
+      pendingKunuthPointClaim = d.pendingKunuthPointClaim === true && kunuthUnlocked && !hasClaimedKunuthPoint;
+      const savedKunuthOperationLevel = Number(d.kunuthOperationLevel ?? 0);
+      kunuthOperationLevel = Number.isSafeInteger(savedKunuthOperationLevel)
+        ? Math.max(0, savedKunuthOperationLevel)
+        : 0;
+      kunuthResetEquipmentOnNextPrestige = d.kunuthResetEquipmentOnNextPrestige === true;
+      kunuthEquippedUpgradeIds.clear();
+      const knownKunuthUpgradeIds = new Set(KUNUTH_SLOT_UPGRADES.map(upgrade => upgrade.id));
+      for (const id of d.kunuthEquippedUpgradeIds ?? []) {
+        if (knownKunuthUpgradeIds.has(id)) kunuthEquippedUpgradeIds.add(id);
+      }
+      while (kunuthSlotsUsed() > kunuthSlotCapacity()) {
+        const lastId = [...kunuthEquippedUpgradeIds].pop();
+        if (!lastId) break;
+        kunuthEquippedUpgradeIds.delete(lastId);
+      }
       activeChapter = d.activeChapter ?? (squareUnlocked ? 'square' : 'multiplication');
     squarePoints = numberValueFromSave(d.squarePoints);
     squareConvergenceUnlocked = d.squareConvergenceUnlocked ?? false;
@@ -404,45 +401,31 @@ function loadGame(rawOverride = null, options = {}) {
       autoUpgradeEnabled = hasSquareUpgrade('auto_upgrade_top_down')
         ? d.autoUpgradeEnabled ?? false
         : false;
-      resetTetrationUpgradeState();
-      for (const upgrade of TETRATION_UPGRADES) {
-        tetrationUpgradeState[upgrade.id] = d.tetrationUpgradeState?.[upgrade.id] === true;
-      }
-      lsp = numberValueFromSave(d.lsp);
-      tetraP = numberValueFromSave(d.tetraP);
-      autoLspConverterUnlocked = d.autoLspConverterUnlocked ?? false;
-      autoLspConverterEnabled = d.autoLspConverterEnabled ?? false;
-      for (let index = 0; index < TETRATION_DIMENSION_COUNT; index++) {
-        tetrationDimensions[index] = numberValueFromSave(d.tetrationDimensions?.[index]);
-        tetrationDimensionPurchases[index] = numberValueFromSave(d.tetrationDimensionPurchases?.[index]);
-        tetrationDimensionCosts[index] = numberValueFromSave(
-          d.tetrationDimensionCosts?.[index],
-          initialTetrationDimensionCost(index)
-        );
-      }
-      if (saveVersion < 17 && tetrationUnlocked && isZeroNumberValue(tetraP)) {
-        tetrationDimensionsUnlocked = true;
-      }
-      if (saveVersion < 15 && tetrationUnlocked && isPositiveNumberValue(tetraP)) {
-        tetrationDimensionsUnlocked = false;
-        resetTetrationProductionState();
-      }
     }
-    if (activeChapter === 'tetration' && !isTetrationAvailable()) {
+
+    // 화폐가 저장되어 있으면 오래된 해금 플래그가 빠져 있어도 해당 챕터 탭을 복구한다.
+    if (isPositiveNumberValue(squarePoints) || isPositiveNumberValue(squareConvergencePoints)) {
+      squareUnlocked = true;
+    }
+    if (isPositiveNumberValue(squareConvergencePoints)) {
+      squareConvergenceUnlocked = true;
+    }
+    if (isPositiveNumberValue(kunuthPoints)) {
+      kunuthUnlocked = true;
+      hasClaimedKunuthPoint = true;
+      pendingKunuthPointClaim = false;
+    }
+    if (activeChapter === 'tetration' || activeChapter === 'square-breakthrough' || activeChapter === 'square-convergence') {
       activeChapter = squareUnlocked ? 'square' : 'multiplication';
     }
     if (activeChapter === 'square-convergence' && !canOpenSquareConvergence()) {
       activeChapter = squareUnlocked ? 'square' : 'multiplication';
     }
-    if (tetrationUnlocked) {
-      squareUnlocked = true;
-    }
-    if (!tetrationUnlocked || !autoLspConverterUnlocked) {
-      autoLspConverterEnabled = false;
-    }
-    if (!tetrationUnlocked) {
-      tetrationDimensionsUnlocked = false;
-    }
+    activeSquareView = ['upgrades', 'breakthrough', 'convergence', 'dimensions'].includes(d.activeSquareView)
+      ? d.activeSquareView
+      : d.activeChapter === 'square-breakthrough' ? 'breakthrough'
+        : d.activeChapter === 'square-convergence' ? 'convergence'
+          : 'upgrades';
     squareMode = false;
     if (perClick > BASE_PER_CLICK_CAP) perClick = BASE_PER_CLICK_CAP;
     if (autoClickerParallel > autoClickerParallelCap()) autoClickerParallel = autoClickerParallelCap();
@@ -501,7 +484,6 @@ function loadGame(rawOverride = null, options = {}) {
     dialogueBox.innerHTML = '';
     prestigeBtn.classList.add('hidden');
     document.getElementById('squareUpgradeRow')?.remove();
-    resetTetrationDimensionUi();
 
     if (!squareUnlocked) {
       setChapter('multiplication');

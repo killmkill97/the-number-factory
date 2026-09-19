@@ -57,6 +57,8 @@ let activeAutomatiumTab = 'editor';
 let automatiumAutocompleteItems = [];
 let automatiumAutocompleteIndex = 0;
 const automatiumExecutions = new Map();
+const automatiumProgramUi = new Map();
+let automatiumEmptyListElement = null;
 let automatiumLastNumberClickAt = Number.NEGATIVE_INFINITY;
 let automatiumBulkPurchasesRemaining = AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
 
@@ -430,6 +432,39 @@ function nConvergenceUpgradeSnapshot(rawUpgrade, node) {
   };
 }
 
+function nGeneralizationResearchSnapshot(rawResearch, node) {
+  const id = String(rawResearch ?? '').trim().toLowerCase().replace(/_/g, '-');
+  const research = GENERALIZATION_RESEARCHES.find(item => item.id === id);
+  if (!research) nLanguageError(`알 수 없는 일반화 연구 '${rawResearch}'`, node);
+  const bought = hasGeneralizationResearch(id);
+  return {
+    upgraded: bought ? 1n : 0n,
+    amount: bought ? 1n : 0n,
+    cost: bought ? 0n : research.theoryCost,
+    max: 1n,
+    available: canResearchGeneralization(id),
+    buy: () => researchGeneralization(id)
+  };
+}
+
+function nTheoryPurchaseSnapshot(rawResource, node) {
+  const resource = normalizeNName(rawResource);
+  const resourceIndex = resource === 'sp' ? 0 : resource === 'cp' ? 1 : -1;
+  if (resourceIndex < 0) nLanguageError(`이론 구매 화폐는 sp 또는 cp여야 합니다: '${rawResource}'`, node);
+  const cost = theoryCostForResource(resourceIndex);
+  return {
+    upgraded: totalTheoryPurchased,
+    amount: theory,
+    cost,
+    max: 0n,
+    available: canOpenSquareConvergence() && canAffordTheoryResource(resourceIndex),
+    buy: () => {
+      theoryCostResourceIndex = resourceIndex;
+      return researchTheory();
+    }
+  };
+}
+
 function nUpgradeSnapshot(rawKind, rawUpgrade, node, rawUpgradeIndex = null) {
   const aliases = {
     base: 'base',
@@ -439,7 +474,10 @@ function nUpgradeSnapshot(rawKind, rawUpgrade, node, rawUpgradeIndex = null) {
     square_breakthrough: 'square_break',
     convergence: 'square_convergence',
     square_convergence: 'square_convergence',
-    cp: 'square_convergence'
+    cp: 'square_convergence',
+    generalization: 'generalization',
+    gz: 'generalization',
+    theory: 'theory'
   };
   const kind = aliases[normalizeNName(rawKind)];
   if (!kind) nLanguageError(`알 수 없는 업그레이드 종류 '${rawKind}'`, node);
@@ -449,14 +487,12 @@ function nUpgradeSnapshot(rawKind, rawUpgrade, node, rawUpgradeIndex = null) {
   }
   if (kind === 'square') return nSquareUpgradeSnapshot(rawUpgrade, node);
   if (kind === 'square_break') return nBreakthroughUpgradeSnapshot(rawUpgrade, node);
+  if (kind === 'generalization') return nGeneralizationResearchSnapshot(rawUpgrade, node);
+  if (kind === 'theory') return nTheoryPurchaseSnapshot(rawUpgrade, node);
   return nConvergenceUpgradeSnapshot(rawUpgrade, node);
 }
 
 const automatiumGameAdapter = {
-  normalizeSquareTarget(target) {
-    return squarePrestigeTargetPointReward(target);
-  },
-
   click() {
     const now = Date.now();
     if (now - automatiumLastNumberClickAt < AUTOMATIUM_CLICK_COOLDOWN_MS) return false;
@@ -488,7 +524,7 @@ const automatiumGameAdapter = {
   },
 
   buy(kind, upgrade, upgradeIndex, node) {
-    const bulkEnabled = normalizeNName(kind) === 'base' && hasGeneralizationResearch('3-4');
+    const bulkEnabled = hasGeneralizationResearch('3-4');
     const purchaseLimit = bulkEnabled
       ? Math.min(
         automatiumBulkPurchasesRemaining,
@@ -509,12 +545,16 @@ const automatiumGameAdapter = {
   },
 
   square(statement, requestedSp = null, programId = null) {
-    if (squareUnlocked) return true;
+    if (squareUnlocked) {
+      const gain = squarePointGainForValue(getBaseNumber());
+      if (!isPositiveNumberValue(gain)) return false;
+      if (requestedSp !== null && compareNumberValues(gain, requestedSp) < 0) return false;
+      return exchangeSquarePointsManually();
+    }
 
     const explicitTarget = requestedSp !== null;
-    const targetedConversion = explicitTarget;
-    const reward = targetedConversion ? squarePrestigeTargetPointReward(requestedSp) : null;
-    const requiredValue = targetedConversion
+    const reward = explicitTarget ? squarePrestigeTargetPointReward(requestedSp) : null;
+    const requiredValue = explicitTarget
       ? squarePrestigeNumberForPointReward(reward)
       : gameEndValue();
 
@@ -522,20 +562,28 @@ const automatiumGameAdapter = {
     return completeSquarePrestige({
       skippedCutscene: true,
       keepCurrentChapter: false,
-      prestigeValue: targetedConversion ? requiredValue : getBaseNumber(),
-      squarePointReward: targetedConversion ? reward : null,
+      prestigeValue: explicitTarget ? requiredValue : getBaseNumber(),
+      squarePointReward: explicitTarget ? reward : null,
       requiredValue
     });
+  },
+
+  cp(statement, requestedCp = null) {
+    if (!squareUnlocked) return false;
+    const gain = squareConvergencePointGain();
+    if (!isPositiveNumberValue(gain)) return false;
+    if (requestedCp !== null && compareNumberValues(gain, requestedCp) < 0) return false;
+    return exchangeSquareConvergencePointsManually();
   }
 };
 
 function automatiumGameAdapterFor(programId) {
   return {
-    normalizeSquareTarget: (...args) => automatiumGameAdapter.normalizeSquareTarget(...args),
     click: (...args) => automatiumGameAdapter.click(...args),
     get: (...args) => automatiumGameAdapter.get(...args),
     buy: (...args) => automatiumGameAdapter.buy(...args),
-    square: (statement, target) => automatiumGameAdapter.square(statement, target, programId)
+    square: (statement, target) => automatiumGameAdapter.square(statement, target, programId),
+    cp: (...args) => automatiumGameAdapter.cp(...args)
   };
 }
 
@@ -584,7 +632,8 @@ function startAutomatiumProgram(program) {
       ...execution,
       status: 'running',
       message: '실행 중',
-      waitTicks: 0
+      waitTicks: 0,
+      waitUntil: 0
     });
     return true;
   } catch (error) {
@@ -727,8 +776,12 @@ get.base.percent_auto.upgraded[lane]</code></pre>
     <pre><code>buy base click
 buy square_break doctor_octopus
 buy square_break doctor_octopus s
-buy base percent_auto[2]</code></pre>
-    <p><code>buy</code>는 구매할 수 없으면 다음 줄로 넘어갑니다. 끝에 <code>s</code>를 붙이면 구매 가능할 때까지 현재 프로그램만 대기하고, 구매한 뒤 다음 줄을 실행합니다. 일반화 연구 3-4가 있으면 <code>buy base</code>도 자동 업그레이드 가속량만큼 한 번에 대량 구매합니다.</p>
+buy base percent_auto[2]
+buy generalization 2-2
+buy gz 3-1 s
+buy theory sp
+buy theory cp s</code></pre>
+    <p><code>generalization</code>은 <code>gz</code>로 줄여 쓸 수 있습니다. <code>buy theory sp</code>와 <code>buy theory cp</code>는 지정한 화폐로 이론을 구매합니다. <code>buy</code>는 구매할 수 없으면 다음 줄로 넘어가며, 끝에 <code>s</code>를 붙이면 구매 가능할 때까지 현재 프로그램만 대기합니다. 일반화 연구 3-4가 있으면 자동 구매 가속량만큼 한 틱에 여러 번 구매할 수 있습니다.</p>
 
     <h4>숫자 클릭</h4>
     <pre><code>click
@@ -738,16 +791,25 @@ while true {
 }</code></pre>
     <p><code>click</code>은 베이스의 숫자 추가 버튼을 직접 한 번 누른 것과 같은 효과를 냅니다. 모든 N 프로그램을 합쳐 실제 1초에 최대 한 번만 작동합니다. 쿨다운 중에 실행된 <code>click</code>은 기다리거나 쌓이지 않고 즉시 다음 줄로 넘어갑니다.</p>
 
-    <h4>SP 획득</h4>
+    <h4>시간 대기</h4>
+    <pre><code>wait 500ms
+wait 2s
+wait 3m
+wait 1h</code></pre>
+    <p><code>wait</code>는 현재 프로그램만 지정한 실제 시간 동안 멈춥니다. 단위는 밀리초(<code>ms</code>), 초(<code>s</code>), 분(<code>m</code>), 시간(<code>h</code>)을 지원합니다.</p>
+
+    <h4>SP·CP 획득</h4>
     <pre><code>square
 sp
 sp 10
 square 10 s
+cp
+cp 5 s
 
 target = number
 target = 20
 sp target s</code></pre>
-    <p><code>square</code>와 <code>sp</code>는 같은 명령입니다. 이 명령은 일반수에서 제곱으로 처음 넘어갈 때만 자동화되며, 이때 보상은 항상 1 SP입니다. 제곱 포인트, 수렴 포인트, tetraP 교환과 다음 챕터 진입은 자동화하지 않으므로 화면 왼쪽 아래의 수동 교환 버튼을 사용해야 합니다. 뒤의 목표 숫자와 <code>s</code> 표기는 이전 프로그램과의 호환을 위해 남아 있지만, 제곱에 진입한 뒤에는 아무 교환도 실행하지 않습니다.</p>
+    <p><code>square</code>와 <code>sp</code>는 현재 가능한 제곱 포인트 수동 교환을 실행합니다. <code>cp</code>는 현재 가능한 수렴 포인트 수동 교환을 실행합니다. 숫자를 붙이면 업그레이드 배율을 포함한 실제 획득량이 그 목표 이상일 때 교환합니다. 교환할 수 없으면 다음 줄로 넘어가며, 끝에 <code>s</code>를 붙인 명령만 조건을 만족할 때까지 현재 프로그램을 대기시킵니다.</p>
 
     <h4>조건문</h4>
     <pre><code>if get.sp &gt;= 1000 and get.cp == 0 {
@@ -772,10 +834,10 @@ whiletick 20 get.sp &lt; 1000 {
 for 10 {
     square
 }</code></pre>
-    <p><code>whiletick 20</code>은 조건이 참인 동안 20 자동화 틱마다 본문을 한 번 실행합니다. <code>break</code>는 가장 가까운 <code>while</code>, <code>whiletick</code>, <code>for</code>를 빠져나옵니다. 챕터 교환은 수동으로 진행해야 하므로 자동 구매 프로그램은 해당 챕터 탭을 열어 둔 상태에서 사용하세요.</p>
+    <p><code>whiletick 20</code>은 조건이 참인 동안 20 자동화 틱마다 본문을 한 번 실행합니다. <code>break</code>는 가장 가까운 <code>while</code>, <code>whiletick</code>, <code>for</code>를 빠져나옵니다. SP와 CP 교환은 각각 <code>sp</code>, <code>cp</code> 명령으로 자동화할 수 있습니다.</p>
 
     <h4>연산자</h4>
-    <p>산술: <code>+ - * / % ^</code> · 비교: <code>== != &gt; &gt;= &lt; &lt;=</code> · 논리: <code>and or not</code>. 괄호도 사용할 수 있습니다. 정수끼리 나누면 소수점 이하는 버립니다.</p>
+    <p>산술: <code>+ - * / % ^</code> · 비교: <code>== != &gt; &gt;= &lt; &lt;=</code> · 논리: <code>and or not</code>. 괄호도 사용할 수 있습니다. 정수끼리 나누면 소수점 이하는 버립니다. <code>1e1000</code>처럼 큰 과학적 표기법도 변수, 계산, 비교, SP/CP 목표값에 사용할 수 있습니다.</p>
     <pre><code>x = number
 x = (2 ^ 10 + 100) * 2
 
@@ -840,6 +902,40 @@ function automatiumUpgradeIdRows() {
     aliases: [],
     indexNote: '-'
   })));
+
+  rows.push(...GENERALIZATION_RESEARCHES.map(research => ({
+    kind: 'generalization',
+    kindLabel: '일반화 연구',
+    title: research.title,
+    id: research.id,
+    rawId: research.id,
+    indexed: false,
+    aliases: ['gz'],
+    indexNote: '구매: buy generalization ID 또는 buy gz ID'
+  })));
+
+  rows.push(
+    {
+      kind: 'theory',
+      kindLabel: '이론',
+      title: 'SP로 이론 구매',
+      id: 'sp',
+      rawId: 'sp',
+      indexed: false,
+      aliases: [],
+      indexNote: '구매 전용'
+    },
+    {
+      kind: 'theory',
+      kindLabel: '이론',
+      title: 'CP로 이론 구매',
+      id: 'cp',
+      rawId: 'cp',
+      indexed: false,
+      aliases: [],
+      indexNote: '구매 전용'
+    }
+  );
   return rows;
 }
 
@@ -940,7 +1036,7 @@ ${breakthroughCommands}
       source: `// 모든 제곱 수렴 업그레이드 자동 구매
 while true {
 ${convergenceCommands}
-    square s
+    cp s
 }`
     },
     {
@@ -1006,6 +1102,20 @@ function renderAutomatiumExamples() {
 }
 
 function nAutocompleteUpgradeRows(kind) {
+  const normalizedKind = normalizeNName(kind);
+  if (normalizedKind === 'generalization' || normalizedKind === 'gz') {
+    return GENERALIZATION_RESEARCHES.map(research => ({
+      rawId: research.id,
+      title: research.title,
+      indexed: false
+    }));
+  }
+  if (normalizedKind === 'theory') {
+    return [
+      { rawId: 'sp', title: 'SP로 이론 구매', indexed: false },
+      { rawId: 'cp', title: 'CP로 이론 구매', indexed: false }
+    ];
+  }
   return automatiumUpgradeIdRows().filter(row => row.kind === kind);
 }
 
@@ -1033,16 +1143,33 @@ function nAutocompleteContext() {
   const line = before.slice(lineStart);
   const indent = line.match(/^\s*/)?.[0] ?? '';
 
-  const spTargetMatch = line.match(/^\s*(?:square|sp)\s+([A-Za-z_][A-Za-z0-9_]*)?$/);
+  const waitUnitMatch = line.match(/^\s*wait\s+[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?([A-Za-z]*)$/);
+  if (waitUnitMatch) {
+    const prefix = waitUnitMatch[1] ?? '';
+    const units = [
+      { label: 'ms', insert: 'ms', detail: '밀리초 대기' },
+      { label: 's', insert: 's', detail: '초 대기' },
+      { label: 'm', insert: 'm', detail: '분 대기' },
+      { label: 'h', insert: 'h', detail: '시간 대기' }
+    ];
+    return {
+      start: cursor - prefix.length,
+      end: cursor,
+      items: nAutocompleteMatches(units, prefix)
+    };
+  }
+
+  const spTargetMatch = line.match(/^\s*(square|sp|cp)\s+([A-Za-z_][A-Za-z0-9_]*)?$/);
   if (spTargetMatch) {
-    const prefix = spTargetMatch[1] ?? '';
+    const currency = spTargetMatch[1] === 'cp' ? 'CP' : 'SP';
+    const prefix = spTargetMatch[2] ?? '';
     const variables = nAutocompleteVariables(automatiumSource.value).map(name => ({
       label: name,
       insert: name,
-      detail: '목표 SP 변수'
+      detail: `목표 ${currency} 변수`
     }));
     const candidates = [
-      { label: '1', insert: '1', detail: '목표 SP' },
+      { label: '1', insert: '1', detail: `목표 ${currency}` },
       ...variables,
       { label: 's', insert: 's', detail: '획득 가능할 때까지 대기' }
     ];
@@ -1120,7 +1247,7 @@ function nAutocompleteContext() {
     }
   }
 
-  const buyMatch = line.match(/^\s*buy(?:\s+([A-Za-z_][A-Za-z0-9_]*))?(?:\s+([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\]?)?))?\s*$/);
+  const buyMatch = line.match(/^\s*buy(?:\s+([A-Za-z_][A-Za-z0-9_]*))?(?:\s+((?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+-[0-9]+)(?:\[[^\]]*\]?)?))?\s*$/);
   if (buyMatch) {
     const kindPrefix = buyMatch[1] ?? '';
     const upgradePrefix = buyMatch[2];
@@ -1139,7 +1266,10 @@ function nAutocompleteContext() {
         { label: 'base', insert: 'base ', detail: '베이스 업그레이드' },
         { label: 'square', insert: 'square ', detail: '제곱 업그레이드' },
         { label: 'square_break', insert: 'square_break ', detail: '제곱돌파 업그레이드' },
-        { label: 'square_convergence', insert: 'square_convergence ', detail: '제곱 수렴 업그레이드' }
+        { label: 'square_convergence', insert: 'square_convergence ', detail: '제곱 수렴 업그레이드' },
+        { label: 'generalization', insert: 'generalization ', detail: '일반화 연구' },
+        { label: 'gz', insert: 'gz ', detail: '일반화 연구 단축어' },
+        { label: 'theory', insert: 'theory ', detail: '이론 구매 화폐 선택' }
       ];
       return { start, end: cursor, items: nAutocompleteMatches(kinds, kindPrefix) };
     }
@@ -1183,8 +1313,10 @@ function nAutocompleteContext() {
     { label: 'buy', insert: 'buy ', detail: '업그레이드 구매' },
     { label: 'get', insert: 'get.', detail: '게임 값 읽기' },
     { label: 'click', insert: 'click', detail: '숫자 추가 · 1초 쿨다운' },
+    { label: 'wait', insert: 'wait 1s', detail: '지정한 실제 시간 동안 대기' },
     { label: 'square', insert: 'square ', detail: '목표 SP 지정 가능' },
     { label: 'sp', insert: 'sp ', detail: '목표 SP 지정 가능' },
+    { label: 'cp', insert: 'cp ', detail: '목표 CP 지정 가능' },
     { label: 'if', insert: `if true {\n${indent}    \n${indent}}`, cursorBack: indent.length + 2, detail: '조건문' },
     { label: 'elif', insert: `elif true {\n${indent}    \n${indent}}`, cursorBack: indent.length + 2, detail: '추가 조건' },
     { label: 'else', insert: `else {\n${indent}    \n${indent}}`, cursorBack: indent.length + 2, detail: '그 외 조건' },
@@ -1261,12 +1393,9 @@ function insertAutomatiumIndent() {
   renderAutomatiumEditorStatus();
 }
 
-function renderAutomatiumProgramList() {
-  automatiumProgramList.innerHTML = '';
-  for (const program of automatiumPrograms) {
+function createAutomatiumProgramRow(program) {
     const row = document.createElement('div');
     row.className = 'automatium-program-row';
-    row.classList.toggle('selected', program.id === selectedAutomatiumProgramId);
 
     const selectButton = document.createElement('button');
     selectButton.className = 'automatium-program-select';
@@ -1275,30 +1404,56 @@ function renderAutomatiumProgramList() {
 
     const name = document.createElement('span');
     name.className = 'automatium-program-list-name';
-    name.textContent = program.name;
-    const status = automatiumStatus(program);
     const state = document.createElement('span');
-    state.className = `automatium-program-state ${status.tone}`;
-    state.textContent = status.label;
+    state.className = 'automatium-program-state';
     selectButton.append(name, state);
 
     const toggle = document.createElement('button');
-    toggle.className = `automatium-program-toggle ${program.enabled ? 'on' : 'off'}`;
+    toggle.className = 'automatium-program-toggle';
     toggle.type = 'button';
-    toggle.textContent = program.enabled ? 'ON' : 'OFF';
-    toggle.title = `${program.name} ${program.enabled ? '끄기' : '켜기'}`;
-    toggle.disabled = !hasSquareConvergenceUpgrade('automatium');
     toggle.addEventListener('click', () => toggleAutomatiumProgram(program.id));
 
     row.append(selectButton, toggle);
-    automatiumProgramList.appendChild(row);
+    const ui = { row, name, state, toggle };
+    automatiumProgramUi.set(program.id, ui);
+    return ui;
+}
+
+function renderAutomatiumProgramList() {
+  const currentIds = new Set(automatiumPrograms.map(program => program.id));
+  for (const [programId, ui] of automatiumProgramUi) {
+    if (currentIds.has(programId)) continue;
+    ui.row.remove();
+    automatiumProgramUi.delete(programId);
+  }
+
+  for (const [index, program] of automatiumPrograms.entries()) {
+    const ui = automatiumProgramUi.get(program.id) ?? createAutomatiumProgramRow(program);
+    const expectedNode = automatiumProgramList.children[index] ?? null;
+    if (expectedNode !== ui.row) automatiumProgramList.insertBefore(ui.row, expectedNode);
+
+    const status = automatiumStatus(program);
+    ui.row.classList.toggle('selected', program.id === selectedAutomatiumProgramId);
+    ui.name.textContent = program.name;
+    ui.state.className = `automatium-program-state ${status.tone}`;
+    ui.state.textContent = status.label;
+    ui.toggle.className = `automatium-program-toggle ${program.enabled ? 'on' : 'off'}`;
+    ui.toggle.textContent = program.enabled ? 'ON' : 'OFF';
+    ui.toggle.title = `${program.name} ${program.enabled ? '끄기' : '켜기'}`;
+    ui.toggle.disabled = !hasSquareConvergenceUpgrade('automatium');
   }
 
   if (automatiumPrograms.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'automatium-empty';
-    empty.textContent = '저장된 프로그램 없음';
-    automatiumProgramList.appendChild(empty);
+    if (!automatiumEmptyListElement) {
+      automatiumEmptyListElement = document.createElement('div');
+      automatiumEmptyListElement.className = 'automatium-empty';
+      automatiumEmptyListElement.textContent = '저장된 프로그램 없음';
+    }
+    if (automatiumEmptyListElement.parentElement !== automatiumProgramList) {
+      automatiumProgramList.appendChild(automatiumEmptyListElement);
+    }
+  } else if (automatiumEmptyListElement?.parentElement === automatiumProgramList) {
+    automatiumEmptyListElement.remove();
   }
 }
 
@@ -1473,6 +1628,7 @@ function runAutomatiumTick() {
   automatiumBulkPurchasesRemaining = AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
 
   const blockedThisTick = new Set();
+  const now = Date.now();
   for (const program of enabledPrograms) {
     let execution = automatiumExecutions.get(program.id);
     if (!execution || !execution.iterator) {
@@ -1482,7 +1638,14 @@ function runAutomatiumTick() {
       }
       execution = automatiumExecutions.get(program.id);
     }
-    if (execution.waitTicks > 0) {
+    if (execution.waitUntil > now) {
+      const remainingMs = Math.max(1, Math.ceil(execution.waitUntil - now));
+      setAutomatiumRuntimeStatus(program.id, 'waiting', `${remainingMs}ms 대기`);
+      blockedThisTick.add(program.id);
+    } else if (execution.waitUntil) {
+      execution.waitUntil = 0;
+    }
+    if (!blockedThisTick.has(program.id) && execution.waitTicks > 0) {
       execution.waitTicks--;
       setAutomatiumRuntimeStatus(program.id, 'waiting', `${execution.waitTicks}틱 대기`);
       blockedThisTick.add(program.id);
@@ -1515,6 +1678,10 @@ function runAutomatiumTick() {
         } else if (event.kind === 'wait-ticks') {
           execution.waitTicks = event.ticks;
           setAutomatiumRuntimeStatus(program.id, 'waiting', `${event.ticks}틱 대기`);
+          blockedThisTick.add(program.id);
+        } else if (event.kind === 'wait-time') {
+          execution.waitUntil = Date.now() + event.durationMs;
+          setAutomatiumRuntimeStatus(program.id, 'waiting', event.message);
           blockedThisTick.add(program.id);
         } else {
           setAutomatiumRuntimeStatus(program.id, 'running', `실행 중 · ${event.line ?? 1}줄`);

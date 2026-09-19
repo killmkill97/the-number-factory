@@ -106,7 +106,7 @@ const ACHIEVEMENTS = [
   {
     id: 'convergence_times_divergence',
     title: '수렴을 발산번 만큼',
-    description: '수렴 포인트 5배 업그레이드를 최대치로 구매하세요.',
+    description: '수렴 포인트 5배 업그레이드를 8회 구매하세요.',
     condition: () => squareConvergenceUpgradeLevel('cp_gain_5x') >= 8
   },
   {
@@ -144,6 +144,12 @@ const ACHIEVEMENTS = [
     title: "It's over ^9000!!!",
     description: '제곱 포인트를 e9000 이상 모으세요.',
     condition: () => compareNumberValues(squarePoints, ACHIEVEMENT_E9000) >= 0
+  },
+  {
+    id: 'hyper_operation',
+    title: '하이퍼 연산',
+    description: 'KP 1개를 얻으세요.',
+    condition: () => compareNumberValues(kunuthPoints, 1n) >= 0
   },
   {
     id: 'debug_mode',

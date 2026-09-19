@@ -127,7 +127,7 @@ function useExtraPercent(lane) {
     number: numberTraceValue(before)
   });
 
-  const gain = percentGain(before, lane.power);
+  const gain = percentUseGain(before, lane.power);
   traceNumberEvent('percent-gain', {
     lane: lane.laneNumber,
     power: lane.power,
@@ -136,7 +136,7 @@ function useExtraPercent(lane) {
   });
   if (!isPositiveNumberValue(gain)) return false;
 
-  addToBaseNumber(gain, `percent-lane-${lane.laneNumber}`);
+  applyPercentUse(before, lane.power, `percent-lane-${lane.laneNumber}`);
   lane.charge = 0;
   lane.autoTimer = 0;
   checkOverflow();

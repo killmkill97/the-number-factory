@@ -77,7 +77,7 @@ function renderDivergerView() {
     ? 'D(n) = a^2 × n^(b+c/2) / (100 - c)'
     : 'D(n) = a × n^b / (100 - c)';
   divergerPowerSubValue.textContent = `${formula} · 현재 +${formatDivergerProduction(productionLogarithm)} / ${formatDivergerInterval(divergerInterval)}`;
-  divergerSoftcapValue.textContent = `제곱 차원 강화 ×${formatDivergerScientific(divergerSquareDimensionMultiplier())} · 현재 소프트캡 ${fmtPowerBase(percentPowerSoftcap(percentPower))}`;
+  divergerSoftcapValue.textContent = `제곱력 생산 및 최종 숫자 생산 배율 ×${formatDivergerScientific(divergerSquareDimensionMultiplier())}`;
   divergerNValue.textContent = formatDivergerScientific(divergerN);
   divergerAValue.textContent = formatDivergerScientific(divergerA);
   divergerBValue.textContent = divergerB.toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
@@ -85,33 +85,33 @@ function renderDivergerView() {
   divergerIntervalValue.textContent = formatDivergerInterval(divergerInterval);
 
   divergerAUpgradeLabel.textContent = `a 강화 · ${formatDivergerScientific(divergerA)} → ${formatDivergerScientific(multiplyNumberValue(divergerA, 2n))}`;
-  divergerAUpgradeCost.textContent = `비용: ${fmtPowerBase(divergerASpCost)} SP · ${fmtPowerBase(divergerACpCost)} CP`;
+  divergerAUpgradeCost.textContent = `비용: ${fmtPowerBase(divergerACpCost)} CP`;
   divergerAUpgradeBtn.disabled = !developerConsoleOpen
-    && !divergerCanAfford(divergerASpCost, divergerACpCost);
+    && !divergerCanAfford(divergerACpCost);
 
   divergerBUpgradeLabel.textContent = `b 강화 · ${divergerB.toFixed(6)} → ${(divergerB + divergerBUpgradeGain(divergerB)).toFixed(6)}`;
-  divergerBUpgradeCost.textContent = `비용: ${fmtPowerBase(divergerBSpCost)} SP · ${fmtPowerBase(divergerBCpCost)} CP`;
+  divergerBUpgradeCost.textContent = `비용: ${fmtPowerBase(divergerBCpCost)} CP`;
   divergerBUpgradeBtn.disabled = !developerConsoleOpen
-    && !divergerCanAfford(divergerBSpCost, divergerBCpCost);
+    && !divergerCanAfford(divergerBCpCost);
 
   divergerCUpgradeLabel.textContent = cAtMaximum
     ? 'c 강화 · 최대'
     : `c 강화 · ${divergerC} → ${divergerC + 1}`;
   divergerCUpgradeCost.textContent = cAtMaximum
     ? '최대 강화 · 분모 1'
-    : `비용: ${fmtPowerBase(divergerCSpCost)} SP · ${fmtPowerBase(divergerCCpCost)} CP`;
+    : `비용: ${fmtPowerBase(divergerCCpCost)} CP`;
   divergerCUpgradeBtn.disabled = !developerConsoleOpen
-    && (cAtMaximum || !divergerCanAfford(divergerCSpCost, divergerCCpCost));
+    && (cAtMaximum || !divergerCanAfford(divergerCCpCost));
 
   divergerSpeedUpgradeLabel.textContent = divergerInterval <= minimumInterval
     ? '발산자 속도 강화 · 최대'
     : `발산자 속도 강화 · ${formatDivergerInterval(divergerInterval)} → ${formatDivergerInterval(nextInterval)}`;
   divergerSpeedUpgradeCost.textContent = divergerInterval <= minimumInterval
     ? `최소 간격 ${formatDivergerInterval(minimumInterval)}`
-    : `비용: ${fmtPowerBase(divergerSpeedSpCost)} SP · ${fmtPowerBase(divergerSpeedCpCost)} CP`;
+    : `비용: ${fmtPowerBase(divergerSpeedCpCost)} CP`;
   divergerSpeedUpgradeBtn.disabled = !developerConsoleOpen
     && (divergerInterval <= minimumInterval
-      || !divergerCanAfford(divergerSpeedSpCost, divergerSpeedCpCost));
+      || !divergerCanAfford(divergerSpeedCpCost));
   renderDivergerGraph();
 }
 

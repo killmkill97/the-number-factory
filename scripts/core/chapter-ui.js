@@ -1,39 +1,40 @@
 function setChapter(id) {
-  let enteredSquareBreakthroughNow = false;
-  if (id === 'square' && !squareUnlocked) id = 'multiplication';
-  if (id === 'square-breakthrough' && !canOpenSquareBreakthrough()) id = squareUnlocked ? 'square' : 'multiplication';
-  if (id === 'square-convergence' && !canOpenSquareConvergence()) id = squareUnlocked ? 'square' : 'multiplication';
-  if (id === 'tetration' && !isTetrationAvailable()) id = squareUnlocked ? 'square' : 'multiplication';
-  if (id === 'square-breakthrough' && !squareBreakthroughEntered) {
-    squareBreakthroughEntered = true;
-    enteredSquareBreakthroughNow = true;
-  }
-  activeChapter = id;
+  if (id === 'square' && !squareChapterAvailable()) id = 'multiplication';
+  if (id === 'kunuth' && !kunuthUnlocked) id = squareUnlocked ? 'square' : 'multiplication';
 
+  activeChapter = id;
   document.body.dataset.chapter = id;
-  document.body.classList.toggle('square-mode', id === 'square' || id === 'square-breakthrough' || id === 'square-convergence');
-  document.body.classList.toggle('tetration-mode', id === 'tetration');
+  document.body.classList.toggle('square-mode', id === 'square');
+  document.body.classList.toggle('kunuth-mode', id === 'kunuth');
   chapterLabel.textContent = chapterLabelFor(id);
 
-  chapterTabs.classList.toggle('hidden', !squareUnlocked && !isTetrationAvailable());
-  squareBreakthroughTabBtn.classList.toggle('hidden', !canOpenSquareBreakthrough());
-  squareConvergenceTabBtn.classList.toggle('hidden', !canOpenSquareConvergence());
-  tetrationTabBtn.classList.toggle('hidden', !isTetrationAvailable());
+  chapterTabs.classList.remove('hidden');
+  squareTabBtn.disabled = !squareChapterAvailable();
+  kunuthTabBtn.disabled = !kunuthUnlocked;
+  kunuthTabBtn.classList.remove('hidden');
   multiplicationPanel.classList.toggle('hidden', id !== 'multiplication');
   squarePanel.classList.toggle('hidden', id !== 'square');
-  squareBreakthroughPanel.classList.toggle('hidden', id !== 'square-breakthrough');
-  squareConvergencePanel.classList.toggle('hidden', id !== 'square-convergence');
-  tetrationPanel.classList.toggle('hidden', id !== 'tetration');
+  kunuthPanel.classList.toggle('hidden', id !== 'kunuth');
   multiplicationTabBtn.classList.toggle('active', id === 'multiplication');
   squareTabBtn.classList.toggle('active', id === 'square');
-  squareBreakthroughTabBtn.classList.toggle('active', id === 'square-breakthrough');
-  squareConvergenceTabBtn.classList.toggle('active', id === 'square-convergence');
-  tetrationTabBtn.classList.toggle('active', id === 'tetration');
-  if (enteredSquareBreakthroughNow && typeof render === 'function') render();
+  kunuthTabBtn.classList.toggle('active', id === 'kunuth');
+  if (id === 'square' && typeof refreshSquareView === 'function') refreshSquareView();
+}
+
+function squareChapterAvailable() {
+  return squareUnlocked || (
+    typeof hasKunuthUpgrade === 'function' &&
+    hasKunuthUpgrade('permanent_production')
+  );
+}
+
+function refreshChapterTabs() {
+  chapterTabs.classList.remove('hidden');
+  squareTabBtn.disabled = !squareChapterAvailable();
+  kunuthTabBtn.disabled = !kunuthUnlocked;
+  kunuthTabBtn.classList.remove('hidden');
 }
 
 multiplicationTabBtn.addEventListener('click', () => setChapter('multiplication'));
 squareTabBtn.addEventListener('click', () => setChapter('square'));
-squareBreakthroughTabBtn.addEventListener('click', () => setChapter('square-breakthrough'));
-squareConvergenceTabBtn.addEventListener('click', () => setChapter('square-convergence'));
-tetrationTabBtn.addEventListener('click', () => setChapter('tetration'));
+kunuthTabBtn.addEventListener('click', () => setChapter('kunuth'));

@@ -39,7 +39,7 @@ function usePercent() {
     number: numberTraceValue(before)
   });
 
-  const gain = percentGain(before, percentPower);
+  const gain = percentUseGain(before, percentPower);
   traceNumberEvent('percent-gain', {
     lane: 1,
     power: percentPower,
@@ -48,7 +48,7 @@ function usePercent() {
   });
   if (!isPositiveNumberValue(gain)) return false;
 
-  addToBaseNumber(gain, 'percent-lane-1');
+  applyPercentUse(before, percentPower, 'percent-lane-1');
   percentCharge = 0;
   checkOverflow();
 

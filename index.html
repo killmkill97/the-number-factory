@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>숫자의 끝을 보는 타이쿤 - 프로토타입</title>
-  <link rel="stylesheet" href="./styles/number-tycoon.css?v=20260918-achievement-toast">
+  <link rel="stylesheet" href="./styles/number-tycoon.css?v=20260919-kunuth-slots">
 </head>
 <body>
 <div class="news-ticker" aria-live="polite">
@@ -54,8 +54,7 @@
   <div class="currency-status-row"><span>숫자:</span><strong id="currencyNumberValue">0</strong></div>
   <div class="currency-status-row"><span>sp:</span><strong id="currencySpValue">0</strong></div>
   <div class="currency-status-row"><span>cp:</span><strong id="currencyCpValue">0</strong></div>
-  <div class="currency-status-row"><span>lsp:</span><strong id="currencyLspValue">0</strong></div>
-  <div class="currency-status-row"><span>tetraP:</span><strong id="currencyTetraPValue">0</strong></div>
+  <div class="currency-status-row"><span>KP:</span><strong id="currencyKunuthValue">0</strong></div>
   <div class="currency-status-row"><span>이론:</span><strong id="currencyTheoryValue">0</strong></div>
 </aside>
 <div class="app">
@@ -69,9 +68,7 @@
   <div class="chapter-tabs hidden" id="chapterTabs">
     <button id="multiplicationTabBtn">베이스</button>
     <button id="squareTabBtn">제곱</button>
-    <button id="squareBreakthroughTabBtn" class="hidden">제곱돌파</button>
-    <button id="squareConvergenceTabBtn" class="hidden">제곱 수렴</button>
-    <button id="tetrationTabBtn" class="hidden">테트레이션</button>
+    <button id="kunuthTabBtn" class="hidden">커누스</button>
   </div>
 
   <div class="chapter-panel" id="multiplicationPanel">
@@ -189,18 +186,14 @@
 
     <div class="square-view-tabs" role="tablist" aria-label="제곱 화면">
       <button id="squareUpgradesViewBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="squareUpgradesViewPanel">제곱 업그레이드</button>
+      <button id="squareBreakthroughViewBtn" type="button" role="tab" aria-selected="false" aria-controls="squareBreakthroughPanel">제곱돌파</button>
+      <button id="squareConvergenceChapterViewBtn" type="button" role="tab" aria-selected="false" aria-controls="squareConvergencePanel">제곱 수렴</button>
       <button id="squareDimensionsViewBtn" class="hidden" type="button" role="tab" aria-selected="false" aria-controls="squareDimensionsViewPanel">생산</button>
     </div>
 
     <div id="squareUpgradesViewPanel">
       <div class="section-title">제곱 포인트 영구 업그레이드</div>
       <div id="squareUpgradeGrid" class="square-upgrade-grid"></div>
-      <div class="row">
-        <button id="unlockTetrationBtn">
-          테트레이션 챕터 열기
-          <span class="cost" id="unlockTetrationCost"></span>
-        </button>
-      </div>
     </div>
 
     <div id="squareDimensionsViewPanel" class="hidden">
@@ -268,7 +261,7 @@
       </div>
       <button id="squareDimensionAutoUpgradeBtn" class="square-dimension-auto-upgrade" type="button">
         <span id="squareDimensionAutoUpgradeLabel">제곱 차원 자동 업그레이드</span>
-        <span class="cost" id="squareDimensionAutoUpgradeStatus">7-3 연구 필요</span>
+        <span class="cost" id="squareDimensionAutoUpgradeStatus">7-2 연구 필요</span>
       </button>
       <div id="squareDimensionAdditional" class="square-dimension-additional hidden"></div>
       </div>
@@ -371,7 +364,14 @@
             <span class="cost" id="generalizationResetCost"></span>
           </button>
       </article>
-      <div id="generalizationTree" class="generalization-tree" aria-label="일반화 연구 트리">
+      <div class="generalization-tree-toolbar" role="group" aria-label="일반화 연구 트리 확대 및 축소">
+        <button id="generalizationZoomOutBtn" type="button" title="연구 트리 축소" aria-label="연구 트리 축소">−</button>
+        <button id="generalizationZoomResetBtn" type="button" title="연구 트리 배율 초기화" aria-label="연구 트리 배율 초기화">
+          <span id="generalizationZoomValue">100%</span>
+        </button>
+        <button id="generalizationZoomInBtn" type="button" title="연구 트리 확대" aria-label="연구 트리 확대">+</button>
+      </div>
+      <div id="generalizationTree" class="generalization-tree" aria-label="일반화 연구 트리" tabindex="0">
         <div id="generalizationTreeCanvas" class="generalization-tree-canvas">
           <svg id="generalizationConnections" class="research-connections" aria-hidden="true"></svg>
         </div>
@@ -379,33 +379,35 @@
     </div>
   </div>
 
-  <div class="chapter-panel hidden" id="tetrationPanel">
-    <div class="display tetration-display" id="tetrationDisplayBox">
-      <div class="value" id="lspValue">0 LSP</div>
-      <div class="sub" id="lspSubValue"></div>
-      <div class="sub" id="tetraPointValue">0 tetraP</div>
+  <div class="chapter-panel hidden" id="kunuthPanel">
+    <div class="display kunuth-display">
+      <div class="value" id="kunuthPointValue">0 KP</div>
+      <div class="sub">커누스 포인트</div>
+      <div id="kunuthSlotDisplay" class="kunuth-slot-display" aria-label="커누스 강화 슬롯"></div>
     </div>
 
-    <div class="row">
-      <button id="convertLspBtn">
-        LSP를 SP로 변환
-        <span class="cost" id="convertLspCost"></span>
+    <div class="kunuth-view-tabs" role="tablist" aria-label="커누스 화면">
+      <button id="kunuthBaseUpgradeViewBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="kunuthBaseUpgradePanel">기본 커누스 업그레이드</button>
+      <button id="kunuthEquipUpgradeViewBtn" type="button" role="tab" aria-selected="false" aria-controls="kunuthEquipUpgradePanel">장착 업그레이드</button>
+    </div>
+
+    <div id="kunuthBaseUpgradePanel">
+      <div class="section-title">KP 업그레이드</div>
+      <div class="row">
+        <button id="kunuthOperationUpgradeBtn" type="button">
+          <span>연산 강화</span>
+          <span class="cost" id="kunuthOperationUpgradeCost"></span>
+        </button>
+      </div>
+    </div>
+
+    <div id="kunuthEquipUpgradePanel" class="hidden">
+      <button id="kunuthResetEquipmentToggle" class="kunuth-reset-toggle" type="button" aria-pressed="false">
+        다음 커누스 때 장착 초기화: OFF
       </button>
+      <div class="section-title">강화 선택</div>
+      <div id="kunuthUpgradeGroups" class="kunuth-upgrade-groups"></div>
     </div>
-
-    <div class="row">
-      <button id="autoLspConverterBtn">
-        <span id="autoLspConverterLabel">자동 LSP 변환기</span>
-        <span class="cost" id="autoLspConverterCost"></span>
-      </button>
-    </div>
-
-    <div class="section-title">테트레이션 업그레이드</div>
-    <div id="tetrationUpgradeGrid" class="square-upgrade-grid tetration-upgrade-grid"></div>
-
-    <div class="section-title">LSP 차원</div>
-    <div class="dimension-rate" id="tetrationDimensionMeta"></div>
-    <div id="tetrationDimensions" class="dimension-list"></div>
   </div>
 
   <div class="dev-console-host" id="devConsoleHost"></div>
@@ -420,10 +422,6 @@
   <button id="manualConvergenceExchangeBtn" type="button">
     수렴 포인트 교환
     <span class="cost" id="manualConvergenceExchangeCost"></span>
-  </button>
-  <button id="manualTetrationExchangeBtn" class="hidden" type="button">
-    tetraP 교환
-    <span class="cost" id="manualTetrationExchangeCost"></span>
   </button>
 </div>
 
@@ -513,32 +511,32 @@
   </div>
 </div>
 
-<script src="./scripts/data/chapter-roadmap.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/constants.js?v=20260918-secret-achievements"></script>
+<script src="./scripts/data/chapter-roadmap.js?v=20260919-kunuth"></script>
+<script src="./scripts/core/constants.js?v=20260919-cp-requirement"></script>
 <script src="./scripts/core/number-math.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/state.js?v=20260916-secret-achievements"></script>
-<script src="./scripts/core/dom.js?v=20260918-achievement-graph"></script>
-<script src="./scripts/core/chapter-ui.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/percent-lanes.js?v=20260905-cache-refresh"></script>
+<script src="./scripts/core/state.js?v=20260919-kunuth-gain"></script>
+<script src="./scripts/core/dom.js?v=20260919-kunuth-reset-toggle"></script>
+<script src="./scripts/core/chapter-ui.js?v=20260919-kunuth-render-guard"></script>
+<script src="./scripts/systems/percent-lanes.js?v=20260919-kunuth-slots"></script>
 <script src="./scripts/systems/square-upgrades.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/systems/square-breakthrough.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/square-convergence.js?v=20260916-tree-all-drag"></script>
-<script src="./scripts/systems/square-dimensions.js?v=20260914-exponent-format"></script>
-<script src="./scripts/systems/diverger.js?v=20260915-diverger-formula"></script>
-<script src="./scripts/systems/achievements.js?v=20260918-secret-achievements-v2"></script>
-<script src="./scripts/core/render.js?v=20260916-secret-achievements"></script>
-<script src="./scripts/systems/clickers.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/percent-system.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/auto-upgrades.js?v=20260915-automatium-bulk"></script>
+<script src="./scripts/systems/square-convergence.js?v=20260919-convergence-no-redirect"></script>
+<script src="./scripts/systems/square-dimensions.js?v=20260919-kunuth"></script>
+<script src="./scripts/systems/diverger.js?v=20260919-diverger-square-production"></script>
+<script src="./scripts/systems/achievements.js?v=20260919-cp-gain-tiers"></script>
+<script src="./scripts/core/render.js?v=20260919-kunuth-render-guard"></script>
+<script src="./scripts/systems/clickers.js?v=20260919-kunuth"></script>
+<script src="./scripts/systems/percent-system.js?v=20260919-kunuth-slots"></script>
+<script src="./scripts/systems/auto-upgrades.js?v=20260919-generalized-auto-bulk"></script>
 <script src="./scripts/systems/news-ticker.js?v=20260918-currency-achievement"></script>
-<script src="./scripts/chapters/square.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/chapters/tetration.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/save.js?v=20260918-cloud-save"></script>
+<script src="./scripts/chapters/square.js?v=20260919-kunuth"></script>
+<script src="./scripts/chapters/kunuth.js?v=20260919-kunuth-reset-toggle"></script>
+<script src="./scripts/core/save.js?v=20260919-kunuth-save-fix"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/automatium/n-parser.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/automatium/n-runtime.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/automatium.js?v=20260918-secret-command"></script>
-<script src="./scripts/systems/dev-console.js?v=20260916-debug-title"></script>
+<script src="./scripts/automatium/n-parser.js?v=20260919-wait-command"></script>
+<script src="./scripts/automatium/n-runtime.js?v=20260919-wait-command"></script>
+<script src="./scripts/systems/automatium.js?v=20260919-wait-command"></script>
+<script src="./scripts/systems/dev-console.js?v=20260919-kunuth"></script>
 <script src="./scripts/main.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/config/firebase-config.js?v=20260918-auth"></script>
 <script type="module" src="./scripts/systems/firebase-auth.js?v=20260918-presence-achievements"></script>

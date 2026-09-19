@@ -1,7 +1,7 @@
 const CHAPTER_ROADMAP = [
   { id: 'multiplication', label: '증가와 곱셈', status: 'implemented' },
   { id: 'square', label: '제곱', status: 'prototype' },
-  { id: 'tetration', label: '테트레이션', status: 'prototype' },
+  { id: 'kunuth', label: '커누스', status: 'prototype' },
   { id: 'pentation', label: '펜테이션', status: 'planned' },
   { id: 'hexation', label: '헥세이션', status: 'planned' },
   { id: 'hyper-operation', label: '하이퍼 연산', status: 'planned' },

@@ -270,7 +270,10 @@ function debugBoardAutoClickRate() {
   if (!autoClickerUnlocked || overflowed) return 0n;
   const cyclesPerSecond = debugBoardGameCyclesPerSecond(autoClickerSpeed);
   const clicksPerSecond = cyclesPerSecond * Number(autoClickerParallel);
-  return debugBoardRateValue(effectivePerClick(), clicksPerSecond);
+  return debugBoardRateValue(
+    applyPercentSoftcapToProduction(effectivePerClick()),
+    clicksPerSecond
+  );
 }
 
 function debugBoardPercentLaneRate(laneNumber, lane = null) {
@@ -282,12 +285,15 @@ function debugBoardPercentLaneRate(laneNumber, lane = null) {
   const power = laneNumber === 1 ? percentPower : lane.power;
   const speed = laneNumber === 1 ? percentAutoSpeed : lane.autoSpeed;
   const gain = percentGain(getBaseNumber(), power);
-  return debugBoardRateValue(gain, debugBoardGameCyclesPerSecond(speed));
+  return debugBoardRateValue(
+    applyPercentSoftcapToProduction(gain, getBaseNumber(), power),
+    debugBoardGameCyclesPerSecond(speed)
+  );
 }
 
 function debugBoardContributionRows() {
   const rows = [
-    ['수동 클릭', `${fmtPowerBase(effectivePerClick())} / 클릭`],
+    ['수동 클릭', `${fmtPowerBase(applyPercentSoftcapToProduction(effectivePerClick()))} / 클릭`],
     ['오토 클릭커', `${fmtPowerBase(debugBoardAutoClickRate())} / 초`]
   ];
 
@@ -306,7 +312,7 @@ function debugBoardContributionRows() {
   ]);
   rows.push([
     '발산자',
-    divergerAvailable() ? `제곱력 ×${fmtPowerBase(divergerSquareDimensionMultiplier())}` : '잠김'
+    divergerAvailable() ? `제곱력 생산·최종 숫자 ×${fmtPowerBase(divergerSquareDimensionMultiplier())}` : '잠김'
   ]);
   return rows;
 }
@@ -381,12 +387,6 @@ function renderDevDebugBoard() {
   }
 }
 
-function showTetrationForDevCommand() {
-  squareUnlocked = true;
-  tetrationUnlocked = true;
-  setChapter('tetration');
-}
-
 function runDevCommand(commandText) {
   const command = commandText.trim();
   if (!command) return;
@@ -398,9 +398,9 @@ function runDevCommand(commandText) {
 
   if (runNumberTraceCommand(command)) return;
 
-  const match = command.match(/^set\s+(number|sp|cp|lsp|tetrap|theory)\s+(.+)$/i);
+  const match = command.match(/^set\s+(number|sp|cp|kp|theory)\s+(.+)$/i);
   if (!match) {
-    throw new Error('지원 명령어: stop, set number/sp/cp/lsp/tetraP/theory <숫자>, trace number on/off/clear');
+    throw new Error('지원 명령어: stop, set number/sp/cp/kp/theory <숫자>, trace number on/off/clear');
   }
 
   const target = match[1].toLowerCase();
@@ -434,7 +434,6 @@ function runDevCommand(commandText) {
     if (isPositiveNumberValue(value)) {
       squareUnlocked = true;
       squareConvergenceUnlocked = true;
-      setChapter('square-convergence');
     }
     render();
     log(`[DEV] CP = ${formatDevValue(value)}`, true);
@@ -446,26 +445,22 @@ function runDevCommand(commandText) {
     if (isPositiveNumberValue(value)) {
       squareUnlocked = true;
       squareConvergenceUnlocked = true;
-      setChapter('square-convergence');
+      setChapter('square');
+      setSquareView('convergence');
     }
     render();
     log(`[DEV] 이론 = ${formatDevValue(value)}`, true);
     return;
   }
 
-  if (target === 'lsp') {
-    lsp = value;
-    showTetrationForDevCommand();
+  if (target === 'kp') {
+    kunuthPoints = value;
+    kunuthUnlocked = isPositiveNumberValue(value);
+    hasClaimedKunuthPoint = kunuthUnlocked;
+    pendingKunuthPointClaim = false;
+    if (kunuthUnlocked) setChapter('kunuth');
     render();
-    log(`[DEV] LSP = ${formatDevValue(value)}`, true);
-    return;
-  }
-
-  if (target === 'tetrap') {
-    tetraP = value;
-    showTetrationForDevCommand();
-    render();
-    log(`[DEV] tetraP = ${formatDevValue(value)}`, true);
+    log(`[DEV] KP = ${formatDevValue(value)}`, true);
     return;
   }
 }
@@ -534,7 +529,7 @@ function toggleDevConsole() {
     devConsole.input.focus();
     renderDevDebugBoard();
     renderNumberTrace();
-    log('[DEV] 콘솔 열림: stop, set number/sp/cp/lsp/tetraP/theory <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 발산자 Shift+우클릭=한 단계 취소', true);
+    log('[DEV] 콘솔 열림: stop, set number/sp/cp/kp/theory <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 발산자 Shift+우클릭=한 단계 취소', true);
   }
 }
 
