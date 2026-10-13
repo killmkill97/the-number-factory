@@ -1,5 +1,6 @@
 const squareConvergenceUi = {};
 const generalizationResearchUi = {};
+const abstractionResearchUi = {};
 let activeConvergenceView = 'convergence';
 const RESEARCH_NODE_WIDTH = 220;
 const RESEARCH_NODE_HEIGHT = 190;
@@ -14,6 +15,13 @@ let researchTreePanY = 0;
 let researchTreeZoom = 1;
 let researchTreePanState = null;
 let focusedGeneralizationResearchId = null;
+let generalizationTreeLayoutInitialized = false;
+let abstractionTreePanX = 0;
+let abstractionTreePanY = 0;
+let abstractionTreeZoom = 1;
+let abstractionTreePanState = null;
+let focusedAbstractionResearchId = null;
+let abstractionTreeLayoutInitialized = false;
 
 function generalizationResearchAncestry(researchId) {
   const researchById = new Map(GENERALIZATION_RESEARCHES.map(research => [research.id, research]));
@@ -103,6 +111,18 @@ function renderGeneralizationTreeLayout() {
 
   updateGeneralizationTreeViewportExtent();
 
+  if (generalizationTreeLayoutInitialized) {
+    for (const path of generalizationConnections.querySelectorAll('.research-connection')) {
+      path.classList.toggle(
+        'complete',
+        hasGeneralizationResearch(path.dataset.parentId)
+          && hasGeneralizationResearch(path.dataset.childId)
+      );
+    }
+    applyGeneralizationTreeFocus();
+    return;
+  }
+
   const maxColumn = Math.max(...GENERALIZATION_RESEARCHES.map(research => research.column ?? 1), 1);
   const maxRow = Math.max(...GENERALIZATION_RESEARCHES.map(research => research.row ?? 1), 1);
   const canvasWidth = RESEARCH_TREE_PADDING * 2
@@ -159,6 +179,7 @@ function renderGeneralizationTreeLayout() {
       generalizationConnections.appendChild(path);
     }
   }
+  generalizationTreeLayoutInitialized = true;
   applyGeneralizationResearchFocus();
 }
 
@@ -237,16 +258,22 @@ function initializeGeneralizationTreePan() {
 initializeGeneralizationTreePan();
 
 function setConvergenceView(view) {
-  activeConvergenceView = view === 'generalization' ? 'generalization' : 'convergence';
+  activeConvergenceView = view === 'generalization' && canOpenGeneralizationResearch()
+    ? 'generalization'
+    : 'convergence';
   renderConvergenceView();
+  if (typeof invalidateSquareControlRender === 'function') invalidateSquareControlRender();
+  else if (typeof render === 'function') render();
 }
 
 function renderConvergenceView() {
+  if (!canOpenGeneralizationResearch()) activeConvergenceView = 'convergence';
   const showingGeneralization = activeConvergenceView === 'generalization';
   squareConvergenceUpgradePanel.classList.toggle('hidden', showingGeneralization);
   generalizationPanel.classList.toggle('hidden', !showingGeneralization);
   squareConvergenceViewBtn.classList.toggle('active', !showingGeneralization);
   generalizationViewBtn.classList.toggle('active', showingGeneralization);
+  generalizationViewBtn.disabled = !canOpenGeneralizationResearch();
   squareConvergenceViewBtn.setAttribute('aria-selected', String(!showingGeneralization));
   generalizationViewBtn.setAttribute('aria-selected', String(showingGeneralization));
   if (showingGeneralization) requestAnimationFrame(updateGeneralizationTreeViewportExtent);
@@ -297,6 +324,7 @@ function ensureSquareConvergenceUi(upgrade) {
   button.dataset.devUpgradeId = upgrade.id;
   button.addEventListener('click', () => buySquareConvergenceUpgrade(upgrade.id));
   squareConvergenceGrid.appendChild(button);
+  wrapFormulaHelpCard(button, 'convergence', upgrade.id, 'square-upgrade-card');
 
   squareConvergenceUi[upgrade.id] = button;
   return button;
@@ -353,6 +381,7 @@ function ensureGeneralizationResearchUi(research) {
   button.addEventListener('click', () => researchGeneralization(research.id));
 
   node.append(id, title, description, parents, button);
+  ensureFormulaHelpButton(node, 'generalization', research.id);
   generalizationTreeCanvas.appendChild(node);
   generalizationResearchUi[research.id] = { node, parents, button };
   return generalizationResearchUi[research.id];
@@ -374,7 +403,7 @@ function renderGeneralizationResearchBoard() {
       ? `선행 연구: ${research.parents.join(', ')}`
       : '선행 연구 없음';
     const devMode = typeof devConsoleIsOpen === 'function' && devConsoleIsOpen();
-    ui.button.disabled = devMode ? false : bought || !available;
+    ui.button.disabled = !canOpenGeneralizationResearch() || (devMode ? false : bought || !available);
     ui.button.textContent = bought
       ? '연구 완료'
       : `연구 · ${fmt(research.theoryCost)} 이론`;
@@ -419,6 +448,371 @@ function renderGeneralizationBoard() {
   renderConvergenceView();
 }
 
+function renderGreatTheoryResourceSelector() {
+  const resources = [
+    [greatTheoryCpResourceBtn, greatTheoryCpResourceCost, 0],
+    [greatTheoryKpResourceBtn, greatTheoryKpResourceCost, 1],
+    [greatTheorySpResourceBtn, greatTheorySpResourceCost, 2],
+    [greatTheoryTheoryResourceBtn, greatTheoryTheoryResourceCost, 3]
+  ];
+
+  for (const [button, costElement, resourceIndex] of resources) {
+    const locked = resourceIndex === 3 && !knuthBaseUpgradeLevel('theory_exchange');
+    button.classList.toggle('hidden', locked);
+    button.classList.toggle('active', abstractionCostResourceIndex === resourceIndex);
+    button.disabled = locked || !canOpenAbstraction();
+    costElement.textContent = ` · ${fmt(greatTheoryCostForResource(resourceIndex))}`;
+  }
+
+  const selectedCost = greatTheoryCostForResource(abstractionCostResourceIndex);
+  buyGreatTheoryCost.textContent = `비용: ${fmt(selectedCost)} ${greatTheoryResourceLabel(abstractionCostResourceIndex)}`;
+  const maximumPurchases = greatTheoryMaximumPurchases();
+  buyGreatTheoryBtn.disabled = maximumPurchases < 1;
+  buyGreatTheoryMaxBtn.disabled = maximumPurchases < 1;
+  buyGreatTheoryMaxBtn.title = maximumPurchases > 0
+    ? `대이론 ${maximumPurchases}개를 한 번에 구매`
+    : '구매 가능한 대이론이 없습니다';
+}
+
+function abstractionResearchAncestry(researchId) {
+  const researchById = new Map(ABSTRACTION_RESEARCHES.map(research => [research.id, research]));
+  const ancestry = new Set();
+  const visit = id => {
+    if (ancestry.has(id)) return;
+    const research = researchById.get(id);
+    if (!research) return;
+    ancestry.add(id);
+    for (const parentId of research.parents ?? []) visit(parentId);
+  };
+  visit(researchId);
+  return ancestry;
+}
+
+function applyAbstractionResearchFocus() {
+  if (!abstractionTree) return;
+  const focusedIds = focusedAbstractionResearchId
+    ? abstractionResearchAncestry(focusedAbstractionResearchId)
+    : null;
+  abstractionTree.classList.toggle('has-research-focus', Boolean(focusedIds));
+
+  for (const [researchId, ui] of Object.entries(abstractionResearchUi)) {
+    ui.node.classList.toggle('research-focus-path', focusedIds?.has(researchId) === true);
+  }
+  for (const path of abstractionConnections?.querySelectorAll('.research-connection') ?? []) {
+    const onFocusedPath = focusedIds?.has(path.dataset.parentId) === true
+      && focusedIds?.has(path.dataset.childId) === true;
+    path.classList.toggle('research-focus-path', onFocusedPath);
+  }
+}
+
+function setAbstractionResearchFocus(researchId) {
+  focusedAbstractionResearchId = researchId;
+  applyAbstractionResearchFocus();
+}
+
+function updateAbstractionTreeViewportExtent() {
+  if (!abstractionTree || abstractionPanel?.classList.contains('hidden') || knuthPanel?.classList.contains('hidden')) return;
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const treeTop = Math.max(0, Math.min(viewportHeight, abstractionTree.getBoundingClientRect().top));
+  abstractionTree.style.setProperty('--abstraction-tree-top', `${treeTop}px`);
+}
+
+function applyAbstractionTreeTransform() {
+  if (abstractionTreeCanvas) {
+    abstractionTreeCanvas.style.transform = `translate(${abstractionTreePanX}px, ${abstractionTreePanY}px) scale(${abstractionTreeZoom})`;
+  }
+  if (abstractionZoomValue) {
+    abstractionZoomValue.textContent = `${Math.round(abstractionTreeZoom * 100)}%`;
+  }
+  if (abstractionZoomOutBtn) abstractionZoomOutBtn.disabled = abstractionTreeZoom <= RESEARCH_TREE_MIN_ZOOM;
+  if (abstractionZoomInBtn) abstractionZoomInBtn.disabled = abstractionTreeZoom >= RESEARCH_TREE_MAX_ZOOM;
+}
+
+function setAbstractionTreeZoom(nextZoom, anchorX = null, anchorY = null) {
+  if (!abstractionTree) return false;
+  const clampedZoom = Math.min(RESEARCH_TREE_MAX_ZOOM, Math.max(RESEARCH_TREE_MIN_ZOOM, nextZoom));
+  if (Math.abs(clampedZoom - abstractionTreeZoom) < 0.0001) return false;
+
+  const bounds = abstractionTree.getBoundingClientRect();
+  const localX = anchorX ?? bounds.width / 2;
+  const localY = anchorY ?? bounds.height / 2;
+  const contentX = (localX - abstractionTreePanX) / abstractionTreeZoom;
+  const contentY = (localY - abstractionTreePanY) / abstractionTreeZoom;
+
+  abstractionTreePanX = localX - contentX * clampedZoom;
+  abstractionTreePanY = localY - contentY * clampedZoom;
+  abstractionTreeZoom = clampedZoom;
+  applyAbstractionTreeTransform();
+  return true;
+}
+
+function abstractionLiveValueText(value) {
+  return compareNumberValues(value, 1000) < 0
+    ? Number(NumberMath.toNumber(value).toPrecision(4)).toString()
+    : fmt(value);
+}
+
+function abstractionTimeResearchInfo(id) {
+  if (!hasAbstractionResearch(id)) return '';
+  const show = abstractionLiveValueText;
+  const tuning = ABSTRACTION_SECOND_BRANCH_BALANCE;
+  if (id === '4-1') {
+    const time = abstractionEffectiveTime();
+    const ratio = isPositiveNumberValue(squareRunGameSeconds)
+      ? NumberMath.divideApproximate(time, squareRunGameSeconds) : 1;
+    return `T 기본 ${show(squareRunGameSeconds)}초 (제곱 게임 시간)\n적용 T ${show(time)}초 · T 변환 ×${show(ratio)}`;
+  }
+  if (id === '6-1') {
+    const rate = abstractionTimeRecoveryRate();
+    return `U ${show(squareRunGameSeconds)}초 (제곱 게임 시간)\n추가 T +${show(rate)}초/게임초 · 회수 속도 ×${show(1 + rate)}`;
+  }
+  if (id === '12-1' || id === '14-1') {
+    const U = knuthRunRealSeconds();
+    const parameterBonus = id === '14-1';
+    const multiplier = abstractionActiveTimeBonus(U,
+      parameterBonus ? tuning.activeParameterStrength : tuning.activeResourceStrength);
+    return `U ${show(U)}초 (커누스 현실 시간)\n${parameterBonus ? 'a·b·c' : 'SP·CP'} ×${show(multiplier)}`
+      + (parameterBonus ? `\n속도 구매 감소량 ×${show(tuning.activeSpeedReduction)}` : '');
+  }
+  if (id === '12-3') {
+    const T = knuthRunRealSeconds();
+    return `T ${show(T)}초 (커누스 현실 시간)\nSP·CP ×${show(abstractionIdleTimeBonus(T, tuning.idleResourceStrength))}`;
+  }
+  if (id === '13-1' || id === '13-3') {
+    const active = id === '13-1';
+    const symbol = active ? 'U' : 'T';
+    const record = active ? shortestKnuthRealSeconds : longestKnuthRealSeconds;
+    const applied = abstractionKpTimeRecord(active ? 'shortest' : 'longest');
+    const multiplier = applied === null ? 1
+      : active ? abstractionActiveTimeBonus(applied, tuning.activeKpStrength)
+      : abstractionIdleTimeBonus(applied, tuning.idleKpStrength);
+    return `${active ? '최단' : '최장'} ${symbol} ${record === null ? '미기록' : `${show(record)}초`}\n`
+      + `교환 적용 ${symbol} ${applied === null ? '미기록' : `${show(applied)}초`} · KP ×${show(multiplier)}`;
+  }
+  return '';
+}
+
+function updateAbstractionTimeResearchUi(id, ui) {
+  const text = abstractionTimeResearchInfo(id);
+  if (ui.liveInfo.textContent !== text) ui.liveInfo.textContent = text;
+  ui.liveInfo.classList.toggle('hidden', !text);
+  ui.node.classList.toggle('has-live-info', Boolean(text));
+}
+
+setInterval(() => {
+  if (activeChapter !== 'knuth' || typeof activeKnuthView === 'undefined' || activeKnuthView !== 'abstraction') return;
+  for (const [id, ui] of Object.entries(abstractionResearchUi)) updateAbstractionTimeResearchUi(id, ui);
+}, 1000);
+
+function ensureAbstractionResearchUi(research) {
+  if (abstractionResearchUi[research.id]) return abstractionResearchUi[research.id];
+
+  const node = document.createElement('article');
+  node.className = 'research-node';
+  node.classList.toggle('abstraction-branch-research', Boolean(research.branch));
+  node.addEventListener('mouseenter', () => setAbstractionResearchFocus(research.id));
+  node.addEventListener('mouseleave', () => setAbstractionResearchFocus(null));
+
+  const id = document.createElement('div');
+  id.className = 'research-node-id';
+  id.textContent = research.id;
+  const title = document.createElement('div');
+  title.className = 'research-node-title';
+  title.textContent = research.title;
+  const description = document.createElement('div');
+  description.className = 'research-node-description';
+  description.textContent = research.description;
+  const parents = document.createElement('div');
+  parents.className = 'research-node-parents';
+  const liveInfo = document.createElement('div');
+  liveInfo.className = 'research-node-live-info hidden';
+  liveInfo.setAttribute('role', 'status');
+  liveInfo.setAttribute('aria-live', 'off');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.devUpgradeKind = 'abstraction';
+  button.dataset.devUpgradeId = research.id;
+  button.addEventListener('click', () => researchAbstraction(research.id));
+
+  node.append(id, title, description, parents, liveInfo, button);
+  ensureFormulaHelpButton(node, 'abstraction', research.id);
+  abstractionTreeCanvas.appendChild(node);
+  abstractionResearchUi[research.id] = { node, parents, button, liveInfo };
+  return abstractionResearchUi[research.id];
+}
+
+function renderAbstractionTreeLayout() {
+  if (!abstractionTreeCanvas || !abstractionConnections) return;
+  updateAbstractionTreeViewportExtent();
+
+  for (const research of ABSTRACTION_RESEARCHES) {
+    const ui = ensureAbstractionResearchUi(research);
+    const position = researchNodePosition(research);
+    ui.node.style.left = `${position.left}px`;
+    ui.node.style.top = `${position.top}px`;
+  }
+
+  if (abstractionTreeLayoutInitialized) {
+    for (const path of abstractionConnections.querySelectorAll('.research-connection')) {
+      path.classList.toggle(
+        'complete',
+        hasAbstractionResearch(path.dataset.parentId) && hasAbstractionResearch(path.dataset.childId)
+      );
+    }
+    applyAbstractionResearchFocus();
+    return;
+  }
+
+  const maxColumn = Math.max(...ABSTRACTION_RESEARCHES.map(research => research.column ?? 1), 1);
+  const maxRow = Math.max(...ABSTRACTION_RESEARCHES.map(research => research.row ?? 1), 1);
+  const canvasWidth = RESEARCH_TREE_PADDING * 2
+    + maxColumn * RESEARCH_NODE_WIDTH
+    + (maxColumn - 1) * RESEARCH_COLUMN_GAP;
+  const canvasHeight = RESEARCH_TREE_PADDING * 2
+    + maxRow * RESEARCH_NODE_HEIGHT
+    + (maxRow - 1) * RESEARCH_ROW_GAP;
+
+  abstractionTreeCanvas.style.width = `${canvasWidth}px`;
+  abstractionTreeCanvas.style.height = `${canvasHeight}px`;
+  applyAbstractionTreeTransform();
+  abstractionConnections.setAttribute('viewBox', `0 0 ${canvasWidth} ${canvasHeight}`);
+  abstractionConnections.setAttribute('width', String(canvasWidth));
+  abstractionConnections.setAttribute('height', String(canvasHeight));
+  abstractionConnections.replaceChildren();
+
+  const researchById = new Map(ABSTRACTION_RESEARCHES.map(research => [research.id, research]));
+  for (const research of ABSTRACTION_RESEARCHES) {
+    const childPosition = researchNodePosition(research);
+    for (const parentId of research.parents ?? []) {
+      const parent = researchById.get(parentId);
+      if (!parent) continue;
+      const parentPosition = researchNodePosition(parent);
+      const isHorizontal = parent.column !== research.column;
+      const startX = isHorizontal
+        ? parentPosition.left + (parent.column < research.column ? RESEARCH_NODE_WIDTH : 0)
+        : parentPosition.left + RESEARCH_NODE_WIDTH / 2;
+      const startY = isHorizontal
+        ? parentPosition.top + RESEARCH_NODE_HEIGHT / 2
+        : parentPosition.top + (parent.row < research.row ? RESEARCH_NODE_HEIGHT : 0);
+      const endX = isHorizontal
+        ? childPosition.left + (parent.column < research.column ? 0 : RESEARCH_NODE_WIDTH)
+        : childPosition.left + RESEARCH_NODE_WIDTH / 2;
+      const endY = isHorizontal
+        ? childPosition.top + RESEARCH_NODE_HEIGHT / 2
+        : childPosition.top + (parent.row < research.row ? 0 : RESEARCH_NODE_HEIGHT);
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      const curveOffset = isHorizontal
+        ? Math.max(28, Math.abs(endX - startX) * 0.35)
+        : Math.max(28, Math.abs(endY - startY) * 0.35);
+      const pathData = isHorizontal
+        ? `M ${startX} ${startY} C ${startX + (endX > startX ? curveOffset : -curveOffset)} ${startY}, ${endX - (endX > startX ? curveOffset : -curveOffset)} ${endY}, ${endX} ${endY}`
+        : `M ${startX} ${startY} C ${startX} ${startY + (endY > startY ? curveOffset : -curveOffset)}, ${endX} ${endY - (endY > startY ? curveOffset : -curveOffset)}, ${endX} ${endY}`;
+      path.setAttribute('d', pathData);
+      path.classList.add('research-connection');
+      path.dataset.parentId = parent.id;
+      path.dataset.childId = research.id;
+      if (hasAbstractionResearch(parent.id) && hasAbstractionResearch(research.id)) path.classList.add('complete');
+      abstractionConnections.appendChild(path);
+    }
+  }
+
+  abstractionTreeLayoutInitialized = true;
+  applyAbstractionResearchFocus();
+}
+
+function initializeAbstractionTreePan() {
+  if (!abstractionTree) return;
+  window.addEventListener('resize', updateAbstractionTreeViewportExtent);
+  window.addEventListener('scroll', updateAbstractionTreeViewportExtent, { passive: true });
+  window.visualViewport?.addEventListener('resize', updateAbstractionTreeViewportExtent);
+  abstractionTree.addEventListener('contextmenu', event => event.preventDefault());
+  abstractionTree.addEventListener('pointerdown', event => {
+    if (event.button !== 0) event.preventDefault();
+    abstractionTreePanState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: abstractionTreePanX,
+      originY: abstractionTreePanY,
+      moved: false
+    };
+  });
+  abstractionTree.addEventListener('pointermove', event => {
+    if (!abstractionTreePanState || event.pointerId !== abstractionTreePanState.pointerId) return;
+    const deltaX = event.clientX - abstractionTreePanState.startX;
+    const deltaY = event.clientY - abstractionTreePanState.startY;
+    if (!abstractionTreePanState.moved && Math.hypot(deltaX, deltaY) < 4) return;
+    if (!abstractionTreePanState.moved) {
+      abstractionTreePanState.moved = true;
+      abstractionTree.classList.add('is-panning');
+      abstractionTree.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    abstractionTreePanX = abstractionTreePanState.originX + deltaX;
+    abstractionTreePanY = abstractionTreePanState.originY + deltaY;
+    applyAbstractionTreeTransform();
+  });
+  const stopPan = event => {
+    if (!abstractionTreePanState || event.pointerId !== abstractionTreePanState.pointerId) return;
+    abstractionTreePanState = null;
+    abstractionTree.classList.remove('is-panning');
+    if (abstractionTree.hasPointerCapture(event.pointerId)) abstractionTree.releasePointerCapture(event.pointerId);
+  };
+  abstractionTree.addEventListener('pointerup', stopPan);
+  abstractionTree.addEventListener('pointercancel', stopPan);
+  abstractionTree.addEventListener('wheel', event => {
+    if (event.deltaY === 0) return;
+    event.preventDefault();
+    const bounds = abstractionTree.getBoundingClientRect();
+    const direction = event.deltaY < 0 ? 1 : -1;
+    setAbstractionTreeZoom(
+      abstractionTreeZoom + direction * RESEARCH_TREE_ZOOM_STEP,
+      event.clientX - bounds.left,
+      event.clientY - bounds.top
+    );
+  }, { passive: false });
+  abstractionZoomOutBtn?.addEventListener('click', () => setAbstractionTreeZoom(abstractionTreeZoom - RESEARCH_TREE_ZOOM_STEP));
+  abstractionZoomInBtn?.addEventListener('click', () => setAbstractionTreeZoom(abstractionTreeZoom + RESEARCH_TREE_ZOOM_STEP));
+  abstractionZoomResetBtn?.addEventListener('click', () => setAbstractionTreeZoom(1));
+  applyAbstractionTreeTransform();
+}
+
+initializeAbstractionTreePan();
+
+function renderAbstractionBoard() {
+  greatTheoryValue.textContent = `${fmt(greatTheory)} 대이론`;
+  abstractionSpRate.textContent = hasAbstractionResearch('1-1')
+    ? `현재 생산량 ${fmt(abstractionSpGainPerRealSecond())} SP/초`
+    : '1-1 연구 후 현재 획득 가능 SP의 1%를 초당 생산';
+  abstractionResetToggle.classList.toggle('toggle-active', abstractionResetOnNextKnuthPoint);
+  abstractionResetToggle.classList.toggle('toggle-inactive', !abstractionResetOnNextKnuthPoint);
+  abstractionResetToggle.setAttribute('aria-pressed', String(abstractionResetOnNextKnuthPoint));
+  abstractionResetLabel.textContent = `다음 KP 획득 시 추상화 초기화: ${abstractionResetOnNextKnuthPoint ? 'ON' : 'OFF'}`;
+  abstractionResetRefund.textContent = `반환 예정: ${fmt(abstractionResearchRefund())} 대이론`;
+  renderGreatTheoryResourceSelector();
+
+  for (const research of ABSTRACTION_RESEARCHES) {
+    const ui = ensureAbstractionResearchUi(research);
+    const bought = hasAbstractionResearch(research.id);
+    const parentsReady = abstractionResearchParentsReady(research);
+    const branchLocked = abstractionResearchBranchLocked(research);
+    const available = canResearchAbstraction(research.id);
+    ui.node.classList.toggle('bought', bought);
+    ui.node.classList.toggle('locked', !bought && (!parentsReady || branchLocked));
+    updateAbstractionTimeResearchUi(research.id, ui);
+    ui.parents.textContent = research.parents.length > 0
+      ? `선행 연구: ${research.parents.join(', ')}`
+      : '선행 연구 없음';
+    const devMode = typeof devConsoleIsOpen === 'function' && devConsoleIsOpen();
+    ui.button.disabled = devMode ? false : bought || !available;
+    ui.button.textContent = bought
+      ? '연구 완료'
+      : branchLocked ? '다른 분기 선택됨'
+      : `연구 · ${fmt(research.greatTheoryCost)} 대이론`;
+  }
+  renderAbstractionTreeLayout();
+}
+
 function finishSquareConvergence(gainedConvergencePoints) {
   if (!isPositiveNumberValue(gainedConvergencePoints)) return false;
 
@@ -448,4 +842,11 @@ theoryConvergencePointResourceBtn.addEventListener('click', () => setTheoryCostR
 researchTheoryBtn.addEventListener('click', researchTheory);
 researchTheoryMaxBtn.addEventListener('click', researchTheoryMaximum);
 generalizationResetBtn.addEventListener('click', resetGeneralizationResearch);
+abstractionResetToggle.addEventListener('click', toggleAbstractionReset);
+greatTheoryCpResourceBtn.addEventListener('click', () => setAbstractionCostResource(0));
+greatTheoryKpResourceBtn.addEventListener('click', () => setAbstractionCostResource(1));
+greatTheorySpResourceBtn.addEventListener('click', () => setAbstractionCostResource(2));
+greatTheoryTheoryResourceBtn.addEventListener('click', () => setAbstractionCostResource(3));
+buyGreatTheoryBtn.addEventListener('click', () => purchaseGreatTheory(1));
+buyGreatTheoryMaxBtn.addEventListener('click', () => purchaseGreatTheory(greatTheoryMaximumPurchases()));
 manualConvergenceExchangeBtn.addEventListener('click', exchangeSquareConvergencePointsManually);

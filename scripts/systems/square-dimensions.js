@@ -179,6 +179,12 @@ function ensureSecondarySquareDimensionUi() {
 }
 
 function renderSquareDimensionCard(ui, index) {
+  for (const sideButton of [ui.xBtn, ui.yBtn, ui.zBtn]) {
+    ensureFormulaHelpButton(sideButton.closest('.square-dimension-side'), 'dimension', 'side');
+  }
+  wrapFormulaHelpCard(ui.powerTimeBtn, 'dimension', 'power_time');
+  wrapFormulaHelpCard(ui.powerStrengthBtn, 'dimension', 'power_strength');
+
   const dimension = squareDimensionState(index);
   const x = squareDimensionSideValue('x', index);
   const y = squareDimensionSideValue('y', index);
@@ -201,7 +207,7 @@ function renderSquareDimensionCard(ui, index) {
   const divergerMultiplier = divergerSquareDimensionMultiplier();
 
   ui.powerValue.textContent = formatSquareDimensionNumber(squareDimensionPower(index));
-  ui.powerSubValue.textContent = `제곱력 = ${squareDimensionPowerFormulaText(index, exponent)} · 발산력 생산 강화 ×${formatSquareDimensionNumber(divergerMultiplier)} · 숫자 생산 기여 제곱력^${contributionExponent} · 생산 주기 ${formatSquareDimensionDuration(dimension.powerInterval)}`;
+  ui.powerSubValue.textContent = `제곱력 = ${squareDimensionPowerFormulaText(index, exponent)} · 발산력 생산 강화 ×${formatSquareDimensionNumber(divergerMultiplier)} · 숫자 생산 기여 제곱력^${contributionExponent} · 생산 주기 ${formatSquareDimensionDuration(squareDimensionEffectiveInterval(dimension))}`;
   ui.multiplierValue.textContent = `제곱력 기본 기여 ×${formatSquareDimensionNumber(squareDimensionNumberMultiplier(index))} · 최종 생산에 발산력 ×${formatSquareDimensionNumber(divergerMultiplier)}`;
   ui.softcapValue.classList.add('hidden');
   ui.softcapValue.textContent = '';
@@ -243,7 +249,7 @@ function renderSquareDimensionCard(ui, index) {
 
   const powerStrengthCost = multiplyNumberValue(
     SQUARE_DIMENSION_POWER_STRENGTH_COST,
-    index === 0 ? 1n : 2n
+    index === 0 ? 1 : 2
   );
   ui.powerStrengthLabel.textContent = powerStrengthResearch
     ? '제곱력 생산 강화 · 6-2 연구 적용'
@@ -300,7 +306,11 @@ function renderSquareDimensionView() {
   }
 
   if (typeof renderProductionSubView === 'function') renderProductionSubView();
-  if (!dimensionsAvailable) {
+  if (
+    !dimensionsAvailable
+    || activeSquareView !== 'dimensions'
+    || (typeof activeProductionView !== 'undefined' && activeProductionView === 'diverger')
+  ) {
     squareDimensionAdditional?.classList.add('hidden');
     return;
   }
@@ -334,6 +344,8 @@ function setSquareView(view) {
     squareBreakthroughEntered = true;
   }
   renderSquareDimensionView();
+  if (typeof invalidateSquareControlRender === 'function') invalidateSquareControlRender();
+  else if (typeof render === 'function') render();
 }
 
 function refreshSquareView() {
@@ -381,7 +393,9 @@ if (squareDimensionAutoUpgradeBtn) {
 }
 
 const SQUARE_DIMENSION_TICK_MS = 100;
+let squareDimensionLastTickAt = gameClockNowMs();
 setInterval(() => {
-  const elapsedMs = gameTick(SQUARE_DIMENSION_TICK_MS);
+  const { now, elapsedMs } = elapsedRealTimeSince(squareDimensionLastTickAt);
+  squareDimensionLastTickAt = now;
   if (advanceSquareDimensions(elapsedMs)) render();
 }, SQUARE_DIMENSION_TICK_MS);

@@ -35,6 +35,7 @@ function ensureSquareUpgradeUi(upgrade) {
   button.style.gridRow = String(upgrade.row + 1);
   button.addEventListener('click', () => buySquareUpgrade(upgrade.id));
   squareUpgradeGrid.appendChild(button);
+  wrapFormulaHelpCard(button, 'square', upgrade.id, 'square-upgrade-card');
 
   squareUpgradeUi[upgrade.id] = button;
   return button;

@@ -12,14 +12,13 @@ function formatDivergerInterval(interval) {
 }
 
 function formatDivergerProduction(logarithm) {
-  if (!Number.isFinite(logarithm)) return '0e0';
-  const exponent = Math.floor(logarithm);
-  return formatScientificParts(10 ** (logarithm - exponent), exponent);
+  return formatDivergerScientific(logarithm);
 }
 
 function setProductionView(view) {
   activeProductionView = view === 'diverger' ? 'diverger' : 'dimensions';
-  render();
+  if (typeof invalidateSquareControlRender === 'function') invalidateSquareControlRender();
+  else render();
 }
 
 function renderProductionSubView() {
@@ -63,33 +62,50 @@ function renderDivergerGraph() {
 function renderDivergerView() {
   renderProductionSubView();
   if (!divergerAvailable()) return;
+  const autoAvailable = divergerAutoUpgradeAvailable();
+  divergerAutoUpgradeBtn.classList.toggle('hidden', !autoAvailable);
+  divergerAutoUpgradeBtn.classList.toggle('toggle-active', autoAvailable && divergerAutoUpgradeEnabled);
+  divergerAutoUpgradeBtn.classList.toggle('toggle-inactive', autoAvailable && !divergerAutoUpgradeEnabled);
+  divergerAutoUpgradeBtn.setAttribute('aria-pressed', String(divergerAutoUpgradeEnabled));
+  divergerAutoUpgradeBtn.textContent = `발산자 자동 업그레이드 · ${divergerAutoUpgradeEnabled ? 'ON' : 'OFF'}`;
 
   const developerConsoleOpen = typeof devConsoleIsOpen === 'function' && devConsoleIsOpen();
   const minimumInterval = divergerMinInterval();
-  const productionLogarithm = divergerProductionLog10(divergerN);
+  const production = divergerProductionValue(divergerN);
   const nextInterval = divergerInterval <= minimumInterval
     ? minimumInterval
-    : Math.max(minimumInterval, divergerInterval - Math.log10(divergerInterval));
+    : divergerNextInterval();
   const cAtMaximum = divergerC >= DIVERGER_C_MAX;
 
   divergerPowerValue.textContent = formatDivergerScientific(divergerPower);
+  const enhancedParameters = ['14-1', '14-2', '14-3'].some(hasAbstractionResearch);
+  const bSymbol = hasAbstractionResearch('4-2') || enhancedParameters ? 'b효과' : 'b';
+  const aSymbol = enhancedParameters ? 'a효과' : 'a';
+  const cSymbol = enhancedParameters ? 'c효과' : 'c';
+  const denominatorText = enhancedParameters ? `max(1, 100 - ${cSymbol})` : '(100 - c)';
   const formula = hasGeneralizationResearch('5-3')
-    ? 'D(n) = a^2 × n^(b+c/2) / (100 - c)'
-    : 'D(n) = a × n^b / (100 - c)';
-  divergerPowerSubValue.textContent = `${formula} · 현재 +${formatDivergerProduction(productionLogarithm)} / ${formatDivergerInterval(divergerInterval)}`;
+    ? `D(n) = ${aSymbol}^2 × n^(${bSymbol}+${cSymbol}/2) / ${denominatorText}`
+    : `D(n) = ${aSymbol} × n^${bSymbol} / ${denominatorText}`;
+  divergerPowerSubValue.textContent = `${formula} · 현재 +${formatDivergerProduction(production)} / ${formatDivergerInterval(divergerEffectiveInterval())}`;
   divergerSoftcapValue.textContent = `제곱력 생산 및 최종 숫자 생산 배율 ×${formatDivergerScientific(divergerSquareDimensionMultiplier())}`;
   divergerNValue.textContent = formatDivergerScientific(divergerN);
-  divergerAValue.textContent = formatDivergerScientific(divergerA);
-  divergerBValue.textContent = divergerB.toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
-  divergerCValue.textContent = `${divergerC} / ${DIVERGER_C_MAX}`;
-  divergerIntervalValue.textContent = formatDivergerInterval(divergerInterval);
+  divergerAValue.textContent = compareNumberValues(abstractionEffectiveDivergerA(), divergerA) === 0
+    ? formatDivergerScientific(divergerA)
+    : `${formatDivergerScientific(divergerA)} → ${formatDivergerScientific(abstractionEffectiveDivergerA())}`;
+  const baseBText = divergerB.toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
+  const effectiveBText = abstractionEffectiveDivergerB().toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
+  divergerBValue.textContent = abstractionEffectiveDivergerB() !== divergerB
+    ? `${baseBText} → ${effectiveBText}`
+    : baseBText;
+  divergerCValue.textContent = `${divergerC} / ${DIVERGER_C_MAX}${abstractionEffectiveDivergerC() !== divergerC ? ` → 효과 ${abstractionEffectiveDivergerC().toFixed(3)} · 분모 ${divergerDenominator().toFixed(3)}` : ''}`;
+  divergerIntervalValue.textContent = formatDivergerInterval(divergerEffectiveInterval());
 
-  divergerAUpgradeLabel.textContent = `a 강화 · ${formatDivergerScientific(divergerA)} → ${formatDivergerScientific(multiplyNumberValue(divergerA, 2n))}`;
+  divergerAUpgradeLabel.textContent = `a 강화 · ${formatDivergerScientific(divergerA)} → ${formatDivergerScientific(multiplyNumberValue(divergerA, 2))}`;
   divergerAUpgradeCost.textContent = `비용: ${fmtPowerBase(divergerACpCost)} CP`;
   divergerAUpgradeBtn.disabled = !developerConsoleOpen
     && !divergerCanAfford(divergerACpCost);
 
-  divergerBUpgradeLabel.textContent = `b 강화 · ${divergerB.toFixed(6)} → ${(divergerB + divergerBUpgradeGain(divergerB)).toFixed(6)}`;
+  divergerBUpgradeLabel.textContent = `b 강화 · ${divergerB.toFixed(6)} → ${(divergerB + divergerBUpgradeGain()).toFixed(6)}`;
   divergerBUpgradeCost.textContent = `비용: ${fmtPowerBase(divergerBCpCost)} CP`;
   divergerBUpgradeBtn.disabled = !developerConsoleOpen
     && !divergerCanAfford(divergerBCpCost);
@@ -121,12 +137,13 @@ divergerAUpgradeBtn?.addEventListener('click', buyDivergerAUpgrade);
 divergerBUpgradeBtn?.addEventListener('click', buyDivergerBUpgrade);
 divergerCUpgradeBtn?.addEventListener('click', buyDivergerCUpgrade);
 divergerSpeedUpgradeBtn?.addEventListener('click', buyDivergerSpeedUpgrade);
+divergerAutoUpgradeBtn?.addEventListener('click', toggleDivergerAutoUpgrade);
 
 const DIVERGER_TICK_MS = 10;
-let divergerLastTick = typeof performance === 'undefined' ? Date.now() : performance.now();
+let divergerLastTick = gameClockNowMs();
 setInterval(() => {
-  const now = typeof performance === 'undefined' ? Date.now() : performance.now();
-  const elapsedMs = Math.max(0, now - divergerLastTick);
+  const { now, elapsedMs } = elapsedRealTimeSince(divergerLastTick);
   divergerLastTick = now;
-  if (advanceDiverger(elapsedMs)) render();
+  const upgraded = advanceDivergerAutoUpgrade(elapsedMs);
+  if (advanceDiverger(elapsedMs) || upgraded) render();
 }, DIVERGER_TICK_MS);

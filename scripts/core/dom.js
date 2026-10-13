@@ -6,7 +6,7 @@ const addBtn = document.getElementById('addBtn');
 const chapterTabs = document.getElementById('chapterTabs');
 const multiplicationTabBtn = document.getElementById('multiplicationTabBtn');
 const squareTabBtn = document.getElementById('squareTabBtn');
-const kunuthTabBtn = document.getElementById('kunuthTabBtn');
+const knuthTabBtn = document.getElementById('knuthTabBtn');
 const multiplicationPanel = document.getElementById('multiplicationPanel');
 const multiplicationNumberViewBtn = document.getElementById('multiplicationNumberViewBtn');
 const achievementsViewBtn = document.getElementById('achievementsViewBtn');
@@ -19,7 +19,7 @@ const secretAchievementList = document.getElementById('secretAchievementList');
 const squarePanel = document.getElementById('squarePanel');
 const squareBreakthroughPanel = document.getElementById('squareBreakthroughPanel');
 const squareConvergencePanel = document.getElementById('squareConvergencePanel');
-const kunuthPanel = document.getElementById('kunuthPanel');
+const knuthPanel = document.getElementById('knuthPanel');
 const squarePointValue = document.getElementById('squarePointValue');
 const squarePointSubValue = document.getElementById('squarePointSubValue');
 const squareUpgradesViewBtn = document.getElementById('squareUpgradesViewBtn');
@@ -75,6 +75,7 @@ const divergerAValue = document.getElementById('divergerAValue');
 const divergerBValue = document.getElementById('divergerBValue');
 const divergerCValue = document.getElementById('divergerCValue');
 const divergerIntervalValue = document.getElementById('divergerIntervalValue');
+const divergerAutoUpgradeBtn = document.getElementById('divergerAutoUpgradeBtn');
 const divergerAUpgradeBtn = document.getElementById('divergerAUpgradeBtn');
 const divergerAUpgradeLabel = document.getElementById('divergerAUpgradeLabel');
 const divergerAUpgradeCost = document.getElementById('divergerAUpgradeCost');
@@ -96,6 +97,7 @@ const squareConvergenceUpgradePanel = document.getElementById('squareConvergence
 const squareConvergenceViewBtn = document.getElementById('squareConvergenceViewBtn');
 const generalizationViewBtn = document.getElementById('generalizationViewBtn');
 const generalizationPanel = document.getElementById('generalizationPanel');
+const abstractionPanel = document.getElementById('abstractionPanel');
 const theoryValue = document.getElementById('theoryValue');
 const theorySubValue = document.getElementById('theorySubValue');
 const theorySquarePointResourceBtn = document.getElementById('theorySquarePointResourceBtn');
@@ -107,6 +109,29 @@ const researchTheoryMaxBtn = document.getElementById('researchTheoryMaxBtn');
 const researchTheoryCost = document.getElementById('researchTheoryCost');
 const generalizationResetBtn = document.getElementById('generalizationResetBtn');
 const generalizationResetCostEl = document.getElementById('generalizationResetCost');
+const greatTheoryValue = document.getElementById('greatTheoryValue');
+const abstractionSpRate = document.getElementById('abstractionSpRate');
+const abstractionResetToggle = document.getElementById('abstractionResetToggle');
+const abstractionResetLabel = document.getElementById('abstractionResetLabel');
+const abstractionResetRefund = document.getElementById('abstractionResetRefund');
+const greatTheoryCpResourceBtn = document.getElementById('greatTheoryCpResourceBtn');
+const greatTheoryCpResourceCost = document.getElementById('greatTheoryCpResourceCost');
+const greatTheoryKpResourceBtn = document.getElementById('greatTheoryKpResourceBtn');
+const greatTheoryKpResourceCost = document.getElementById('greatTheoryKpResourceCost');
+const greatTheorySpResourceBtn = document.getElementById('greatTheorySpResourceBtn');
+const greatTheorySpResourceCost = document.getElementById('greatTheorySpResourceCost');
+const greatTheoryTheoryResourceBtn = document.getElementById('greatTheoryTheoryResourceBtn');
+const greatTheoryTheoryResourceCost = document.getElementById('greatTheoryTheoryResourceCost');
+const buyGreatTheoryBtn = document.getElementById('buyGreatTheoryBtn');
+const buyGreatTheoryMaxBtn = document.getElementById('buyGreatTheoryMaxBtn');
+const buyGreatTheoryCost = document.getElementById('buyGreatTheoryCost');
+const abstractionTree = document.getElementById('abstractionTree');
+const abstractionTreeCanvas = document.getElementById('abstractionTreeCanvas');
+const abstractionConnections = document.getElementById('abstractionConnections');
+const abstractionZoomOutBtn = document.getElementById('abstractionZoomOutBtn');
+const abstractionZoomResetBtn = document.getElementById('abstractionZoomResetBtn');
+const abstractionZoomInBtn = document.getElementById('abstractionZoomInBtn');
+const abstractionZoomValue = document.getElementById('abstractionZoomValue');
 const generalizationTree = document.getElementById('generalizationTree');
 const generalizationTreeCanvas = document.getElementById('generalizationTreeCanvas');
 const generalizationConnections = document.getElementById('generalizationConnections');
@@ -115,21 +140,58 @@ const generalizationZoomResetBtn = document.getElementById('generalizationZoomRe
 const generalizationZoomInBtn = document.getElementById('generalizationZoomInBtn');
 const generalizationZoomValue = document.getElementById('generalizationZoomValue');
 const manualExchangeDock = document.getElementById('manualExchangeDock');
+const knuthChallengeCompleteBtn = document.getElementById('knuthChallengeCompleteBtn');
 const manualSquareExchangeBtn = document.getElementById('manualSquareExchangeBtn');
 const manualSquareExchangeCost = document.getElementById('manualSquareExchangeCost');
 const manualConvergenceExchangeBtn = document.getElementById('manualConvergenceExchangeBtn');
 const manualConvergenceExchangeCost = document.getElementById('manualConvergenceExchangeCost');
-const currencyKunuthValue = document.getElementById('currencyKunuthValue');
-const kunuthPointValue = document.getElementById('kunuthPointValue');
-const kunuthSlotDisplay = document.getElementById('kunuthSlotDisplay');
-const kunuthBaseUpgradeViewBtn = document.getElementById('kunuthBaseUpgradeViewBtn');
-const kunuthEquipUpgradeViewBtn = document.getElementById('kunuthEquipUpgradeViewBtn');
-const kunuthBaseUpgradePanel = document.getElementById('kunuthBaseUpgradePanel');
-const kunuthEquipUpgradePanel = document.getElementById('kunuthEquipUpgradePanel');
-const kunuthResetEquipmentToggle = document.getElementById('kunuthResetEquipmentToggle');
-const kunuthOperationUpgradeBtn = document.getElementById('kunuthOperationUpgradeBtn');
-const kunuthOperationUpgradeCostText = document.getElementById('kunuthOperationUpgradeCost');
-const kunuthUpgradeGroups = document.getElementById('kunuthUpgradeGroups');
+const manualKnuthExchangeBtn = document.getElementById('manualKnuthExchangeBtn');
+const manualKnuthExchangeCost = document.getElementById('manualKnuthExchangeCost');
+const currencyKnuthValue = document.getElementById('currencyKnuthValue');
+const knuthPointValue = document.getElementById('knuthPointValue');
+const knuthSlotDisplay = document.getElementById('knuthSlotDisplay');
+const knuthBaseUpgradeViewBtn = document.getElementById('knuthBaseUpgradeViewBtn');
+const knuthProductionViewBtn = document.getElementById('knuthProductionViewBtn');
+const knuthEquipUpgradeViewBtn = document.getElementById('knuthEquipUpgradeViewBtn');
+const knuthChallengeViewBtn = document.getElementById('knuthChallengeViewBtn');
+const knuthAbstractionViewBtn = document.getElementById('knuthAbstractionViewBtn');
+const knuthBaseUpgradePanel = document.getElementById('knuthBaseUpgradePanel');
+const knuthBaseUpgradeGroups = document.getElementById('knuthBaseUpgradeGroups');
+const knuthProductionPanel = document.getElementById('knuthProductionPanel');
+const knuthEquipUpgradePanel = document.getElementById('knuthEquipUpgradePanel');
+const knuthChallengePanel = document.getElementById('knuthChallengePanel');
+const numberBlackHoleStatus = document.getElementById('numberBlackHoleStatus');
+const numberBlackHoleAmountUpgradeBtn = document.getElementById('numberBlackHoleAmountUpgradeBtn');
+const numberBlackHoleAmountUpgradeCost = document.getElementById('numberBlackHoleAmountUpgradeCost');
+const numberBlackHoleAmountMinusBtn = document.getElementById('numberBlackHoleAmountMinusBtn');
+const numberBlackHoleAmountInput = document.getElementById('numberBlackHoleAmountInput');
+const numberBlackHoleAmountPlusBtn = document.getElementById('numberBlackHoleAmountPlusBtn');
+const numberBlackHoleAmountLimit = document.getElementById('numberBlackHoleAmountLimit');
+const numberBlackHoleSpeedUpgradeBtn = document.getElementById('numberBlackHoleSpeedUpgradeBtn');
+const numberBlackHoleSpeedUpgradeCost = document.getElementById('numberBlackHoleSpeedUpgradeCost');
+const numberBlackHoleSpeedMinusBtn = document.getElementById('numberBlackHoleSpeedMinusBtn');
+const numberBlackHoleSpeedInput = document.getElementById('numberBlackHoleSpeedInput');
+const numberBlackHoleSpeedPlusBtn = document.getElementById('numberBlackHoleSpeedPlusBtn');
+const numberBlackHoleSpeedLimit = document.getElementById('numberBlackHoleSpeedLimit');
+const numberBlackHoleRadiusValue = document.getElementById('numberBlackHoleRadiusValue');
+const numberBlackHoleTimeMultiplierValue = document.getElementById('numberBlackHoleTimeMultiplierValue');
+const numberBlackHoleAccumulatedTimeValue = document.getElementById('numberBlackHoleAccumulatedTimeValue');
+const knuthChallengeKc1 = document.getElementById('knuthChallengeKc1');
+const knuthChallengeKc1Status = document.getElementById('knuthChallengeKc1Status');
+const knuthChallengeKc1Progress = document.getElementById('knuthChallengeKc1Progress');
+const knuthChallengeKc1Btn = document.getElementById('knuthChallengeKc1Btn');
+const knuthChallengeKc2 = document.getElementById('knuthChallengeKc2');
+const knuthChallengeKc2Status = document.getElementById('knuthChallengeKc2Status');
+const knuthChallengeKc2Progress = document.getElementById('knuthChallengeKc2Progress');
+const knuthChallengeKc2Btn = document.getElementById('knuthChallengeKc2Btn');
+const knuthChallengeKc3 = document.getElementById('knuthChallengeKc3');
+const knuthChallengeKc3Status = document.getElementById('knuthChallengeKc3Status');
+const knuthChallengeKc3Progress = document.getElementById('knuthChallengeKc3Progress');
+const knuthChallengeKc3Btn = document.getElementById('knuthChallengeKc3Btn');
+const knuthResetEquipmentToggle = document.getElementById('knuthResetEquipmentToggle');
+const knuthOperationUpgradeBtn = document.getElementById('knuthOperationUpgradeBtn');
+const knuthOperationUpgradeCostText = document.getElementById('knuthOperationUpgradeCost');
+const knuthUpgradeGroups = document.getElementById('knuthUpgradeGroups');
 const upgradeClickBtn = document.getElementById('upgradeClickBtn');
 const upgradeClickCost = document.getElementById('upgradeClickCost');
 const autoClickerBtn = document.getElementById('autoClickerBtn');
@@ -173,10 +235,12 @@ const achievementToastText = document.getElementById('achievementToastText');
 const currencyStatusScaleInput = document.getElementById('currencyStatusScaleInput');
 const currencyStatusScaleValue = document.getElementById('currencyStatusScaleValue');
 const currencyStatus = document.getElementById('currencyStatus');
+const activeChallengeStatus = document.getElementById('activeChallengeStatus');
 const currencyNumberValue = document.getElementById('currencyNumberValue');
 const currencySpValue = document.getElementById('currencySpValue');
 const currencyCpValue = document.getElementById('currencyCpValue');
 const currencyTheoryValue = document.getElementById('currencyTheoryValue');
+const currencyGreatTheoryValue = document.getElementById('currencyGreatTheoryValue');
 const authSignedOutPanel = document.getElementById('authSignedOutPanel');
 const authSignedInPanel = document.getElementById('authSignedInPanel');
 const googleSignInBtn = document.getElementById('googleSignInBtn');
@@ -196,6 +260,13 @@ function compactMantissa(value) {
 }
 
 function formatExponent(exponent) {
+  if (exponent?.negativeExponent === true) {
+    return `-${formatExponent(exponent.value)}`;
+  }
+  if (NumberMath.isScientific(exponent)) {
+    return formatScientificParts(exponent.mantissa, exponent.exponent);
+  }
+
   const numericExponent = Number(exponent);
   if (!Number.isFinite(numericExponent)) return String(numericExponent);
 
@@ -216,6 +287,10 @@ function formatScientificParts(mantissa, exponent, sign = '') {
 }
 
 function formatWithExponent(mantissa, exponent, sign = '') {
+  if (NumberMath.isScientific(exponent) || exponent?.negativeExponent === true) {
+    return formatScientificParts(mantissa, exponent, sign);
+  }
+
   if (exponent >= 33) return formatScientificParts(mantissa, exponent, sign);
   if (exponent < 3) {
     const ordinary = mantissa * (10 ** exponent);
@@ -235,19 +310,9 @@ function formatWithExponent(mantissa, exponent, sign = '') {
 }
 
 function fmtPowerBase(n) {
-  if (isApproximateNumber(n)) {
-    return formatWithExponent(n.mantissa, n.exponent);
-  }
-
-  const value = BigInt(n);
-  if (value === 0n) return '0';
-  const sign = value < 0n ? '-' : '';
-  const digits = (value < 0n ? -value : value).toString();
-  if (digits.length <= 3) return `${sign}${digits}`;
-
-  const significantDigits = digits.slice(0, 16);
-  const mantissa = Number(significantDigits) / (10 ** (significantDigits.length - 1));
-  return formatWithExponent(mantissa, digits.length - 1, sign);
+  const scientific = NumberMath.toScientific(n);
+  if (!scientific) return '0';
+  return formatWithExponent(scientific.mantissa, scientific.exponent);
 }
 
 function fmt(n) {
@@ -255,5 +320,7 @@ function fmt(n) {
 }
 
 function fmtScientific(n) {
-  return fmtPowerBase(n);
+  const scientific = NumberMath.toScientific(n);
+  if (!scientific) return '0';
+  return formatScientificParts(scientific.mantissa, scientific.exponent);
 }

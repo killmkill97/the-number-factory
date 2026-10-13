@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>숫자의 끝을 보는 타이쿤 - 프로토타입</title>
-  <link rel="stylesheet" href="./styles/number-tycoon.css?v=20260919-kunuth-slots">
+  <link rel="stylesheet" href="./styles/number-tycoon.css?v=20261012-abstraction-time-info-v1">
 </head>
 <body>
 <div class="news-ticker" aria-live="polite">
@@ -54,8 +54,10 @@
   <div class="currency-status-row"><span>숫자:</span><strong id="currencyNumberValue">0</strong></div>
   <div class="currency-status-row"><span>sp:</span><strong id="currencySpValue">0</strong></div>
   <div class="currency-status-row"><span>cp:</span><strong id="currencyCpValue">0</strong></div>
-  <div class="currency-status-row"><span>KP:</span><strong id="currencyKunuthValue">0</strong></div>
+  <div class="currency-status-row"><span>KP:</span><strong id="currencyKnuthValue">0</strong></div>
   <div class="currency-status-row"><span>이론:</span><strong id="currencyTheoryValue">0</strong></div>
+  <div class="currency-status-row"><span>대이론:</span><strong id="currencyGreatTheoryValue">0</strong></div>
+  <div id="activeChallengeStatus" class="currency-status-challenge hidden" aria-live="polite"></div>
 </aside>
 <div class="app">
   <div class="save-toolbar">
@@ -68,7 +70,7 @@
   <div class="chapter-tabs hidden" id="chapterTabs">
     <button id="multiplicationTabBtn">베이스</button>
     <button id="squareTabBtn">제곱</button>
-    <button id="kunuthTabBtn" class="hidden">커누스</button>
+    <button id="knuthTabBtn" class="hidden">커누스</button>
   </div>
 
   <div class="chapter-panel" id="multiplicationPanel">
@@ -289,6 +291,7 @@
         </div>
 
         <div class="section-title">발산자 업그레이드</div>
+        <button id="divergerAutoUpgradeBtn" class="hidden" type="button" aria-pressed="true">발산자 자동 업그레이드 · ON</button>
         <div class="diverger-upgrades">
           <button id="divergerAUpgradeBtn" type="button" data-diverger-upgrade-id="a">
             <span id="divergerAUpgradeLabel">a 강화</span>
@@ -377,36 +380,161 @@
         </div>
       </div>
     </div>
+
   </div>
 
-  <div class="chapter-panel hidden" id="kunuthPanel">
-    <div class="display kunuth-display">
-      <div class="value" id="kunuthPointValue">0 KP</div>
+  <div class="chapter-panel hidden" id="knuthPanel">
+    <div class="display knuth-display">
+      <div class="value" id="knuthPointValue">0 KP</div>
       <div class="sub">커누스 포인트</div>
-      <div id="kunuthSlotDisplay" class="kunuth-slot-display" aria-label="커누스 강화 슬롯"></div>
+      <div id="knuthSlotDisplay" class="knuth-slot-display" aria-label="커누스 강화 슬롯"></div>
     </div>
 
-    <div class="kunuth-view-tabs" role="tablist" aria-label="커누스 화면">
-      <button id="kunuthBaseUpgradeViewBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="kunuthBaseUpgradePanel">기본 커누스 업그레이드</button>
-      <button id="kunuthEquipUpgradeViewBtn" type="button" role="tab" aria-selected="false" aria-controls="kunuthEquipUpgradePanel">장착 업그레이드</button>
+    <div class="knuth-view-tabs" role="tablist" aria-label="커누스 화면">
+      <button id="knuthBaseUpgradeViewBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="knuthBaseUpgradePanel">기본 커누스 업그레이드</button>
+      <button id="knuthProductionViewBtn" type="button" role="tab" aria-selected="false" aria-controls="knuthProductionPanel">생산</button>
+      <button id="knuthEquipUpgradeViewBtn" type="button" role="tab" aria-selected="false" aria-controls="knuthEquipUpgradePanel">장착 업그레이드</button>
+      <button id="knuthChallengeViewBtn" type="button" role="tab" aria-selected="false" aria-controls="knuthChallengePanel">도전</button>
+      <button id="knuthAbstractionViewBtn" type="button" role="tab" aria-selected="false" aria-controls="abstractionPanel">추상화</button>
     </div>
 
-    <div id="kunuthBaseUpgradePanel">
+    <div id="knuthBaseUpgradePanel">
       <div class="section-title">KP 업그레이드</div>
       <div class="row">
-        <button id="kunuthOperationUpgradeBtn" type="button">
+        <button id="knuthOperationUpgradeBtn" type="button">
           <span>연산 강화</span>
-          <span class="cost" id="kunuthOperationUpgradeCost"></span>
+          <span class="cost" id="knuthOperationUpgradeCost"></span>
         </button>
       </div>
+      <div id="knuthBaseUpgradeGroups"></div>
     </div>
 
-    <div id="kunuthEquipUpgradePanel" class="hidden">
-      <button id="kunuthResetEquipmentToggle" class="kunuth-reset-toggle" type="button" aria-pressed="false">
+    <div id="knuthProductionPanel" class="hidden">
+      <div class="section-title">숫자 블랙홀</div>
+      <div id="numberBlackHoleStatus" class="number-black-hole-status" aria-live="polite">비활성</div>
+
+      <div class="number-black-hole-upgrades">
+        <section class="number-black-hole-control">
+          <div class="number-black-hole-control-title">숫자 투여량</div>
+          <button id="numberBlackHoleAmountUpgradeBtn" type="button">
+            투여량 상한 +1%p
+            <span class="cost" id="numberBlackHoleAmountUpgradeCost"></span>
+          </button>
+          <div class="number-black-hole-setting">
+            <button id="numberBlackHoleAmountMinusBtn" type="button" aria-label="투여량 1%p 감소">−</button>
+            <input id="numberBlackHoleAmountInput" type="number" min="1" max="1" step="1" value="1" inputmode="numeric" aria-label="숫자 투여량 퍼센트">
+            <button id="numberBlackHoleAmountPlusBtn" type="button" aria-label="투여량 1%p 증가">+</button>
+          </div>
+          <div id="numberBlackHoleAmountLimit" class="number-black-hole-limit"></div>
+        </section>
+
+        <section class="number-black-hole-control">
+          <div class="number-black-hole-control-title">숫자 투여 빠르기</div>
+          <button id="numberBlackHoleSpeedUpgradeBtn" type="button">
+            투여 빠르기 상한 +10회/초
+            <span class="cost" id="numberBlackHoleSpeedUpgradeCost"></span>
+          </button>
+          <div class="number-black-hole-setting">
+            <button id="numberBlackHoleSpeedMinusBtn" type="button" aria-label="초당 투여 횟수 1 감소">−</button>
+            <input id="numberBlackHoleSpeedInput" type="number" min="1" max="1" step="1" value="1" inputmode="numeric" aria-label="초당 숫자 투여 횟수">
+            <button id="numberBlackHoleSpeedPlusBtn" type="button" aria-label="초당 투여 횟수 1 증가">+</button>
+          </div>
+          <div id="numberBlackHoleSpeedLimit" class="number-black-hole-limit"></div>
+        </section>
+      </div>
+
+      <dl class="number-black-hole-summary">
+        <div><dt>슈바르츠실트 반지름</dt><dd id="numberBlackHoleRadiusValue">0</dd></div>
+        <div><dt>현재 시간 가속</dt><dd id="numberBlackHoleTimeMultiplierValue">×1</dd></div>
+        <div><dt>누적 가속 시간</dt><dd id="numberBlackHoleAccumulatedTimeValue">0초</dd></div>
+      </dl>
+    </div>
+
+    <div id="knuthEquipUpgradePanel" class="hidden">
+      <button id="knuthResetEquipmentToggle" class="knuth-reset-toggle" type="button" aria-pressed="false">
         다음 커누스 때 장착 초기화: OFF
       </button>
       <div class="section-title">강화 선택</div>
-      <div id="kunuthUpgradeGroups" class="kunuth-upgrade-groups"></div>
+      <div id="knuthUpgradeGroups" class="knuth-upgrade-groups"></div>
+    </div>
+
+    <div id="knuthChallengePanel" class="hidden">
+      <div class="section-title">커누스 도전</div>
+      <article id="knuthChallengeKc1" class="knuth-challenge-card">
+        <div class="knuth-challenge-heading">
+          <strong>KC1</strong>
+          <span id="knuthChallengeKc1Status">미완료</span>
+        </div>
+        <p>제한: 다이슨 스웜 효과와 구매가 비활성화됩니다. 대신 KC1 진입 당시 다이슨 스웜 최대치의 4배만큼 오버클럭, 2배만큼 병목 추적기를 추가 구매할 수 있습니다.</p>
+        <p>목표: 500k SP</p>
+        <p>보상: 커누스 장착 업그레이드를 자유롭게 해제할 수 있습니다.</p>
+        <div id="knuthChallengeKc1Progress" class="knuth-challenge-progress"></div>
+        <button id="knuthChallengeKc1Btn" type="button">도전 시작</button>
+      </article>
+      <article id="knuthChallengeKc2" class="knuth-challenge-card">
+        <div class="knuth-challenge-heading">
+          <strong>KC2</strong>
+          <span id="knuthChallengeKc2Status">미완료</span>
+        </div>
+        <p>제한: 제곱 차원과 발산자가 비활성화됩니다.</p>
+        <p>목표: 1k CP</p>
+        <p>보상: 수렴에 도달해도 제곱 차원이 초기화되지 않습니다.</p>
+        <div id="knuthChallengeKc2Progress" class="knuth-challenge-progress"></div>
+        <button id="knuthChallengeKc2Btn" type="button">도전 시작</button>
+      </article>
+      <article id="knuthChallengeKc3" class="knuth-challenge-card">
+        <div class="knuth-challenge-heading">
+          <strong>KC3</strong>
+          <span id="knuthChallengeKc3Status">미완료</span>
+        </div>
+        <p>제한: 일반화 연구를 할 수 없습니다.</p>
+        <p>목표: 1b CP</p>
+        <p>보상: 이론 획득량이 2배가 됩니다.</p>
+        <div id="knuthChallengeKc3Progress" class="knuth-challenge-progress"></div>
+        <button id="knuthChallengeKc3Btn" type="button">도전 시작</button>
+      </article>
+    </div>
+
+    <div id="abstractionPanel" class="hidden">
+      <div class="display square-display abstraction-display">
+        <div class="value" id="greatTheoryValue">0 대이론</div>
+        <div class="sub" id="abstractionSpRate">SP 자동 생산 해금 전</div>
+      </div>
+
+      <div class="section-title">대이론 확보</div>
+      <article class="research-node abstraction-theory-node">
+        <div class="research-node-title">대이론 구매</div>
+        <div class="research-node-description">해금된 화폐 중 하나를 선택해 구매합니다. 각 재화의 비용은 별도로 상승합니다.</div>
+        <div class="theory-resource-label">구매에 사용할 화폐</div>
+        <div class="theory-resource-selector abstraction-resource-selector" role="group" aria-label="대이론 구매 화폐 선택">
+          <button id="greatTheoryCpResourceBtn" type="button">CP<span class="cost" id="greatTheoryCpResourceCost"></span></button>
+          <button id="greatTheoryKpResourceBtn" type="button">KP<span class="cost" id="greatTheoryKpResourceCost"></span></button>
+          <button id="greatTheorySpResourceBtn" type="button">SP<span class="cost" id="greatTheorySpResourceCost"></span></button>
+          <button id="greatTheoryTheoryResourceBtn" class="hidden" type="button">이론<span class="cost" id="greatTheoryTheoryResourceCost"></span></button>
+        </div>
+        <div class="theory-research-actions">
+          <button id="buyGreatTheoryBtn" type="button">대이론 +1<span class="cost" id="buyGreatTheoryCost"></span></button>
+          <button id="buyGreatTheoryMaxBtn" type="button" title="선택한 화폐로 대이론을 최대한 구매" aria-label="대이론 최대 구매">최대</button>
+        </div>
+      </article>
+
+      <div class="section-title">추상화 연구 트리</div>
+      <button id="abstractionResetToggle" class="knuth-reset-toggle" type="button" aria-pressed="false" title="KP 획득 시에만 초기화합니다. 도전 시작·포기·완료 시에는 유지됩니다.">
+        <span id="abstractionResetLabel">다음 KP 획득 시 추상화 초기화: OFF</span>
+        <span class="cost" id="abstractionResetRefund">반환 예정: 0 대이론</span>
+      </button>
+      <div class="generalization-tree-toolbar abstraction-tree-toolbar" role="group" aria-label="추상화 연구 트리 확대 및 축소">
+        <button id="abstractionZoomOutBtn" type="button" title="연구 트리 축소" aria-label="연구 트리 축소">−</button>
+        <button id="abstractionZoomResetBtn" type="button" title="연구 트리 배율 초기화" aria-label="연구 트리 배율 초기화">
+          <span id="abstractionZoomValue">100%</span>
+        </button>
+        <button id="abstractionZoomInBtn" type="button" title="연구 트리 확대" aria-label="연구 트리 확대">+</button>
+      </div>
+      <div id="abstractionTree" class="generalization-tree abstraction-tree-theme" aria-label="추상화 연구 트리" tabindex="0">
+        <div id="abstractionTreeCanvas" class="generalization-tree-canvas">
+          <svg id="abstractionConnections" class="research-connections" aria-hidden="true"></svg>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -414,6 +542,7 @@
 </div>
 
 <div id="manualExchangeDock" class="manual-exchange-dock hidden">
+  <button id="knuthChallengeCompleteBtn" class="knuth-challenge-complete hidden" type="button">KC1 도전 완료</button>
   <div class="manual-exchange-title">수동 교환</div>
   <button id="manualSquareExchangeBtn" type="button">
     제곱 포인트 교환
@@ -423,7 +552,22 @@
     수렴 포인트 교환
     <span class="cost" id="manualConvergenceExchangeCost"></span>
   </button>
+  <button id="manualKnuthExchangeBtn" class="hidden" type="button">
+    커누스 포인트 교환
+    <span class="cost" id="manualKnuthExchangeCost"></span>
+  </button>
 </div>
+
+<aside id="automatiumQuickPanel" class="automatium-quick-panel hidden" aria-label="N 프로그램 목록">
+  <header class="automatium-quick-header">
+    <strong>N 프로그램</strong>
+    <div>
+      <button id="automatiumQuickEditorBtn" type="button" title="N 편집기 열기">편집</button>
+      <button id="automatiumQuickCollapseBtn" type="button" aria-expanded="true" aria-controls="automatiumQuickProgramList" title="목록 접기">−</button>
+    </div>
+  </header>
+  <div id="automatiumQuickProgramList" class="automatium-quick-list"></div>
+</aside>
 
 <div id="automatiumWorkspace" class="automatium-workspace hidden" role="dialog" aria-modal="true" aria-labelledby="automatiumTitle">
   <div class="automatium-shell">
@@ -462,9 +606,10 @@
             <button id="automatiumDeleteBtn" type="button">삭제</button>
             <button id="automatiumSaveBtn" class="automatium-save-button" type="button">코드 저장</button>
           </div>
-          <div class="automatium-source-wrap">
+          <div id="automatiumSourceWrap" class="automatium-source-wrap">
             <textarea id="automatiumSource" class="automatium-source" spellcheck="false" aria-label="N 코드 편집기" autocomplete="off"></textarea>
             <div id="automatiumAutocomplete" class="automatium-autocomplete hidden" role="listbox" aria-label="N 코드 자동완성"></div>
+            <div id="automatiumCaretMirror" class="automatium-caret-mirror" aria-hidden="true"></div>
           </div>
           <div class="automatium-editor-footer">
             <span id="automatiumEditorStatus">꺼짐</span>
@@ -511,32 +656,35 @@
   </div>
 </div>
 
-<script src="./scripts/data/chapter-roadmap.js?v=20260919-kunuth"></script>
-<script src="./scripts/core/constants.js?v=20260919-cp-requirement"></script>
-<script src="./scripts/core/number-math.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/core/state.js?v=20260919-kunuth-gain"></script>
-<script src="./scripts/core/dom.js?v=20260919-kunuth-reset-toggle"></script>
-<script src="./scripts/core/chapter-ui.js?v=20260919-kunuth-render-guard"></script>
-<script src="./scripts/systems/percent-lanes.js?v=20260919-kunuth-slots"></script>
-<script src="./scripts/systems/square-upgrades.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/square-breakthrough.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/systems/square-convergence.js?v=20260919-convergence-no-redirect"></script>
-<script src="./scripts/systems/square-dimensions.js?v=20260919-kunuth"></script>
-<script src="./scripts/systems/diverger.js?v=20260919-diverger-square-production"></script>
-<script src="./scripts/systems/achievements.js?v=20260919-cp-gain-tiers"></script>
-<script src="./scripts/core/render.js?v=20260919-kunuth-render-guard"></script>
-<script src="./scripts/systems/clickers.js?v=20260919-kunuth"></script>
-<script src="./scripts/systems/percent-system.js?v=20260919-kunuth-slots"></script>
-<script src="./scripts/systems/auto-upgrades.js?v=20260919-generalized-auto-bulk"></script>
-<script src="./scripts/systems/news-ticker.js?v=20260918-currency-achievement"></script>
-<script src="./scripts/chapters/square.js?v=20260919-kunuth"></script>
-<script src="./scripts/chapters/kunuth.js?v=20260919-kunuth-reset-toggle"></script>
-<script src="./scripts/core/save.js?v=20260919-kunuth-save-fix"></script>
+<script src="./scripts/data/chapter-roadmap.js?v=20260919-knuth"></script>
+<script src="./scripts/core/constants.js?v=20261013-black-hole-linear-v2"></script>
+<script src="./scripts/core/number-math.js?v=20261013-percent-performance-v2"></script>
+<script src="./scripts/core/state.js?v=20261013-percent-continuous-v1"></script>
+<script src="./scripts/systems/formula-help.js?v=20261012-log-overflow-v1"></script>
+<script src="./scripts/core/dom.js?v=20261012-abstraction-reset-v1"></script>
+<script src="./scripts/core/chapter-ui.js?v=20260922-performance"></script>
+<script src="./scripts/systems/percent-lanes.js?v=20261013-percent-continuous-v1"></script>
+<script src="./scripts/systems/square-upgrades.js?v=20261001-formula-help-v1"></script>
+<script src="./scripts/systems/square-breakthrough.js?v=20261001-formula-help-v1"></script>
+<script src="./scripts/systems/square-convergence.js?v=20261012-abstraction-reset-v1"></script>
+<script src="./scripts/systems/abstraction.js?v=20260924-abstraction"></script>
+<script src="./scripts/systems/square-dimensions.js?v=20261012-abstraction-tier11-v1"></script>
+<script src="./scripts/systems/diverger.js?v=20261012-abstraction-second-branch-v1"></script>
+<script src="./scripts/systems/achievements.js?v=20261011-achievement-icons-hidden-v1"></script>
+<script src="./scripts/core/render.js?v=20261006-diverger-percent-price-rebase-v1"></script>
+<script src="./scripts/systems/number-black-hole.js?v=20261013-black-hole-balance-v1"></script>
+<script src="./scripts/systems/clickers.js?v=20261003-final-number-effects-v1"></script>
+<script src="./scripts/systems/percent-system.js?v=20261013-percent-continuous-v1"></script>
+<script src="./scripts/systems/auto-upgrades.js?v=20260927-automatium-buy-all-v3"></script>
+<script src="./scripts/systems/news-ticker.js?v=20261008-human-messages-v1"></script>
+<script src="./scripts/chapters/square.js?v=20261005-square-prestige-time-v1"></script>
+<script src="./scripts/chapters/knuth.js?v=20261012-log-overflow-v1"></script>
+<script src="./scripts/core/save.js?v=20261012-abstraction-reset-v1"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/automatium/n-parser.js?v=20260919-wait-command"></script>
-<script src="./scripts/automatium/n-runtime.js?v=20260919-wait-command"></script>
-<script src="./scripts/systems/automatium.js?v=20260919-wait-command"></script>
-<script src="./scripts/systems/dev-console.js?v=20260919-kunuth"></script>
+<script src="./scripts/automatium/n-parser.js?v=20260922-no-bigint"></script>
+<script src="./scripts/automatium/n-runtime.js?v=20260927-automatium-budget-yield-v1"></script>
+<script src="./scripts/systems/automatium.js?v=20261012-convergence-repeatable-v1"></script>
+<script src="./scripts/systems/dev-console.js?v=20261012-abstraction-reset-v1"></script>
 <script src="./scripts/main.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/config/firebase-config.js?v=20260918-auth"></script>
 <script type="module" src="./scripts/systems/firebase-auth.js?v=20260918-presence-achievements"></script>

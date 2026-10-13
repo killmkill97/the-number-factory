@@ -1,7 +1,13 @@
 function performManualNumberClick() {
-  if (pendingKunuthPointClaim) return claimKunuthPoint();
+  if (pendingKnuthPointClaim) return claimKnuthPoint();
   if (overflowed) return false;
-  addToBaseNumber(effectivePerClick(), 'manual-click');
+  addToBaseNumber(
+    perClick,
+    'manual-click',
+    percentPower,
+    percentPowerPurchaseBonus,
+    effectivePerClickMultiplier()
+  );
   if (percentUnlocked) {
     chargeAllPercentLanes(1);
   }
@@ -26,20 +32,27 @@ function buyAutoClicker() {
 autoClickerBtn.addEventListener('click', buyAutoClicker);
 
 function safeChargeAmount(totalClicks) {
-  return totalClicks > BigInt(Number.MAX_SAFE_INTEGER)
-    ? Number.MAX_SAFE_INTEGER
-    : Number(totalClicks);
+  const numericClicks = realNumberFromValue(totalClicks);
+  return Number.isFinite(numericClicks)
+    ? Math.max(0, Math.floor(numericClicks))
+    : Number.MAX_VALUE;
 }
 
 function applyAutoClickerGain(cycles) {
-  const totalClicks = autoClickerParallel * cycles;
+  const totalClicks = multiplyNumberValue(autoClickerParallel, cycles);
   traceNumberEvent('auto-clicker-fire', {
-    cycles: cycles.toString(),
-    clicks: totalClicks.toString(),
+      cycles: serializeNumberValue(cycles),
+      clicks: serializeNumberValue(totalClicks),
     percentFill: autoClickerPercentFillUnlocked,
     number: numberTraceValue(getBaseNumber())
   });
-  addToBaseNumber(multiplyNumberValue(effectivePerClick(), totalClicks), 'auto-click');
+  addToBaseNumber(
+    multiplyNumberValue(perClick, totalClicks),
+    'auto-click',
+    percentPower,
+    percentPowerPurchaseBonus,
+    effectivePerClickMultiplier()
+  );
 
   // 숫자 증가로 퍼센트 해금 조건을 넘긴 첫 자동 클릭도 바로 충전에 반영한다.
   maybeUnlockPercent();
@@ -49,9 +62,11 @@ function applyAutoClickerGain(cycles) {
 }
 
 let lastAutoClickerTraceHeartbeatAt = -Infinity;
+let autoClickerLastTickAt = gameClockNowMs();
 
 setInterval(() => {
-  const now = typeof performance === 'undefined' ? 0 : performance.now();
+  const { now, elapsedMs: elapsedRealMs } = elapsedRealTimeSince(autoClickerLastTickAt);
+  autoClickerLastTickAt = now;
   if (!autoClickerUnlocked || overflowed) {
     if (numberTraceEnabled && now - lastAutoClickerTraceHeartbeatAt >= 50) {
       lastAutoClickerTraceHeartbeatAt = now;
@@ -65,7 +80,7 @@ setInterval(() => {
     return;
   }
 
-  const elapsed = gameTick(AUTO_CLICKER_TICK_MS);
+  const elapsed = gameTick(elapsedRealMs);
   autoClickerTimer += elapsed;
 
   if (numberTraceEnabled && now - lastAutoClickerTraceHeartbeatAt >= 50) {
@@ -79,7 +94,7 @@ setInterval(() => {
   }
 
   if (autoClickerTimer >= autoClickerSpeed) {
-    const cycles = BigInt(Math.floor(autoClickerTimer / autoClickerSpeed));
+    const cycles = Math.floor(autoClickerTimer / autoClickerSpeed);
     applyAutoClickerGain(cycles);
 
     autoClickerTimer %= autoClickerSpeed;
@@ -122,7 +137,7 @@ function upgradeAutoClickerSpeed() {
   else if (autoClickerSpeed === 25) autoClickerSpeed = autoClickerMinSpeed();
   if (autoClickerSpeed < autoClickerMinSpeed()) autoClickerSpeed = autoClickerMinSpeed();
 
-  autoClickerSpeedPrice *= 2n;
+  autoClickerSpeedPrice = multiplyNumberValue(autoClickerSpeedPrice, 2);
   autoClickerTimer = 0;
   render();
   return true;
@@ -137,11 +152,11 @@ function upgradeAutoClickerParallel() {
   if (!canAffordBaseCost(cost)) return false;
 
   spendBaseCost(cost);
-  autoClickerParallel = autoClickerParallel * 2n;
+  autoClickerParallel = multiplyNumberValue(autoClickerParallel, 2);
   if (autoClickerParallel > autoClickerParallelCap()) {
     autoClickerParallel = autoClickerParallelCap();
   }
-  autoClickerParallelPrice *= 2n;
+  autoClickerParallelPrice = multiplyNumberValue(autoClickerParallelPrice, 2);
 
   log(`오토 클릭커가 병렬화되었습니다. 이제 한 주기마다 ${fmt(autoClickerParallel)}회 클릭합니다.`);
   render();
@@ -155,9 +170,9 @@ function upgradePerClick() {
   const cost = discountedCost(perClickUpgradeCost);
   if (!canAffordBaseCost(cost)) return false;
   spendBaseCost(cost);
-  perClick += 1n;
+  perClick = addBaseNumbers(perClick, 1);
   if (perClick > BASE_PER_CLICK_CAP) perClick = BASE_PER_CLICK_CAP;
-  perClickUpgradeCost = perClickUpgradeCost * 3n;
+  perClickUpgradeCost = multiplyNumberValue(perClickUpgradeCost, 3);
   render();
   return true;
 }

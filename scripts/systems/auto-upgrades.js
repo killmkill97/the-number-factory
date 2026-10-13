@@ -1,6 +1,10 @@
 const AUTO_UPGRADE_INTERVAL_MS = 250;
 const AUTO_UPGRADE_POLL_MS = 50;
-const AUTO_UPGRADE_BATCH_OPERATION_LIMIT = 100000;
+// A single browser task must stay short enough for input and rendering to run.
+// Faster automation still receives its purchases in successive ticks instead of
+// attempting tens of thousands of synchronous DOM/game updates at once.
+const AUTO_UPGRADE_BATCH_OPERATION_LIMIT = 256;
+let autoUpgradeLastTickAt = gameClockNowMs();
 
 function automaticUpgradeBatchSizeForElapsed(elapsedMs) {
   const acceleratedTime = gameTick(elapsedMs) * autoUpgradeSpeedMultiplier();
@@ -61,7 +65,10 @@ function tryAutomaticUpgrade() {
 function tryAutomaticUpgradeBatch(maxPurchasesPerUpgrade) {
   if (!automaticUpgradeCanRun()) return 0;
 
-  const purchaseLimit = Math.max(1, Math.floor(maxPurchasesPerUpgrade));
+  const purchaseLimit = Math.max(
+    1,
+    Math.min(AUTO_UPGRADE_BATCH_OPERATION_LIMIT, Math.floor(maxPurchasesPerUpgrade))
+  );
   let totalPurchased = 0;
 
   // 3-4는 한 업그레이드가 누적 횟수를 독점하지 않는다. 현재 구매 가능한
@@ -84,24 +91,30 @@ function tryAutomaticUpgradeBatch(maxPurchasesPerUpgrade) {
 }
 
 setInterval(() => {
+  const { now, elapsedMs } = elapsedRealTimeSince(autoUpgradeLastTickAt);
+  autoUpgradeLastTickAt = now;
   if (!automaticUpgradeCanRun()) {
     autoUpgradeTimer = 0;
     return;
   }
 
-  autoUpgradeTimer += gameTick(AUTO_UPGRADE_POLL_MS) * autoUpgradeSpeedMultiplier();
+  autoUpgradeTimer += gameTick(elapsedMs) * autoUpgradeSpeedMultiplier();
   if (!Number.isFinite(autoUpgradeTimer)) {
     autoUpgradeTimer = AUTO_UPGRADE_INTERVAL_MS * AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
   }
+  autoUpgradeTimer = Math.min(
+    autoUpgradeTimer,
+    AUTO_UPGRADE_INTERVAL_MS * AUTO_UPGRADE_BATCH_OPERATION_LIMIT
+  );
 
   let attempts = Math.floor(autoUpgradeTimer / AUTO_UPGRADE_INTERVAL_MS);
   if (attempts <= 0) return;
 
   if (hasGeneralizationResearch('3-4')) {
     tryAutomaticUpgradeBatch(attempts);
-    // 실패한 구매 시도도 이미 시간이 지난 시도다. 남은 250ms 미만만 보존해
-    // 구매 불가 상태에서 거대한 배치 시간이 쌓이지 않도록 한다.
-    autoUpgradeTimer %= AUTO_UPGRADE_INTERVAL_MS;
+    // 처리한 자동 구매 기회만 소비한다. 속도가 과도해도 다음 폴에서
+    // 같은 제한 안에서 계속 처리하므로 UI를 멈추게 하지 않는다.
+    autoUpgradeTimer = Math.max(0, autoUpgradeTimer - attempts * AUTO_UPGRADE_INTERVAL_MS);
     return;
   }
 

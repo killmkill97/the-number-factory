@@ -1,8 +1,8 @@
-const ACHIEVEMENT_ONE_MILLION = 1000000n;
-const ACHIEVEMENT_ONE_SEXTILLION = 10n ** 21n;
-const ACHIEVEMENT_E9000 = 10n ** 9000n;
-const ACHIEVEMENT_NO_UNIT_MINIMUM = 10n ** 30n;
-const ACHIEVEMENT_NO_UNIT_MAXIMUM = 10n ** 33n;
+const ACHIEVEMENT_ONE_MILLION = 1000000;
+const ACHIEVEMENT_ONE_SEXTILLION = NumberMath.powerOfTen(21);
+const ACHIEVEMENT_E9000 = NumberMath.powerOfTen(9000);
+const ACHIEVEMENT_NO_UNIT_MINIMUM = NumberMath.powerOfTen(30);
+const ACHIEVEMENT_NO_UNIT_MAXIMUM = NumberMath.powerOfTen(33);
 const ACHIEVEMENT_OBFUSCATION_GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*+=?<>[]{}';
 const ACHIEVEMENT_CARD_CLICK_COUNT_KEY = 'numberTycoonAchievementCardClickCounts_v1';
 const ANSAN_RAIN_WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=37.3333&longitude=126.7956&current=rain,showers&timezone=Asia%2FSeoul';
@@ -38,7 +38,7 @@ const ACHIEVEMENTS = [
     id: 'first_step',
     title: '천리길도 한 걸음부터',
     description: '숫자 1을 얻으세요.',
-    condition: () => compareBaseNumber(1n) >= 0
+    condition: () => compareBaseNumber(1) >= 0
   },
   {
     id: 'power_of_multiplication',
@@ -101,7 +101,7 @@ const ACHIEVEMENTS = [
     id: 'a_hundred_is_not_much',
     title: '100개도 많지',
     description: '이론을 총 100개 구매하세요.',
-    condition: () => compareNumberValues(totalTheoryPurchased, 100n) >= 0
+    condition: () => compareNumberValues(totalTheoryPurchased, 100) >= 0
   },
   {
     id: 'convergence_times_divergence',
@@ -149,7 +149,7 @@ const ACHIEVEMENTS = [
     id: 'hyper_operation',
     title: '하이퍼 연산',
     description: 'KP 1개를 얻으세요.',
-    condition: () => compareNumberValues(kunuthPoints, 1n) >= 0
+    condition: () => compareNumberValues(knuthPoints, 1) >= 0
   },
   {
     id: 'debug_mode',
@@ -205,7 +205,7 @@ const ACHIEVEMENTS = [
     category: 'secret',
     title: 'it isnt over 9000',
     description: '수를 정확히 9000으로 만드세요.',
-    condition: () => compareNumberValues(getBaseNumber(), 9000n) === 0
+    condition: () => compareNumberValues(getBaseNumber(), 9000) === 0
   },
   {
     id: 'research_reset_20',
@@ -332,6 +332,13 @@ const ACHIEVEMENTS = [
     condition: () => false
   }
 ];
+
+const ACHIEVEMENT_ICONS_ENABLED = false;
+const GENERAL_ACHIEVEMENT_ICON_NUMBERS = new Map(
+  ACHIEVEMENTS
+    .filter(achievement => achievement.category !== 'secret')
+    .map((achievement, index) => [achievement.id, index + 1])
+);
 
 const achievementState = {};
 const achievementUi = new Map();
@@ -534,10 +541,10 @@ function advanceAchievementTimers(elapsedMs) {
   if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return false;
 
   const currentNumber = getBaseNumber();
-  if (compareNumberValues(currentNumber, 69n) === 0) number69HoldMs += elapsedMs;
+  if (compareNumberValues(currentNumber, 69) === 0) number69HoldMs += elapsedMs;
   else number69HoldMs = 0;
 
-  if (compareNumberValues(currentNumber, 0n) === 0) zeroNumberHoldMs += elapsedMs;
+  if (compareNumberValues(currentNumber, 0) === 0) zeroNumberHoldMs += elapsedMs;
   else zeroNumberHoldMs = 0;
 
   let changed = false;
@@ -575,6 +582,25 @@ function ensureAchievementUi(achievement) {
 
   const title = document.createElement('span');
   title.className = 'achievement-title';
+  const titleText = document.createElement('span');
+  titleText.className = 'achievement-title-text';
+  title.appendChild(titleText);
+
+  const iconNumber = GENERAL_ACHIEVEMENT_ICON_NUMBERS.get(achievement.id);
+  if (ACHIEVEMENT_ICONS_ENABLED && iconNumber && iconNumber !== 4) {
+    const iconFrame = document.createElement('span');
+    iconFrame.className = 'achievement-icon-frame';
+    iconFrame.setAttribute('aria-hidden', 'true');
+    const icon = document.createElement('img');
+    icon.className = 'achievement-icon';
+    icon.alt = '';
+    icon.draggable = false;
+    icon.src = `./assets/achievements/general/${iconNumber}.png?v=20261005-achievement-icons-v1`;
+    icon.addEventListener('error', () => { iconFrame.hidden = true; }, { once: true });
+    iconFrame.appendChild(icon);
+    title.appendChild(iconFrame);
+  }
+
   const description = document.createElement('span');
   description.className = 'achievement-description';
   const hint = document.createElement('span');
@@ -586,13 +612,21 @@ function ensureAchievementUi(achievement) {
   const list = achievement.category === 'secret' ? secretAchievementList : achievementList;
   list?.appendChild(button);
 
-  const ui = { button, title, description, hint, status };
+  const ui = { button, title, titleText, description, hint, status };
   achievementUi.set(achievement.id, ui);
   return ui;
 }
 
 function renderAchievements() {
   if (!achievementList || !secretAchievementList) return;
+
+  // The obfuscated text intentionally animates, but only while the secret
+  // achievement list is actually visible. Rewriting every hidden card on each
+  // game frame was a permanent source of layout work.
+  const showingAchievementPanel = !achievementsViewPanel?.classList.contains('hidden');
+  const showingSecretAchievements = showingAchievementPanel
+    && !secretAchievementList.classList.contains('hidden');
+  if (!showingAchievementPanel && achievementUi.size > 0) return;
 
   for (const achievement of ACHIEVEMENTS) {
     const ui = ensureAchievementUi(achievement);
@@ -608,12 +642,14 @@ function renderAchievements() {
     ui.button.classList.toggle('achieved', achieved);
     ui.button.classList.toggle('is-expanded', expanded);
     ui.button.setAttribute('aria-expanded', String(expanded));
-    ui.title.textContent = isSecretAndHidden
-      ? obfuscateAchievementText(achievement.title)
-      : achievement.title;
-    ui.description.textContent = isSecretAndHidden
-      ? obfuscateAchievementText(achievement.description)
-      : achievement.description;
+    if (!isSecretAndHidden || showingSecretAchievements) {
+      ui.titleText.textContent = isSecretAndHidden
+        ? obfuscateAchievementText(achievement.title)
+        : achievement.title;
+      ui.description.textContent = isSecretAndHidden
+        ? obfuscateAchievementText(achievement.description)
+        : achievement.description;
+    }
     ui.hint.textContent = hintText ? `힌트: ${hintText}` : '';
     ui.hint.hidden = !hintText;
     ui.status.textContent = achieved ? '달성 완료' : '미달성';
@@ -699,5 +735,7 @@ setInterval(() => {
   const hasHiddenSecret = ACHIEVEMENTS.some(
     achievement => achievement.category === 'secret' && !achievementState[achievement.id]
   );
-  if (hasHiddenSecret) renderAchievements();
-}, 120);
+  const showingSecretAchievements = !achievementsViewPanel?.classList.contains('hidden')
+    && !secretAchievementList?.classList.contains('hidden');
+  if (hasHiddenSecret && showingSecretAchievements) renderAchievements();
+}, 180);

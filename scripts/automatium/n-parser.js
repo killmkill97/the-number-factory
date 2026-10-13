@@ -279,7 +279,9 @@ const NParser = (() => {
             throw new NLanguageError('올바르지 않은 숫자입니다.', token);
           }
         } else {
-          value = /[.eE]/.test(token.value) ? Number(token.value) : BigInt(token.value);
+          value = /[.eE]/.test(token.value)
+            ? Number(token.value)
+            : NumberMath.fromString(token.value, null);
         }
         if (typeof value === 'number' && !Number.isFinite(value)) {
           throw new NLanguageError('숫자가 너무 큽니다.', token);

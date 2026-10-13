@@ -10,7 +10,9 @@ const devConsole = {
 let devTitleClickCount = 0;
 
 function devConsoleIsOpen() {
-  return devConsole.visible;
+  return devConsole.visible
+    || document.body.classList.contains('dev-console-open')
+    || Boolean(devConsole.form && !devConsole.form.classList.contains('hidden'));
 }
 
 function restorePercentChargeRequirementForDev() {
@@ -63,6 +65,22 @@ function forceUnlockDevUpgrade(kind, id) {
     return true;
   }
 
+  if (kind === 'abstraction') {
+    const research = ABSTRACTION_RESEARCHES.find(item => item.id === id);
+    if (!research) return false;
+    if (!hasAbstractionResearch(id)) abstractionResearchPaidCosts[id] = 0;
+    abstractionResearchState[id] = true;
+    if (id === '3-1') automatiumPrestigeRetentionUnlocked = true;
+    return true;
+  }
+
+  if (kind === 'knuth') {
+    const upgrade = KNUTH_SLOT_UPGRADES.find(item => item.id === id);
+    if (!upgrade || hasKnuthUpgrade(id)) return false;
+    knuthEquippedUpgradeIds.add(id);
+    return true;
+  }
+
   return false;
 }
 
@@ -109,6 +127,21 @@ function removeDevUpgrade(kind, id) {
     return true;
   }
 
+  if (kind === 'abstraction') {
+    const research = ABSTRACTION_RESEARCHES.find(item => item.id === id);
+    if (!research || !hasAbstractionResearch(id)) return false;
+    abstractionResearchState[id] = false;
+    delete abstractionResearchPaidCosts[id];
+    return true;
+  }
+
+  if (kind === 'knuth') {
+    const upgrade = KNUTH_SLOT_UPGRADES.find(item => item.id === id);
+    if (!upgrade || !hasKnuthUpgrade(id)) return false;
+    knuthEquippedUpgradeIds.delete(id);
+    return true;
+  }
+
   return false;
 }
 
@@ -129,6 +162,30 @@ function handleDivergerDevUndo(event) {
 
 document.addEventListener('contextmenu', handleDivergerDevUndo, true);
 
+function handleDevChallengePointer(event) {
+  if (!devConsoleIsOpen() || !event.shiftKey) return;
+
+  const target = event.target.closest?.('[data-dev-challenge-id]');
+  if (!target) return;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const id = target.dataset.devChallengeId;
+  if (event.type === 'click') {
+    if (forceCompleteKnuthChallengeForDev(id)) {
+      log(`[DEV] challenge ${id} 강제 완료`, true);
+    }
+    return;
+  }
+
+  if (resetKnuthChallengeForDev(id)) {
+    log(`[DEV] challenge ${id} 미해금 상태로 되돌림`, true);
+  }
+}
+
+document.addEventListener('click', handleDevChallengePointer, true);
+document.addEventListener('contextmenu', handleDevChallengePointer, true);
+
 function handleDevUpgradePointer(event) {
   if (!devConsole.visible) return;
 
@@ -136,6 +193,7 @@ function handleDevUpgradePointer(event) {
   if (!target) return;
 
   const { devUpgradeKind: kind, devUpgradeId: id } = target.dataset;
+  if ((kind === 'knuth' || kind === 'abstraction') && !event.shiftKey) return;
   if (event.type === 'contextmenu') {
     if (!event.shiftKey) return;
     event.preventDefault();
@@ -236,28 +294,16 @@ function clearOverflowForDevCommand() {
   addBtn.disabled = false;
 }
 
-function debugBoardNumberLog10(value) {
-  const scientific = NumberMath.toScientific(value);
-  return scientific
-    ? Math.log10(scientific.mantissa) + scientific.exponent
-    : -Infinity;
-}
-
 function debugBoardLog10GrowthPerSecond(value, rate) {
   if (!isPositiveNumberValue(rate)) return 0;
+  if (!isPositiveNumberValue(value)) return Infinity;
 
-  const valueLogarithm = debugBoardNumberLog10(value);
-  const rateLogarithm = debugBoardNumberLog10(rate);
-  if (!Number.isFinite(valueLogarithm)) return Infinity;
-
-  const logarithmGap = rateLogarithm - valueLogarithm;
-  if (logarithmGap >= 12) return logarithmGap;
-  if (logarithmGap <= -12) return (10 ** logarithmGap) / Math.log(10);
-  return Math.log10(1 + (10 ** logarithmGap));
+  const relativeGain = NumberMath.divideApproximate(rate, value);
+  return NumberMath.toNumber(NumberMath.log10(addBaseNumbers(1, relativeGain)));
 }
 
 function debugBoardRateValue(value, cyclesPerSecond) {
-  if (!Number.isFinite(cyclesPerSecond) || cyclesPerSecond <= 0) return 0n;
+  if (!Number.isFinite(cyclesPerSecond) || cyclesPerSecond <= 0) return 0;
   return multiplyNumberValue(value, numberValueFromReal(cyclesPerSecond));
 }
 
@@ -267,33 +313,41 @@ function debugBoardGameCyclesPerSecond(interval) {
 }
 
 function debugBoardAutoClickRate() {
-  if (!autoClickerUnlocked || overflowed) return 0n;
+  if (!autoClickerUnlocked || overflowed) return 0;
   const cyclesPerSecond = debugBoardGameCyclesPerSecond(autoClickerSpeed);
   const clicksPerSecond = cyclesPerSecond * Number(autoClickerParallel);
   return debugBoardRateValue(
-    applyPercentSoftcapToProduction(effectivePerClick()),
+    finalNumberProductionGain(perClick, effectivePerClickMultiplier()),
     clicksPerSecond
   );
 }
 
 function debugBoardPercentLaneRate(laneNumber, lane = null) {
-  if (!percentUnlocked || overflowed || squareMode) return 0n;
+  if (!percentUnlocked || overflowed || squareMode) return 0;
 
   const unlocked = laneNumber === 1 ? percentAutoUnlocked : lane?.autoUnlocked === true;
-  if (!unlocked) return 0n;
+  if (!unlocked) return 0;
 
   const power = laneNumber === 1 ? percentPower : lane.power;
+  const purchaseBonus = laneNumber === 1 ? percentPowerPurchaseBonus : lane.powerPurchaseBonus;
   const speed = laneNumber === 1 ? percentAutoSpeed : lane.autoSpeed;
-  const gain = percentGain(getBaseNumber(), power);
+  const gain = percentGain(getBaseNumber(), power, purchaseBonus);
   return debugBoardRateValue(
-    applyPercentSoftcapToProduction(gain, getBaseNumber(), power),
+    finalNumberProductionGain(
+      gain,
+      percentPreExponentMultiplier(getBaseNumber()),
+      getBaseNumber(),
+      power,
+      purchaseBonus,
+      percentProductionExponent()
+    ),
     debugBoardGameCyclesPerSecond(speed)
   );
 }
 
 function debugBoardContributionRows() {
   const rows = [
-    ['수동 클릭', `${fmtPowerBase(applyPercentSoftcapToProduction(effectivePerClick()))} / 클릭`],
+    ['수동 클릭', `${fmtPowerBase(finalNumberProductionGain(perClick, effectivePerClickMultiplier()))} / 클릭`],
     ['오토 클릭커', `${fmtPowerBase(debugBoardAutoClickRate())} / 초`]
   ];
 
@@ -326,13 +380,15 @@ function ensureDevDebugBoardUi() {
   board.innerHTML = `
     <div class="debug-board-header">
       <strong>디버그 보드</strong>
-      <span>실시간 추정</span>
+      <span>가격 진단 v14</span>
     </div>
     <div class="debug-board-summary">
       <div class="debug-board-row"><span>초당 log10 증가량</span><strong id="debugBoardLog10Rate">-</strong></div>
       <div class="debug-board-row"><span>현재 적용 중인 소프트캡</span><strong id="debugBoardSoftcap">-</strong></div>
       <div class="debug-board-row"><span>1분 뒤 예상 수</span><strong id="debugBoardFutureNumber">-</strong></div>
     </div>
+    <div class="debug-board-section-title">퍼센트 레인 가격 진단</div>
+    <div id="debugBoardPercentDiagnostics" class="debug-board-contributions"></div>
     <div class="debug-board-section-title">생산 시스템 최종 기여량</div>
     <div id="debugBoardContributions" class="debug-board-contributions"></div>
   `;
@@ -354,16 +410,16 @@ function renderDevDebugBoard() {
     automaticContributions.push(debugBoardPercentLaneRate(lane.laneNumber, lane));
   }
 
-  let totalRate = 0n;
+  let totalRate = 0;
   for (const contribution of automaticContributions) {
     totalRate = addBaseNumbers(totalRate, contribution);
   }
 
   const log10Rate = debugBoardLog10GrowthPerSecond(currentNumber, totalRate);
-  const softcap = percentUnlocked ? percentPowerSoftcap(percentPower) : 0n;
+  const softcap = percentUnlocked ? percentPowerSoftcap(percentPower, percentPowerPurchaseBonus) : 0;
   const futureNumber = addBaseNumbers(
     currentNumber,
-    multiplyNumberValue(totalRate, 60n)
+    multiplyNumberValue(totalRate, 60)
   );
   const log10RateText = Number.isFinite(log10Rate) ? `${log10Rate.toFixed(6)} / 초` : '∞ / 초';
 
@@ -372,6 +428,46 @@ function renderDevDebugBoard() {
     ? fmtPowerBase(softcap)
     : '퍼센트 잠김';
   document.getElementById('debugBoardFutureNumber').textContent = `${fmtPowerBase(futureNumber)} · 현재 속도 기준`;
+
+  const percentDiagnostics = document.getElementById('debugBoardPercentDiagnostics');
+  percentDiagnostics.replaceChildren();
+  const percentLanes = [{
+    laneNumber: 1,
+    power: percentPower,
+    bonus: percentPowerPurchaseBonus,
+    purchaseCount: percentPowerPurchaseCount,
+    cost: percentPowerUpgradeCost,
+    compounding: percentPowerCostCompounding,
+    baseCost: 40000
+  }, ...extraPercentLanes.map(lane => ({
+    laneNumber: lane.laneNumber,
+    power: lane.power,
+    bonus: lane.powerPurchaseBonus,
+    purchaseCount: lane.powerPurchaseCount,
+    cost: lane.powerCost,
+    compounding: lane.powerCostCompounding,
+    baseCost: scaleByLane(40000, lane.laneNumber)
+  }))];
+
+  for (const lane of percentLanes) {
+    const row = document.createElement('div');
+    row.className = 'debug-board-row';
+    const label = document.createElement('span');
+    label.textContent = lane.laneNumber === 1 ? '기본 레인' : `${lane.laneNumber}번 레인`;
+    const value = document.createElement('strong');
+    const displayedCost = percentPowerCost(
+      lane.cost,
+      lane.compounding,
+      lane.purchaseCount,
+      lane.baseCost
+    );
+    const laneSoftcap = percentPowerSoftcap(lane.power, lane.bonus);
+    const normalizedPower = normalizedPercentPower(lane.power);
+    const normalizedBonus = normalizedPercentPowerBonus(lane.bonus);
+    value.textContent = `파워 ${fmtScientific(lane.power)} + 보너스 ${fmtScientific(lane.bonus)} (계산 ${fmtScientific(normalizedPower + normalizedBonus)}) · 구매 ${fmtScientific(lane.purchaseCount)} · 캡 ${fmtScientific(laneSoftcap)} · 원가 ${fmtScientific(lane.cost)} → 버튼 ${fmtScientific(displayedCost)}${lane.compounding ? ' (복리)' : ''}`;
+    row.append(label, value);
+    percentDiagnostics.appendChild(row);
+  }
 
   const contributions = document.getElementById('debugBoardContributions');
   contributions.replaceChildren();
@@ -398,12 +494,24 @@ function runDevCommand(commandText) {
 
   if (runNumberTraceCommand(command)) return;
 
-  const match = command.match(/^set\s+(number|sp|cp|kp|theory)\s+(.+)$/i);
-  if (!match) {
-    throw new Error('지원 명령어: stop, set number/sp/cp/kp/theory <숫자>, trace number on/off/clear');
+  if (/^system\s+number_black_hole$/i.test(command)) {
+    toggleNumberBlackHoleSystem();
+    return;
   }
 
-  const target = match[1].toLowerCase();
+  const match = command.match(/^set\s+(number|n|sp|cp|kp|theory|t|grand_theory|grad_theory|grandtheory|gt|diverger|diverger_power|square_power|squarepower)\s+(.+)$/i);
+  if (!match) {
+    throw new Error('지원 명령어: stop, system number_black_hole, set number(n)/sp/cp/kp/theory(t)/grand_theory(gt)/diverger/square_power <숫자>, trace number on/off/clear');
+  }
+
+  const rawTarget = match[1].toLowerCase();
+  const target = ({
+    n: 'number',
+    t: 'theory',
+    grad_theory: 'grand_theory',
+    grandtheory: 'grand_theory',
+    gt: 'grand_theory'
+  })[rawTarget] ?? rawTarget;
 
   if (target === 'number') {
     const value = parseDevNumberValue(match[2]);
@@ -432,6 +540,7 @@ function runDevCommand(commandText) {
   if (target === 'cp') {
     squareConvergencePoints = value;
     if (isPositiveNumberValue(value)) {
+      hasEverEarnedSquareConvergencePoint = true;
       squareUnlocked = true;
       squareConvergenceUnlocked = true;
     }
@@ -454,13 +563,43 @@ function runDevCommand(commandText) {
   }
 
   if (target === 'kp') {
-    kunuthPoints = value;
-    kunuthUnlocked = isPositiveNumberValue(value);
-    hasClaimedKunuthPoint = kunuthUnlocked;
-    pendingKunuthPointClaim = false;
-    if (kunuthUnlocked) setChapter('kunuth');
+    knuthPoints = value;
+    knuthUnlocked = isPositiveNumberValue(value);
+    hasClaimedKnuthPoint = knuthUnlocked;
+    pendingKnuthPointClaim = false;
+    if (knuthUnlocked) setChapter('knuth');
     render();
     log(`[DEV] KP = ${formatDevValue(value)}`, true);
+    return;
+  }
+
+  if (target === 'grand_theory') {
+    greatTheory = value;
+    if (isPositiveNumberValue(value)) {
+      knuthUnlocked = true;
+      hasClaimedKnuthPoint = true;
+      pendingKnuthPointClaim = false;
+      setChapter('knuth');
+      setKnuthView('abstraction');
+    }
+    render();
+    log(`[DEV] 대이론 = ${formatDevValue(value)}`, true);
+    return;
+  }
+
+  if (target === 'diverger' || target === 'diverger_power') {
+    divergerPower = value;
+    render();
+    log(`[DEV] 발산력 = ${formatDevValue(value)}`, true);
+    return;
+  }
+
+  if (target === 'square_power' || target === 'squarepower') {
+    if (!setSquareDimensionPowerForDev(value)) {
+      throw new Error('제곱 차원이 해금되어 있어야 제곱력을 설정할 수 있습니다.');
+    }
+    render();
+    log(`[DEV] 제곱력 = ${formatDevValue(squareDimensionPower())}`, true);
     return;
   }
 }
@@ -482,7 +621,7 @@ function ensureDevConsoleUi() {
   input.type = 'text';
   input.autocomplete = 'off';
   input.spellcheck = false;
-  input.placeholder = 'set theory 10';
+  input.placeholder = 'set gt 10';
   input.setAttribute('aria-label', '개발자 명령어');
 
   form.append(prompt, input);
@@ -522,6 +661,12 @@ function toggleDevConsole() {
   devConsole.form.classList.toggle('hidden', !devConsole.visible);
   devConsole.debugBoard.classList.toggle('hidden', !devConsole.visible);
   document.body.classList.toggle('dev-console-open', devConsole.visible);
+  if (devConsole.visible) {
+    if (knuthChallengeKc1Btn) knuthChallengeKc1Btn.disabled = false;
+    if (knuthChallengeCompleteBtn) knuthChallengeCompleteBtn.disabled = false;
+    if (typeof renderKnuthBoard === 'function') renderKnuthBoard();
+    if (typeof renderManualExchangeDock === 'function') renderManualExchangeDock();
+  }
   if (devConsole.visible) unlockAchievement('debug_mode');
   render();
 
@@ -529,7 +674,7 @@ function toggleDevConsole() {
     devConsole.input.focus();
     renderDevDebugBoard();
     renderNumberTrace();
-    log('[DEV] 콘솔 열림: stop, set number/sp/cp/kp/theory <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 발산자 Shift+우클릭=한 단계 취소', true);
+    log('[DEV] 콘솔 열림: stop, system number_black_hole, set n/sp/cp/kp/t/gt <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 추상화 연구 Shift+좌/우클릭=강제 구매/취소', true);
   }
 }
 

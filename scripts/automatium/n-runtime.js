@@ -1,6 +1,6 @@
 const NRuntime = (() => {
   const MAX_SOURCE_LENGTH = 100000;
-  const MAX_EXPONENT = 100000n;
+  const MAX_EXPONENT = 100000;
   const MAX_WAIT_TICKS = 1000000;
 
   function runtimeError(message, node) {
@@ -9,8 +9,8 @@ const NRuntime = (() => {
 
   function valueType(value) {
     if (
-      typeof value === 'bigint' ||
       (typeof value === 'number' && Number.isFinite(value)) ||
+      (typeof value === 'string' && /^\d+$/.test(value)) ||
       (typeof isApproximateNumber === 'function' && isApproximateNumber(value))
     ) return 'number';
     if (typeof value === 'boolean') return 'boolean';
@@ -31,9 +31,9 @@ const NRuntime = (() => {
     if (typeof isApproximateNumber === 'function' && isApproximateNumber(value)) {
       runtimeError('근사 큰 수는 일반 실수로 바꿀 수 없습니다.', node);
     }
-    const converted = typeof value === 'bigint' ? Number(value) : value;
-    if (!Number.isFinite(converted)) runtimeError('계산 결과가 너무 큽니다.', node);
-    return converted;
+    if (typeof value === 'string' && /^\d+$/.test(value)) return NumberMath.fromValue(value);
+    if (!Number.isFinite(value)) runtimeError('계산 결과가 너무 큽니다.', node);
+    return value;
   }
 
   function isScientificNumber(value) {
@@ -42,15 +42,16 @@ const NRuntime = (() => {
 
   function numericValueForGameMath(value, node) {
     requireNumber(value, node);
-    if (isScientificNumber(value) || typeof value === 'bigint') return value;
-    if (Number.isInteger(value)) return BigInt(value);
-    return normalizeApproximateNumber(value, 0) ?? 0n;
+    if (isScientificNumber(value)) return value;
+    if (typeof value === 'string' && /^\d+$/.test(value)) return NumberMath.fromValue(value);
+    if (Number.isInteger(value)) return numberValueFromReal(value);
+    return normalizeApproximateNumber(value, 0) ?? 0;
   }
 
   function integerExponent(value, node) {
     if (isScientificNumber(value)) runtimeError('거듭제곱 지수는 일반 정수여야 합니다.', node);
-    const integer = typeof value === 'bigint' ? value : BigInt(Math.floor(value));
-    if (integer < 0n || integer > MAX_EXPONENT) {
+    const integer = isScientificNumber(value) ? Number.MAX_SAFE_INTEGER : Math.floor(realNumberFromValue(value));
+    if (!Number.isSafeInteger(integer) || integer < 0 || integer > MAX_EXPONENT) {
       runtimeError(`거듭제곱 지수는 0부터 ${MAX_EXPONENT}까지여야 합니다.`, node);
     }
     return integer;
@@ -59,43 +60,21 @@ const NRuntime = (() => {
   function numericBinary(operator, left, right, node) {
     requireNumber(left, node);
     requireNumber(right, node);
-    const usesScientific = isScientificNumber(left) || isScientificNumber(right);
-    if (usesScientific) {
-      const a = numericValueForGameMath(left, node);
-      const b = numericValueForGameMath(right, node);
-      if (operator === '+') return addBaseNumbers(a, b);
-      if (operator === '-') return subtractNumberValues(a, b);
-      if (operator === '*') return multiplyNumberValue(a, b);
-      if (operator === '/') {
-        if (compareNumberValues(b, 0n) <= 0) runtimeError('0으로 나눌 수 없습니다.', node);
-        return divideNumberValue(a, b);
-      }
-      if (operator === '%') runtimeError('근사 큰 수에는 나머지 연산을 사용할 수 없습니다.', node);
-      if (operator === '^') return NumberMath.power(a, integerExponent(right, node));
-    }
-    const bothIntegers = typeof left === 'bigint' && typeof right === 'bigint';
-
-    if (operator === '+') return bothIntegers ? left + right : finiteNumber(left, node) + finiteNumber(right, node);
-    if (operator === '-') return bothIntegers ? left - right : finiteNumber(left, node) - finiteNumber(right, node);
-    if (operator === '*') return bothIntegers ? left * right : finiteNumber(left, node) * finiteNumber(right, node);
+    const a = numericValueForGameMath(left, node);
+    const b = numericValueForGameMath(right, node);
+    if (operator === '+') return addBaseNumbers(a, b);
+    if (operator === '-') return subtractNumberValues(a, b);
+    if (operator === '*') return multiplyNumberValue(a, b);
     if (operator === '/') {
-      if ((bothIntegers && right === 0n) || (!bothIntegers && finiteNumber(right, node) === 0)) runtimeError('0으로 나눌 수 없습니다.', node);
-      return bothIntegers ? left / right : finiteNumber(left, node) / finiteNumber(right, node);
+      if (compareNumberValues(b, 0) <= 0) runtimeError('0으로 나눌 수 없습니다.', node);
+      return divideNumberValue(a, b);
     }
     if (operator === '%') {
-      if ((bothIntegers && right === 0n) || (!bothIntegers && finiteNumber(right, node) === 0)) runtimeError('0으로 나머지를 계산할 수 없습니다.', node);
-      return bothIntegers ? left % right : finiteNumber(left, node) % finiteNumber(right, node);
+      if (compareNumberValues(b, 0) === 0) runtimeError('0으로 나머지를 계산할 수 없습니다.', node);
+      if (isScientificNumber(a) || isScientificNumber(b)) runtimeError('근사 큰 수에는 나머지 연산을 사용할 수 없습니다.', node);
+      return NumberMath.modulo(a, b);
     }
-    if (operator === '^') {
-      if (bothIntegers) {
-        if (right < 0n) runtimeError('정수 거듭제곱의 지수는 0 이상이어야 합니다.', node);
-        if (right > MAX_EXPONENT) runtimeError(`거듭제곱 지수는 ${MAX_EXPONENT} 이하여야 합니다.`, node);
-        return left ** right;
-      }
-      const result = Math.pow(finiteNumber(left, node), finiteNumber(right, node));
-      if (!Number.isFinite(result)) runtimeError('거듭제곱 결과가 너무 큽니다.', node);
-      return result;
-    }
+    if (operator === '^') return NumberMath.power(a, integerExponent(right, node));
     runtimeError(`지원하지 않는 연산자 '${operator}'`, node);
   }
 
@@ -105,11 +84,10 @@ const NRuntime = (() => {
     if (operator === '==' || operator === '!=') {
       let equal;
       if (leftType === 'number' && rightType === 'number') {
-        equal = isScientificNumber(left) || isScientificNumber(right)
-          ? compareNumberValues(numericValueForGameMath(left, node), numericValueForGameMath(right, node)) === 0
-          : typeof left === 'bigint' && typeof right === 'bigint'
-          ? left === right
-          : finiteNumber(left, node) === finiteNumber(right, node);
+        equal = compareNumberValues(
+          numericValueForGameMath(left, node),
+          numericValueForGameMath(right, node)
+        ) === 0;
       } else {
         equal = leftType === rightType && left === right;
       }
@@ -117,17 +95,14 @@ const NRuntime = (() => {
     }
     requireNumber(left, node);
     requireNumber(right, node);
-    if (isScientificNumber(left) || isScientificNumber(right)) {
-      const order = compareNumberValues(numericValueForGameMath(left, node), numericValueForGameMath(right, node));
-      if (operator === '>') return order > 0;
-      if (operator === '>=') return order >= 0;
-      if (operator === '<') return order < 0;
-      if (operator === '<=') return order <= 0;
-    }
-    if (operator === '>') return left > right;
-    if (operator === '>=') return left >= right;
-    if (operator === '<') return left < right;
-    if (operator === '<=') return left <= right;
+    const order = compareNumberValues(
+      numericValueForGameMath(left, node),
+      numericValueForGameMath(right, node)
+    );
+    if (operator === '>') return order > 0;
+    if (operator === '>=') return order >= 0;
+    if (operator === '<') return order < 0;
+    if (operator === '<=') return order <= 0;
     runtimeError(`지원하지 않는 비교 연산자 '${operator}'`, node);
   }
 
@@ -150,8 +125,10 @@ const NRuntime = (() => {
       const number = requireNumber(value, node);
       if (node.operator === '+') return number;
       if (node.operator === '-') {
-        if (isScientificNumber(number)) runtimeError('근사 큰 수에는 음수 연산을 사용할 수 없습니다.', node);
-        return typeof number === 'bigint' ? -number : -number;
+        if (isScientificNumber(number) || typeof number === 'string') {
+          runtimeError('근사 큰 수에는 음수 연산을 사용할 수 없습니다.', node);
+        }
+        return -number;
       }
     }
     if (node.type === 'Binary') {
@@ -185,17 +162,15 @@ const NRuntime = (() => {
 
   function positiveTickCount(value, node) {
     requireNumber(value, node);
-    if (isScientificNumber(value)) runtimeError('whiletick 간격은 일반 정수여야 합니다.', node);
-    const integer = typeof value === 'bigint' ? value : BigInt(Math.floor(value));
-    if (integer <= 0n) runtimeError('whiletick 간격은 1 이상이어야 합니다.', node);
-    return Number(integer > BigInt(MAX_WAIT_TICKS) ? BigInt(MAX_WAIT_TICKS) : integer);
+    const integer = Math.floor(realNumberFromValue(value));
+    if (!Number.isSafeInteger(integer) || integer <= 0) runtimeError('whiletick 간격은 1 이상이어야 합니다.', node);
+    return Math.min(MAX_WAIT_TICKS, integer);
   }
 
   function repeatCount(value, node) {
     requireNumber(value, node);
-    if (isScientificNumber(value)) runtimeError('for 반복 횟수는 일반 정수여야 합니다.', node);
-    const integer = typeof value === 'bigint' ? value : BigInt(Math.floor(value));
-    if (integer < 0n) runtimeError('for 반복 횟수는 0 이상이어야 합니다.', node);
+    const integer = Math.floor(realNumberFromValue(value));
+    if (!Number.isSafeInteger(integer) || integer < 0) runtimeError('for 반복 횟수는 안전한 정수여야 합니다.', node);
     return integer;
   }
 
@@ -203,7 +178,7 @@ const NRuntime = (() => {
     const label = currency === 'cp' ? 'CP' : 'SP';
     requireNumber(value, node);
     if (isScientificNumber(value)) {
-      if (compareNumberValues(value, 0n) <= 0) {
+      if (compareNumberValues(value, 0) <= 0) {
         runtimeError(`${label} 목표는 1 이상이어야 합니다.`, node);
       }
       return value;
@@ -214,8 +189,8 @@ const NRuntime = (() => {
     if (typeof value === 'number' && !Number.isSafeInteger(value)) {
       runtimeError(`${label} 목표는 안전한 정수여야 합니다. 큰 수는 일반 정수 표기로 입력하세요.`, node);
     }
-    const integer = typeof value === 'bigint' ? value : BigInt(value);
-    if (integer <= 0n) runtimeError(`${label} 목표는 1 이상이어야 합니다.`, node);
+    const integer = NumberMath.fromString(String(value), null);
+    if (integer === null || compareNumberValues(integer, 0) <= 0) runtimeError(`${label} 목표는 1 이상이어야 합니다.`, node);
     return integer;
   }
 
@@ -245,7 +220,7 @@ const NRuntime = (() => {
       if (context.variables.has(statement.name)) runtimeError(`변수 '${statement.name}'가 이미 선언되었습니다.`, statement);
       context.variables.set(statement.name, {
         dataType: statement.dataType,
-        value: statement.dataType === 'number' ? 0n : false
+        value: statement.dataType === 'number' ? 0 : false
       });
       return null;
     }
@@ -275,7 +250,13 @@ const NRuntime = (() => {
       const upgradeIndex = statement.upgradeIndex === null
         ? null
         : evaluate(statement.upgradeIndex, context);
-      while (!context.adapter.buy(statement.kind, statement.upgrade, upgradeIndex, statement)) {
+      while (true) {
+        const result = context.adapter.buy(statement.kind, statement.upgrade, upgradeIndex, statement);
+        if (!result && context.adapter.consumeBudgetYield?.()) {
+          yield { kind: 'budget', line: statement.line, message: '다음 틱에서 구매 재개' };
+          continue;
+        }
+        if (result) break;
         if (!statement.wait) return null;
         const indexText = upgradeIndex === null ? '' : `[${String(upgradeIndex)}]`;
         yield { kind: 'blocked', line: statement.line, message: `${statement.kind}.${statement.upgrade}${indexText} 구매 대기` };
@@ -294,7 +275,7 @@ const NRuntime = (() => {
         const targetText = requestedTarget === null
           ? ''
           : ` ${isScientificNumber(requestedTarget)
-            ? `${requestedTarget.mantissa}e${requestedTarget.exponent}`
+            ? NumberMath.serialize(requestedTarget)
             : String(requestedTarget)}`;
         yield {
           kind: 'blocked',
@@ -337,7 +318,7 @@ const NRuntime = (() => {
 
     if (statement.type === 'For') {
       const count = repeatCount(evaluate(statement.count, context), statement.count);
-      for (let index = 0n; index < count; index++) {
+      for (let index = 0; index < count; index++) {
         yield { kind: 'loop', line: statement.line };
         const signal = yield* executeStatements(statement.body, context, loopDepth + 1);
         if (signal === 'break') break;

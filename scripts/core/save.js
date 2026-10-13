@@ -5,6 +5,22 @@ function normalizeSaveCounter(value) {
   return Number.isSafeInteger(counter) && counter >= 0 ? counter : 0;
 }
 
+function normalizePendingPercentUses(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+function serializeKnuthContinuousValue(value) {
+  return NumberMath.isScientific(value) ? NumberMath.serialize(value) : String(value);
+}
+
+function loadKnuthContinuousValue(rawValue) {
+  const numeric = Number(rawValue);
+  return Number.isFinite(numeric) && numeric >= 0 && numeric < 1e33
+    ? NumberMath.fromValue(numeric)
+    : numberValueFromSave(rawValue);
+}
+
 function loadPersistedSaveStats() {
   try {
     const raw = localStorage.getItem(SAVE_STATS_KEY);
@@ -26,6 +42,8 @@ function persistSaveStats() {
 loadPersistedSaveStats();
 
 function saveGame() {
+  repairPercentPowerCostState();
+  repairExtraPercentLanePowerCosts();
   updateAchievements();
   if (baseNumberIsInNoUnit()) unlockAchievement('no_unit_save');
   const nextSaveCount = saveCount + 1;
@@ -33,60 +51,87 @@ function saveGame() {
   const data = {
     version: SAVE_VERSION,
     num: serializeBaseNumber(),
-    perClick: perClick.toString(),
-    perClickUpgradeCost: perClickUpgradeCost.toString(),
+    perClick: serializeNumberValue(perClick),
+    perClickUpgradeCost: serializeNumberValue(perClickUpgradeCost),
 
     percentUnlocked,
     percentCharge,
+    pendingPercentUses,
     percentChargeNeeded,
     percentChargeLevel,
-    percentChargeUpgradeCost: percentChargeUpgradeCost.toString(),
+    percentChargeUpgradeCost: serializeNumberValue(percentChargeUpgradeCost),
     percentPower,
+    percentPowerPurchaseCount,
+    percentPowerPurchaseBonus,
     percentPowerUpgradeCost: serializeNumberValue(percentPowerUpgradeCost),
     percentPowerCostCompounding,
 
     autoClickerUnlocked,
-    autoClickerPrice: autoClickerPrice.toString(),
+    autoClickerPrice: serializeNumberValue(autoClickerPrice),
     autoClickerSpeed,
-    autoClickerSpeedPrice: autoClickerSpeedPrice.toString(),
-    autoClickerParallel: autoClickerParallel.toString(),
-    autoClickerParallelPrice: autoClickerParallelPrice.toString(),
+    autoClickerSpeedPrice: serializeNumberValue(autoClickerSpeedPrice),
+    autoClickerParallel: serializeNumberValue(autoClickerParallel),
+    autoClickerParallelPrice: serializeNumberValue(autoClickerParallelPrice),
     autoClickerPercentFillUnlocked,
 
     percentAutoUnlocked,
-    percentAutoPrice: percentAutoPrice.toString(),
+    percentAutoPrice: serializeNumberValue(percentAutoPrice),
     percentAutoSpeedLevel,
     percentAutoSpeed,
-    percentAutoSpeedPrice: percentAutoSpeedPrice.toString(),
+    percentAutoSpeedPrice: serializeNumberValue(percentAutoSpeedPrice),
 
     percentLaneCount,
-    nextPercentLaneUnlockCost: nextPercentLaneUnlockCost.toString(),
+    nextPercentLaneUnlockCost: serializeNumberValue(nextPercentLaneUnlockCost),
     extraPercentLanes: extraPercentLanes.map(lane => ({
       laneNumber: lane.laneNumber,
       charge: lane.charge,
+      pendingUses: lane.pendingUses,
       power: lane.power,
+      powerPurchaseCount: lane.powerPurchaseCount,
+      powerPurchaseBonus: lane.powerPurchaseBonus,
       powerCost: serializeNumberValue(lane.powerCost),
       powerCostCompounding: lane.powerCostCompounding,
       autoUnlocked: lane.autoUnlocked,
-      autoPrice: lane.autoPrice.toString(),
+      autoPrice: serializeNumberValue(lane.autoPrice),
       autoSpeedLevel: lane.autoSpeedLevel,
       autoSpeed: lane.autoSpeed,
-      autoSpeedPrice: lane.autoSpeedPrice.toString()
+      autoSpeedPrice: serializeNumberValue(lane.autoSpeedPrice)
     })),
 
     squareUnlocked,
     squareBreakthroughEntered,
-    kunuthUnlocked,
-    kunuthPoints: serializeNumberValue(kunuthPoints),
-    hasClaimedKunuthPoint,
-    pendingKunuthPointClaim,
-    kunuthOperationLevel,
-    kunuthResetEquipmentOnNextPrestige,
-    kunuthEquippedUpgradeIds: [...kunuthEquippedUpgradeIds],
+    knuthUnlocked,
+    knuthPoints: serializeNumberValue(knuthPoints),
+    squareRunGameSeconds: serializeKnuthContinuousValue(squareRunGameSeconds),
+    knuthRunStartedAtMs,
+    shortestKnuthRealSeconds,
+    longestKnuthRealSeconds,
+    pendingKnuthCompletionSeconds,
+    squareSincePrestigeGameSeconds: serializeKnuthContinuousValue(squareSincePrestigeGameSeconds),
+    knuthPercentOverflow: serializeKnuthContinuousValue(knuthPercentOverflow),
+    numberBlackHoleSystemEnabled,
+    numberBlackHoleDonationPercent,
+    numberBlackHoleDonationRate,
+    numberBlackHoleDonationAmountLevel,
+    numberBlackHoleDonationSpeedLevel,
+    numberBlackHoleDonationAmountCost: serializeNumberValue(numberBlackHoleDonationAmountCost),
+    numberBlackHoleDonationSpeedCost: serializeNumberValue(numberBlackHoleDonationSpeedCost),
+    numberBlackHoleTotalInvested: serializeNumberValue(numberBlackHoleTotalInvested),
+    numberBlackHoleAccumulatedGameSeconds: serializeNumberValue(numberBlackHoleAccumulatedGameSeconds),
+    hasClaimedKnuthPoint,
+    pendingKnuthPointClaim,
+    knuthOperationLevel,
+    knuthBaseUpgradeLevels: { ...knuthBaseUpgradeLevels },
+    knuthResetEquipmentOnNextPrestige,
+    knuthEquippedUpgradeIds: [...knuthEquippedUpgradeIds],
+    activeKnuthChallengeId,
+    knuthChallengeDysonSwarmMaxAtEntry,
+    completedKnuthChallengeIds: [...completedKnuthChallengeIds],
     activeChapter,
     squarePoints: serializeNumberValue(squarePoints),
     squareConvergenceUnlocked,
     squareConvergencePoints: serializeNumberValue(squareConvergencePoints),
+    hasEverEarnedSquareConvergencePoint,
     squareDimensionX: serializeNumberValue(primarySquareDimension.x),
     squareDimensionY: serializeNumberValue(primarySquareDimension.y),
     squareDimensionZ: serializeNumberValue(primarySquareDimension.z),
@@ -126,10 +171,21 @@ function saveGame() {
     divergerBLevel,
     divergerCLevel,
     divergerSpeedLevel,
+    divergerSpeedIntervalHistory: [...divergerSpeedIntervalHistory],
     divergerSpeedCpCost: serializeNumberValue(divergerSpeedCpCost),
     divergerUpgradeHistory,
     theory: serializeNumberValue(theory),
     totalTheoryPurchased: serializeNumberValue(totalTheoryPurchased),
+    greatTheory: serializeNumberValue(greatTheory),
+    greatTheoryCpCost: serializeNumberValue(greatTheoryCpCost),
+    greatTheoryKpCost: serializeNumberValue(greatTheoryKpCost),
+    greatTheorySpCost: serializeNumberValue(greatTheorySpCost),
+    greatTheoryTheoryCost: serializeNumberValue(greatTheoryTheoryCost),
+    abstractionCostResourceIndex,
+    automatiumPrestigeRetentionUnlocked,
+    abstractionResearchState: { ...abstractionResearchState },
+    abstractionResearchPaidCosts: { ...abstractionResearchPaidCosts },
+    abstractionResetOnNextKnuthPoint,
     generalizationResetCount,
     saveCount: nextSaveCount,
     loadCount,
@@ -145,7 +201,8 @@ function saveGame() {
     squareConvergenceUpgradeLevels,
     activeSquareView,
     autoUpgradeEnabled,
-    squareDimensionAutoUpgradeEnabled
+    squareDimensionAutoUpgradeEnabled,
+    divergerAutoUpgradeEnabled
   };
 
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -153,6 +210,29 @@ function saveGame() {
   saveStatsLoadedFromStorage = true;
   persistSaveStats();
   log('게임을 이 브라우저에 저장했습니다.', true);
+}
+
+function normalizeKnuthSaveFields(data) {
+  const legacyAliases = [
+    ['knuthUnlocked', 'kunuthUnlocked'],
+    ['knuthPoints', 'kunuthPoints'],
+    ['hasClaimedKnuthPoint', 'hasClaimedKunuthPoint'],
+    ['pendingKnuthPointClaim', 'pendingKunuthPointClaim'],
+    ['knuthOperationLevel', 'kunuthOperationLevel'],
+    ['knuthResetEquipmentOnNextPrestige', 'kunuthResetEquipmentOnNextPrestige'],
+    ['knuthEquippedUpgradeIds', 'kunuthEquippedUpgradeIds'],
+    ['activeKnuthChallengeId', 'activeKunuthChallengeId'],
+    ['completedKnuthChallengeIds', 'completedKunuthChallengeIds']
+  ];
+
+  for (const [currentKey, legacyKey] of legacyAliases) {
+    if (data[currentKey] === undefined && data[legacyKey] !== undefined) {
+      data[currentKey] = data[legacyKey];
+    }
+  }
+
+  if (data.activeChapter === 'kunuth') data.activeChapter = 'knuth';
+  return data;
 }
 
 function loadGame(rawOverride = null, options = {}) {
@@ -164,10 +244,11 @@ function loadGame(rawOverride = null, options = {}) {
   }
 
   try {
-    const d = JSON.parse(raw);
+    const d = normalizeKnuthSaveFields(JSON.parse(raw));
     if (rawOverride !== null) localStorage.setItem(SAVE_KEY, raw);
     const saveVersion = Number(d.version ?? 1);
     const isLegacySave = !Number.isFinite(saveVersion) || saveVersion < 5;
+    loadKnuthBaseUpgradeLevels(isLegacySave ? null : d.knuthBaseUpgradeLevels);
 
     if (!saveStatsLoadedFromStorage) {
       saveCount = normalizeSaveCounter(d.saveCount);
@@ -177,6 +258,25 @@ function loadGame(rawOverride = null, options = {}) {
 
     theory = numberValueFromSave(d.theory);
     totalTheoryPurchased = numberValueFromSave(d.totalTheoryPurchased, theory);
+    greatTheory = numberValueFromSave(d.greatTheory);
+    greatTheoryCpCost = numberValueFromSave(d.greatTheoryCpCost, ABSTRACTION_CP_BASE_COST);
+    greatTheoryKpCost = numberValueFromSave(d.greatTheoryKpCost, ABSTRACTION_KP_BASE_COST);
+    greatTheorySpCost = numberValueFromSave(d.greatTheorySpCost, ABSTRACTION_SP_BASE_COST);
+    greatTheoryTheoryCost = numberValueFromSave(d.greatTheoryTheoryCost, 4);
+    const savedAbstractionResourceIndex = Number(d.abstractionCostResourceIndex ?? 0);
+    abstractionCostResourceIndex = Number.isInteger(savedAbstractionResourceIndex)
+      && savedAbstractionResourceIndex >= 0
+      && savedAbstractionResourceIndex <= 3
+      && (savedAbstractionResourceIndex !== 3 || knuthBaseUpgradeLevel('theory_exchange') > 0)
+      ? savedAbstractionResourceIndex
+      : 0;
+    loadAbstractionPermanentEffects(
+      d.automatiumPrestigeRetentionUnlocked,
+      d.abstractionResearchState
+    );
+    loadAbstractionResearchState(d.abstractionResearchState);
+    loadAbstractionResetState(d.abstractionResearchPaidCosts, d.abstractionResetOnNextKnuthPoint);
+    loadKnuthRealTimeState(isLegacySave ? {} : d);
     generalizationResetCount = normalizeSaveCounter(d.generalizationResetCount);
     loadAchievementState(d.achievementState);
     theorySquarePointCost = numberValueFromSave(d.theorySquarePointCost, THEORY_SQUARE_POINT_BASE_COST);
@@ -192,13 +292,11 @@ function loadGame(rawOverride = null, options = {}) {
     const savedGeneralizationResearchState = d.generalizationResearchState;
     loadGeneralizationResearchState(savedGeneralizationResearchState);
     if (savedGeneralizationResearchState?.['6-4'] === true) {
-      theory = addBaseNumbers(theory, 8n);
+      theory = addBaseNumbers(theory, 8);
     }
-    divergerN = divergerNumberValueFromSave(d.divergerN, 1n);
-    divergerPower = divergerNumberValueFromSave(d.divergerPower, 0n);
-    divergerA = numberValueFromSave(d.divergerA, 1n);
-    const savedDivergerB = Number(d.divergerB ?? 1.05);
-    divergerB = Number.isFinite(savedDivergerB) && savedDivergerB >= 1.05 ? savedDivergerB : 1.05;
+    divergerN = divergerNumberValueFromSave(d.divergerN, 1);
+    divergerPower = divergerNumberValueFromSave(d.divergerPower, 0);
+    divergerA = divergerNumberValueFromSave(d.divergerA, 1);
     const savedDivergerC = Number(d.divergerC ?? 0);
     divergerC = Number.isFinite(savedDivergerC)
       ? Math.min(DIVERGER_C_MAX, Math.max(0, Math.floor(savedDivergerC)))
@@ -213,12 +311,14 @@ function loadGame(rawOverride = null, options = {}) {
     const savedDivergerSpeedLevel = Number(d.divergerSpeedLevel ?? d.divergerUpgradeHistory?.speed?.length);
     divergerALevel = Number.isFinite(savedDivergerALevel) ? Math.max(0, Math.floor(savedDivergerALevel)) : 0;
     divergerBLevel = Number.isFinite(savedDivergerBLevel) ? Math.max(0, Math.floor(savedDivergerBLevel)) : 0;
+    divergerB = divergerBAtLevel(divergerBLevel);
     divergerCLevel = Number.isFinite(savedDivergerCLevel)
       ? Math.min(DIVERGER_C_MAX, Math.max(0, Math.floor(savedDivergerCLevel)))
       : divergerC;
     divergerSpeedLevel = Number.isFinite(savedDivergerSpeedLevel)
       ? Math.max(0, Math.floor(savedDivergerSpeedLevel))
       : divergerSpeedLevelFromInterval(divergerInterval);
+    loadDivergerSpeedIntervalHistory(d.divergerSpeedIntervalHistory);
     // 발산자 강화는 CP 전용으로 변경되었으므로 이전 저장의 가격 대신 현재 레벨 기준으로 재계산한다.
     divergerACpCost = divergerACpCostAtLevel(divergerALevel);
     divergerBCpCost = divergerBCpCostAtLevel(divergerBLevel);
@@ -230,10 +330,14 @@ function loadGame(rawOverride = null, options = {}) {
       c: divergerCLevel,
       speed: divergerSpeedLevel
     }, !Number.isFinite(saveVersion) || saveVersion < SAVE_VERSION);
+    divergerPower = divergerProductionValue(divergerN);
     divergerTimer = 0;
     divergerGraphSamples.length = 0;
     divergerGraphScaleMinimum = null;
     divergerGraphScaleMaximum = null;
+    divergerAutoUpgradeEnabled = d.divergerAutoUpgradeEnabled !== false;
+    divergerAutoUpgradeTimer = 0;
+    divergerAutoUpgradeCursor = 0;
     squareDimensionAutoUpgradeEnabled = hasGeneralizationResearch('7-2')
       && (d.squareDimensionAutoUpgradeEnabled ?? true);
     squareDimensionAutoUpgradeTimer = 0;
@@ -243,36 +347,54 @@ function loadGame(rawOverride = null, options = {}) {
       numberValueFromSave(d.num),
       numberValueFromSave(d.numPendingGain)
     ));
-    perClick = BigInt(d.perClick ?? '1');
-    perClickUpgradeCost = BigInt(d.perClickUpgradeCost ?? '10');
+    perClick = numberValueFromSave(d.perClick, 1);
+    perClickUpgradeCost = numberValueFromSave(d.perClickUpgradeCost, 10);
 
     percentUnlocked = d.percentUnlocked ?? false;
     percentCharge = d.percentCharge ?? 0;
+    pendingPercentUses = normalizePendingPercentUses(d.pendingPercentUses);
     percentChargeNeeded = d.percentChargeNeeded ?? 100;
     percentChargeLevel = d.percentChargeLevel ?? 0;
-    percentChargeUpgradeCost = BigInt(d.percentChargeUpgradeCost ?? '250');
-    percentPower = d.percentPower ?? 1;
-    percentPowerUpgradeCost = 40000n;
+    percentChargeUpgradeCost = numberValueFromSave(d.percentChargeUpgradeCost, 250);
+    const loadedPercentPower = normalizedPercentPower(d.percentPower ?? 1);
+    percentPowerPurchaseCount = normalizePercentPowerPurchaseCount(d.percentPowerPurchaseCount, loadedPercentPower);
+    if (d.percentPowerPurchaseBonus !== undefined) {
+      percentPower = loadedPercentPower;
+      percentPowerPurchaseBonus = normalizedPercentPowerBonus(d.percentPowerPurchaseBonus);
+    } else {
+      percentPower = Math.min(loadedPercentPower, percentPowerPurchaseCount + 1);
+      percentPowerPurchaseBonus = Math.max(0, loadedPercentPower - percentPower);
+    }
+    const reconciledMainPower = reconcilePercentPowerProgress(
+      percentPower,
+      percentPowerPurchaseCount
+    );
+    percentPower = reconciledMainPower.power;
+    percentPowerPurchaseCount = reconciledMainPower.purchaseCount;
+    if (percentPowerPurchaseBonus > 0) {
+      percentPowerPurchaseBonus = percentPowerBonusForPurchase(percentPowerPurchaseCount);
+    }
+    percentPowerUpgradeCost = 40000;
     percentPowerCostCompounding = false;
 
     autoClickerUnlocked = d.autoClickerUnlocked ?? false;
-    autoClickerPrice = BigInt(d.autoClickerPrice ?? '100');
+    autoClickerPrice = numberValueFromSave(d.autoClickerPrice, 100);
     autoClickerSpeed = d.autoClickerSpeed ?? 1000;
-    autoClickerSpeedPrice = BigInt(d.autoClickerSpeedPrice ?? '200');
-    autoClickerParallel = BigInt(d.autoClickerParallel ?? '1');
-    autoClickerParallelPrice = BigInt(d.autoClickerParallelPrice ?? '1000');
+    autoClickerSpeedPrice = numberValueFromSave(d.autoClickerSpeedPrice, 200);
+    autoClickerParallel = numberValueFromSave(d.autoClickerParallel, 1);
+    autoClickerParallelPrice = numberValueFromSave(d.autoClickerParallelPrice, 1000);
     autoClickerPercentFillUnlocked = d.autoClickerPercentFillUnlocked ?? false;
 
     percentAutoUnlocked = d.percentAutoUnlocked ?? false;
-    percentAutoPrice = BigInt(d.percentAutoPrice ?? '150');
+    percentAutoPrice = numberValueFromSave(d.percentAutoPrice, 150);
     percentAutoSpeedLevel = d.percentAutoSpeedLevel ?? 0;
     percentAutoSpeed = d.percentAutoSpeed ?? percentAutoSpeedLevels[percentAutoSpeedLevel];
-    percentAutoSpeedPrice = BigInt(d.percentAutoSpeedPrice ?? '250');
+    percentAutoSpeedPrice = numberValueFromSave(d.percentAutoSpeedPrice, 250);
     percentAutoTimer = 0;
     autoClickerTimer = 0;
 
     percentLaneCount = d.percentLaneCount ?? 1;
-    nextPercentLaneUnlockCost = BigInt(d.nextPercentLaneUnlockCost ?? '200000');
+    nextPercentLaneUnlockCost = numberValueFromSave(d.nextPercentLaneUnlockCost, 200000);
 
     // 기존 동적 레인 UI와 데이터를 깨끗하게 재생성
     extraPercentLanes.length = 0;
@@ -280,57 +402,147 @@ function loadGame(rawOverride = null, options = {}) {
     for (const saved of (d.extraPercentLanes ?? [])) {
       const lane = makePercentLane(saved.laneNumber);
       lane.charge = saved.charge ?? 0;
-      lane.power = saved.power ?? 1;
-      lane.powerCost = scaleByLane(40000n, lane.laneNumber);
+      lane.pendingUses = normalizePendingPercentUses(saved.pendingUses);
+      const loadedLanePower = normalizedPercentPower(saved.power ?? 1);
+      lane.powerPurchaseCount = normalizePercentPowerPurchaseCount(saved.powerPurchaseCount, loadedLanePower);
+      if (saved.powerPurchaseBonus !== undefined) {
+        lane.power = loadedLanePower;
+        lane.powerPurchaseBonus = normalizedPercentPowerBonus(saved.powerPurchaseBonus);
+      } else {
+        lane.power = Math.min(loadedLanePower, lane.powerPurchaseCount + 1);
+        lane.powerPurchaseBonus = Math.max(0, loadedLanePower - lane.power);
+      }
+      const reconciledLanePower = reconcilePercentPowerProgress(
+        lane.power,
+        lane.powerPurchaseCount
+      );
+      lane.power = reconciledLanePower.power;
+      lane.powerPurchaseCount = reconciledLanePower.purchaseCount;
+      if (lane.powerPurchaseBonus > 0) {
+        lane.powerPurchaseBonus = percentPowerBonusForPurchase(lane.powerPurchaseCount);
+      }
+      lane.powerCost = scaleByLane(40000, lane.laneNumber);
       lane.powerCostCompounding = false;
       lane.autoUnlocked = saved.autoUnlocked ?? false;
-      lane.autoPrice = BigInt(saved.autoPrice ?? lane.autoPrice.toString());
+      lane.autoPrice = numberValueFromSave(saved.autoPrice, lane.autoPrice);
       lane.autoSpeedLevel = saved.autoSpeedLevel ?? 0;
       lane.autoSpeed = saved.autoSpeed ?? lane.autoSpeedLevels[lane.autoSpeedLevel];
-      lane.autoSpeedPrice = BigInt(saved.autoSpeedPrice ?? lane.autoSpeedPrice.toString());
+      lane.autoSpeedPrice = numberValueFromSave(saved.autoSpeedPrice, lane.autoSpeedPrice);
       lane.autoTimer = 0;
       extraPercentLanes.push(lane);
       createExtraPercentLaneUI(lane);
     }
 
+    numberBlackHoleSystemEnabled = d.numberBlackHoleSystemEnabled === true;
+    const savedBlackHoleAmountLevel = Number(d.numberBlackHoleDonationAmountLevel ?? 0);
+    numberBlackHoleDonationAmountLevel = Number.isSafeInteger(savedBlackHoleAmountLevel)
+      ? Math.min(NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT - 1, Math.max(0, savedBlackHoleAmountLevel))
+      : 0;
+    const savedBlackHoleSpeedLevel = Number(d.numberBlackHoleDonationSpeedLevel ?? 0);
+    const maxBlackHoleSpeedLevel = Math.ceil(
+      (NUMBER_BLACK_HOLE_MAX_DONATION_RATE - NUMBER_BLACK_HOLE_BASE_DONATION_RATE)
+      / NUMBER_BLACK_HOLE_DONATION_RATE_PER_UPGRADE
+    );
+    numberBlackHoleDonationSpeedLevel = Number.isSafeInteger(savedBlackHoleSpeedLevel)
+      ? Math.min(maxBlackHoleSpeedLevel, Math.max(0, savedBlackHoleSpeedLevel))
+      : 0;
+    const maxBlackHoleDonationPercent = Math.min(
+      NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT,
+      NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT + numberBlackHoleDonationAmountLevel
+    );
+    const savedBlackHoleDonationPercent = Number(d.numberBlackHoleDonationPercent ?? NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT);
+    numberBlackHoleDonationPercent = Number.isSafeInteger(savedBlackHoleDonationPercent)
+      ? Math.max(NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT, Math.min(maxBlackHoleDonationPercent, savedBlackHoleDonationPercent))
+      : NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT;
+    const maxBlackHoleDonationRate = Math.min(
+      NUMBER_BLACK_HOLE_MAX_DONATION_RATE,
+      NUMBER_BLACK_HOLE_BASE_DONATION_RATE
+        + (numberBlackHoleDonationSpeedLevel * NUMBER_BLACK_HOLE_DONATION_RATE_PER_UPGRADE)
+    );
+    const savedBlackHoleDonationRate = Number(d.numberBlackHoleDonationRate ?? NUMBER_BLACK_HOLE_BASE_DONATION_RATE);
+    numberBlackHoleDonationRate = Number.isSafeInteger(savedBlackHoleDonationRate)
+      ? Math.max(NUMBER_BLACK_HOLE_BASE_DONATION_RATE, Math.min(maxBlackHoleDonationRate, savedBlackHoleDonationRate))
+      : NUMBER_BLACK_HOLE_BASE_DONATION_RATE;
+    numberBlackHoleDonationAmountCost = numberValueFromSave(
+      d.numberBlackHoleDonationAmountCost,
+      NUMBER_BLACK_HOLE_BASE_UPGRADE_COST
+    );
+    numberBlackHoleDonationSpeedCost = numberValueFromSave(
+      d.numberBlackHoleDonationSpeedCost,
+      NUMBER_BLACK_HOLE_BASE_UPGRADE_COST
+    );
+    numberBlackHoleTotalInvested = numberValueFromSave(d.numberBlackHoleTotalInvested);
+    numberBlackHoleAccumulatedGameSeconds = numberValueFromSave(d.numberBlackHoleAccumulatedGameSeconds);
+    if (typeof resetNumberBlackHoleTimers === 'function') resetNumberBlackHoleTimers();
+
     if (isLegacySave) {
       squareUnlocked = d.squareUnlocked ?? d.squareMode ?? false;
       squareBreakthroughEntered = false;
-      kunuthUnlocked = false;
-      kunuthPoints = 0n;
-      hasClaimedKunuthPoint = false;
-      pendingKunuthPointClaim = false;
-      kunuthOperationLevel = 0;
-      kunuthResetEquipmentOnNextPrestige = false;
-      kunuthEquippedUpgradeIds.clear();
+      knuthUnlocked = false;
+      knuthPoints = 0;
+      squareRunGameSeconds = 0;
+      squareSincePrestigeGameSeconds = 0;
+      knuthPercentOverflow = 0;
+      hasClaimedKnuthPoint = false;
+      pendingKnuthPointClaim = false;
+      knuthOperationLevel = 0;
+      knuthResetEquipmentOnNextPrestige = false;
+      knuthEquippedUpgradeIds.clear();
+      activeKnuthChallengeId = null;
+      knuthChallengeDysonSwarmMaxAtEntry = 8;
+      completedKnuthChallengeIds.clear();
       activeChapter = squareUnlocked ? 'square' : 'multiplication';
-      squarePoints = numberValueFromSave(d.squarePoints, squareUnlocked ? 1n : 0n);
+      squarePoints = numberValueFromSave(d.squarePoints, squareUnlocked ? 1 : 0);
       squareConvergenceUnlocked = false;
-      squareConvergencePoints = 0n;
+      squareConvergencePoints = 0;
+      hasEverEarnedSquareConvergencePoint = false;
       resetSquareUpgradeState();
       resetSquareBreakthroughState();
       resetSquareConvergenceUpgradeState();
     } else {
       squareUnlocked = d.squareUnlocked ?? false;
-      kunuthUnlocked = d.kunuthUnlocked === true;
-      kunuthPoints = numberValueFromSave(d.kunuthPoints);
-      hasClaimedKunuthPoint = d.hasClaimedKunuthPoint === true || isPositiveNumberValue(kunuthPoints);
-      pendingKunuthPointClaim = d.pendingKunuthPointClaim === true && kunuthUnlocked && !hasClaimedKunuthPoint;
-      const savedKunuthOperationLevel = Number(d.kunuthOperationLevel ?? 0);
-      kunuthOperationLevel = Number.isSafeInteger(savedKunuthOperationLevel)
-        ? Math.max(0, savedKunuthOperationLevel)
+      knuthUnlocked = d.knuthUnlocked === true;
+      const loadedKnuthPoints = numberValueFromSave(d.knuthPoints);
+      knuthPoints = NumberMath.isScientific(loadedKnuthPoints)
+        ? loadedKnuthPoints
+        : Math.floor(loadedKnuthPoints);
+      squareRunGameSeconds = loadKnuthContinuousValue(d.squareRunGameSeconds ?? d.knuthRunGameSeconds);
+      squareSincePrestigeGameSeconds = loadKnuthContinuousValue(d.squareSincePrestigeGameSeconds);
+      knuthPercentOverflow = loadKnuthContinuousValue(d.knuthPercentOverflow);
+      hasClaimedKnuthPoint = d.hasClaimedKnuthPoint === true || isPositiveNumberValue(knuthPoints);
+      pendingKnuthPointClaim = d.pendingKnuthPointClaim === true && knuthUnlocked && !hasClaimedKnuthPoint;
+      const savedKnuthOperationLevel = Number(d.knuthOperationLevel ?? 0);
+      knuthOperationLevel = Number.isSafeInteger(savedKnuthOperationLevel)
+        ? Math.max(0, savedKnuthOperationLevel)
         : 0;
-      kunuthResetEquipmentOnNextPrestige = d.kunuthResetEquipmentOnNextPrestige === true;
-      kunuthEquippedUpgradeIds.clear();
-      const knownKunuthUpgradeIds = new Set(KUNUTH_SLOT_UPGRADES.map(upgrade => upgrade.id));
-      for (const id of d.kunuthEquippedUpgradeIds ?? []) {
-        if (knownKunuthUpgradeIds.has(id)) kunuthEquippedUpgradeIds.add(id);
+      knuthResetEquipmentOnNextPrestige = d.knuthResetEquipmentOnNextPrestige === true;
+      knuthEquippedUpgradeIds.clear();
+      const knownKnuthUpgradeIds = new Set(KNUTH_SLOT_UPGRADES.map(upgrade => upgrade.id));
+      for (const id of d.knuthEquippedUpgradeIds ?? []) {
+        const restoredId = id === 'percent_exponentiation' || id === 'percent_time_multiplier'
+          ? 'diverger_percent_price_delay'
+          : id;
+        if (knownKnuthUpgradeIds.has(restoredId)) knuthEquippedUpgradeIds.add(restoredId);
       }
-      while (kunuthSlotsUsed() > kunuthSlotCapacity()) {
-        const lastId = [...kunuthEquippedUpgradeIds].pop();
+      while (knuthSlotsUsed() > knuthSlotCapacity()) {
+        const lastId = [...knuthEquippedUpgradeIds].pop();
         if (!lastId) break;
-        kunuthEquippedUpgradeIds.delete(lastId);
+        knuthEquippedUpgradeIds.delete(lastId);
       }
+      const knownKnuthChallengeIds = new Set(KNUTH_CHALLENGES.map(challenge => challenge.id));
+      completedKnuthChallengeIds.clear();
+      for (const id of d.completedKnuthChallengeIds ?? []) {
+        if (knownKnuthChallengeIds.has(id)) completedKnuthChallengeIds.add(id);
+      }
+      activeKnuthChallengeId = knownKnuthChallengeIds.has(d.activeKnuthChallengeId)
+        && !completedKnuthChallengeIds.has(d.activeKnuthChallengeId)
+        ? d.activeKnuthChallengeId
+        : null;
+      knuthChallengeDysonSwarmMaxAtEntry = activeKnuthChallengeId === 'kc1'
+        && Number.isSafeInteger(Number(d.knuthChallengeDysonSwarmMaxAtEntry))
+        && Number(d.knuthChallengeDysonSwarmMaxAtEntry) >= 8
+        ? Number(d.knuthChallengeDysonSwarmMaxAtEntry)
+        : 8;
       activeChapter = d.activeChapter ?? (squareUnlocked ? 'square' : 'multiplication');
     squarePoints = numberValueFromSave(d.squarePoints);
     squareConvergenceUnlocked = d.squareConvergenceUnlocked ?? false;
@@ -392,6 +604,17 @@ function loadGame(rawOverride = null, options = {}) {
       ) {
         squareConvergenceUnlocked = true;
       }
+      const legacyConvergenceSpendingRecorded =
+        Object.values(squareConvergenceUpgradeLevels).some(level => level > 0)
+        || divergerALevel > 0
+        || divergerBLevel > 0
+        || divergerCLevel > 0
+        || divergerSpeedLevel > 0
+        || generalizationResetCount > 0
+        || compareNumberValues(theoryConvergencePointCost, THEORY_CONVERGENCE_POINT_BASE_COST) > 0;
+      hasEverEarnedSquareConvergencePoint = d.hasEverEarnedSquareConvergencePoint === true
+        || isPositiveNumberValue(squareConvergencePoints)
+        || legacyConvergenceSpendingRecorded;
       applyAutomatiumSquareUpgradeUnlocks();
       loadSquareBreakthroughState(d.squareBreakthroughLevels);
       const hadEnteredSquareBreakthrough = d.squareBreakthroughEntered === true
@@ -410,10 +633,10 @@ function loadGame(rawOverride = null, options = {}) {
     if (isPositiveNumberValue(squareConvergencePoints)) {
       squareConvergenceUnlocked = true;
     }
-    if (isPositiveNumberValue(kunuthPoints)) {
-      kunuthUnlocked = true;
-      hasClaimedKunuthPoint = true;
-      pendingKunuthPointClaim = false;
+    if (isPositiveNumberValue(knuthPoints)) {
+      knuthUnlocked = true;
+      hasClaimedKnuthPoint = true;
+      pendingKnuthPointClaim = false;
     }
     if (activeChapter === 'tetration' || activeChapter === 'square-breakthrough' || activeChapter === 'square-convergence') {
       activeChapter = squareUnlocked ? 'square' : 'multiplication';
@@ -431,7 +654,7 @@ function loadGame(rawOverride = null, options = {}) {
     if (autoClickerParallel > autoClickerParallelCap()) autoClickerParallel = autoClickerParallelCap();
     if (autoClickerSpeed < autoClickerMinSpeed()) autoClickerSpeed = autoClickerMinSpeed();
     if (hasSquareBreakthrough('solid_start')) {
-      ensureBaseNumberAtLeast(2000000n);
+      ensureBaseNumberAtLeast(2000000);
     }
     // 저장 당시 플래그가 오래된 세이브와 어긋나도 실제 해금 조건을 다시 판정한다.
     // 높은 수를 가진 세이브가 퍼센트 잠금 상태로 복원되면 자동 생산이 멈춘다.
@@ -441,39 +664,31 @@ function loadGame(rawOverride = null, options = {}) {
     percentCharge = Math.min(percentCharge, percentChargeNeeded);
     percentPower = normalizedPercentPower(percentPower);
     const savedPercentPowerCost = numberValueFromSave(d.percentPowerUpgradeCost);
-    const savedPercentPowerCostIsCompounding = d.percentPowerCostCompounding === true;
-    if (savedPercentPowerCostIsCompounding && isPositiveNumberValue(savedPercentPowerCost)) {
-      percentPowerCostCompounding = true;
-      percentPowerUpgradeCost = savedPercentPowerCost;
-    } else {
-      const rawPercentPowerCost = percentPowerUpgradeCostForNextLevel(percentPower);
-      const adjustedPercentPowerCost = discountedCost(rawPercentPowerCost);
-      percentPowerCostCompounding = compareNumberValues(adjustedPercentPowerCost, powerOfTenValue(500)) >= 0;
-      percentPowerUpgradeCost = percentPowerCostCompounding
-        ? nextCompoundingPercentPowerCost(adjustedPercentPowerCost)
-        : rawPercentPowerCost;
-    }
+    const restoredMainCost = restoredPercentPowerCost(
+      savedPercentPowerCost,
+      d.percentPowerCostCompounding === true,
+      percentPowerPurchaseCount,
+      40000
+    );
+    percentPowerCostCompounding = restoredMainCost.compounding;
+    percentPowerUpgradeCost = restoredMainCost.cost;
+    repairPercentPowerCostState();
     for (const lane of extraPercentLanes) {
       lane.power = normalizedPercentPower(lane.power);
       const savedLanePowerCost = numberValueFromSave(d.extraPercentLanes?.find(item => item.laneNumber === lane.laneNumber)?.powerCost);
       const savedLanePowerCostIsCompounding = d.extraPercentLanes?.find(item => item.laneNumber === lane.laneNumber)?.powerCostCompounding === true;
-      if (savedLanePowerCostIsCompounding && isPositiveNumberValue(savedLanePowerCost)) {
-        lane.powerCostCompounding = true;
-        lane.powerCost = savedLanePowerCost;
-        continue;
-      }
-
-      const rawLanePowerCost = percentPowerUpgradeCostForNextLevel(
-        lane.power,
-        scaleByLane(40000n, lane.laneNumber)
+      const restoredLaneCost = restoredPercentPowerCost(
+        savedLanePowerCost,
+        savedLanePowerCostIsCompounding,
+        lane.powerPurchaseCount,
+        scaleByLane(40000, lane.laneNumber)
       );
-      const adjustedLanePowerCost = discountedCost(rawLanePowerCost);
-      lane.powerCostCompounding = compareNumberValues(adjustedLanePowerCost, powerOfTenValue(500)) >= 0;
-      lane.powerCost = lane.powerCostCompounding
-        ? nextCompoundingPercentPowerCost(adjustedLanePowerCost)
-        : rawLanePowerCost;
+      lane.powerCostCompounding = restoredLaneCost.compounding;
+      lane.powerCost = restoredLaneCost.cost;
+      repairPercentLanePowerCost(lane);
     }
     syncPermanentPercentLanes();
+    rebasePercentPowerPricesForDiverger(true);
 
     overflowed = false;
     pendingSquarePrestigeValue = null;
@@ -490,7 +705,7 @@ function loadGame(rawOverride = null, options = {}) {
     } else {
       setChapter(activeChapter);
     }
-    addBtn.textContent = `+${perClick.toString()}`;
+  addBtn.textContent = `+${fmt(perClick)}`;
     upgradeClickBtn.classList.remove('hidden');
 
     resetAchievementTimers();

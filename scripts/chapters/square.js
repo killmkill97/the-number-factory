@@ -42,7 +42,9 @@ function triggerOverflow(request = squarePrestigeConversionRequest()) {
   const currentValue = getBaseNumber();
   const displayValue = isApproximateNumber(currentValue)
     ? currentValue
-    : currentValue > LONG_MAX ? currentValue - (1n << 64n) : currentValue;
+    : compareNumberValues(currentValue, LONG_MAX) > 0
+      ? subtractNumberValues(currentValue, NumberMath.power(2, 64))
+      : currentValue;
   mainValue.textContent = fmt(displayValue);
   subValue.textContent = '// PRESTIGE READY';
 
@@ -83,9 +85,12 @@ function completeSquarePrestige({
   pendingSquarePrestigeRequirement = null;
   squareUnlocked = true;
   squareMode = false;
-  const gainedSquarePoints = targetedReward ?? squarePointGainForValue(rewardValue);
+  const gainedSquarePoints = targetedReward === null
+    ? squarePointGainForValue(rewardValue)
+    : multiplyNumberValue(targetedReward, knuthSpCpGainMultiplier());
   squarePoints = addBaseNumbers(squarePoints, gainedSquarePoints);
 
+  resetSquarePrestigeCycleTime();
   resetRunStateAfterSquarePrestige();
   overflowed = false;
   displayBox.classList.remove('glitch');
@@ -97,7 +102,7 @@ function completeSquarePrestige({
   extraPercentLanesEl.innerHTML = '';
 
   addBtn.disabled = false;
-  addBtn.textContent = `+${perClick.toString()}`;
+  addBtn.textContent = `+${fmt(perClick)}`;
 
   setChapter(keepCurrentChapter ? activeChapter : 'square');
   log(`제곱 프레스티지 완료${skippedCutscene ? ' (컷신 스킵)' : ''} — ${fmtPowerBase(gainedSquarePoints)} SP를 얻고 기본 게임을 재시작했습니다.`, true);
@@ -119,6 +124,15 @@ function exchangeSquarePointsManually() {
 function renderManualExchangeDock() {
   manualExchangeDock.classList.toggle('hidden', !squareUnlocked);
 
+  const challengeReady = canCompleteKnuthChallenge();
+  const devConsoleOpen = document.body.classList.contains('dev-console-open')
+    || (typeof devConsoleIsOpen === 'function' && devConsoleIsOpen());
+  const challengeId = activeKnuthChallengeId ?? 'kc1';
+  knuthChallengeCompleteBtn.dataset.devChallengeId = challengeId;
+  knuthChallengeCompleteBtn.textContent = `${challengeId.toUpperCase()} 도전 완료`;
+  knuthChallengeCompleteBtn.classList.toggle('hidden', !challengeReady && !devConsoleOpen);
+  knuthChallengeCompleteBtn.disabled = !devConsoleOpen && !challengeReady;
+
   const squareReady = squareUnlocked && !overflowed && compareBaseNumber(squarePointExchangeRequirement()) >= 0;
   manualSquareExchangeBtn.disabled = !squareReady;
   manualSquareExchangeCost.textContent = squareReady
@@ -131,7 +145,17 @@ function renderManualExchangeDock() {
     ? `획득 ${fmt(squareConvergencePointGain())} CP`
     : `필요 ${fmt(squareConvergenceExchangeRequirement())} SP`;
 
+  const knuthExchangeReady = canManuallyExchangeKnuthPoints();
+  manualKnuthExchangeBtn.classList.toggle('hidden', !knuthUnlocked || !hasClaimedKnuthPoint);
+  manualKnuthExchangeBtn.disabled = !knuthExchangeReady;
+  const knuthGainText = fmtPowerBase(knuthPointGain());
+  manualKnuthExchangeCost.textContent = knuthExchangeReady
+    ? `획득 ${knuthGainText} KP`
+    : `예상 획득 ${knuthGainText} KP · 필요 일반화 연구 8-1`;
+
 }
 
 prestigeBtn.addEventListener('click', () => completeSquarePrestige());
+knuthChallengeCompleteBtn.addEventListener('click', completeKnuthChallenge);
 manualSquareExchangeBtn.addEventListener('click', exchangeSquarePointsManually);
+manualKnuthExchangeBtn.addEventListener('click', exchangeKnuthPointsManually);

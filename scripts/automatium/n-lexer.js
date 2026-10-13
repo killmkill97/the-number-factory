@@ -77,13 +77,17 @@ const NLexer = (() => {
           value += advance();
           while (/[0-9]/.test(peek())) value += advance();
         }
-        if (peek().toLowerCase() === 'e') {
+        while (peek().toLowerCase() === 'e') {
           value += advance();
           if (peek() === '+' || peek() === '-') value += advance();
           if (!/[0-9]/.test(peek())) {
             throw new NLanguageError('지수 뒤에 숫자가 필요합니다.', position());
           }
           while (/[0-9]/.test(peek())) value += advance();
+          if (peek() === '.' && /[0-9]/.test(peek(1))) {
+            value += advance();
+            while (/[0-9]/.test(peek())) value += advance();
+          }
         }
         add('number_literal', value, start);
         continue;

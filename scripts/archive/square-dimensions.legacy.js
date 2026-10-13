@@ -10,15 +10,15 @@ function squareDimensionTargetName(index) {
 
 function squareDimensionProduction(index) {
   const amount = squareDimensions[index];
-  if (amount <= 0n) return 0n;
+  if (amount <= 0) return 0;
   return amount * squareDimensionMultiplier(index);
 }
 
 function squareDimensionMultiplier(index) {
   const purchases = squareDimensionPurchases[index];
-  if (purchases <= 1n) return 1n;
-  if (purchases === 2n) return 2n;
-  return 4n;
+  if (purchases <= 1) return 1;
+  if (purchases === 2) return 2;
+  return 4;
 }
 
 function canAffordSquareDimension(index) {
@@ -68,7 +68,7 @@ function renderSquareDimensions() {
     const multiplier = squareDimensionMultiplier(index);
 
     ui.name.textContent = `${dimensionName} · 보유 ${fmtPowerBase(squareDimensions[index])} · 구매 ${fmtPowerBase(squareDimensionPurchases[index])}회`;
-    ui.rate.textContent = `배율 x${fmtPowerBase(multiplier)}${multiplier >= 4n ? ' MAX' : ''} · 초당 ${fmtPowerBase(production)} ${targetName} 생산`;
+    ui.rate.textContent = `배율 x${fmtPowerBase(multiplier)}${multiplier >= 4 ? ' MAX' : ''} · 초당 ${fmtPowerBase(production)} ${targetName} 생산`;
     ui.buyBtn.innerHTML = `${dimensionName} +1<span class="cost">비용: ${squareDimensionCostText(index)}</span>`;
     ui.buyBtn.disabled = !squareUnlocked || !canAffordSquareDimension(index);
   }
@@ -81,10 +81,10 @@ function buySquareDimension(index) {
   const cost = squareDimensionCosts[index];
   num -= cost.base;
   squareExponent -= cost.exponent;
-  squareDimensions[index] += 1n;
-  squareDimensionPurchases[index] += 1n;
-  cost.base *= 10n;
-  cost.exponent *= 10n;
+  squareDimensions[index] += 1;
+  squareDimensionPurchases[index] += 1;
+  cost.base *= 10;
+  cost.exponent *= 10;
   render();
 }
 
@@ -94,13 +94,13 @@ setInterval(() => {
   const production = squareDimensions.map((_, index) => squareDimensionProduction(index));
   let changed = false;
 
-  if (production[0] > 0n) {
+  if (production[0] > 0) {
     squareExponent += production[0];
     changed = true;
   }
 
   for (let index = 1; index < production.length; index++) {
-    if (production[index] <= 0n) continue;
+    if (production[index] <= 0) continue;
     squareDimensions[index - 1] += production[index];
     changed = true;
   }

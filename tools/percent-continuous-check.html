@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Percent Production Verification</title>
+<style>
+  body { margin: 32px auto; padding: 0 24px; max-width: 950px; font: 16px/1.6 system-ui,sans-serif; color: #18251d; background: #f5f7f6; }
+  h1 { font-size: 24px; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 20px; border: 1px solid #96b5a0; background: #fff; }
+  [data-status="passed"] { color: #146b36; }
+  [data-status="failed"] { color: #a22121; }
+</style>
+<h1>Percent Production Verification</h1>
+<p id="status">Running isolated fixtures. No saves or Firebase connections.</p>
+<pre id="results"></pre>
+<script src="../scripts/core/constants.js"></script>
+<script src="../scripts/core/number-math.js"></script>
+<script src="../scripts/core/state.js"></script>
+<script>
+(async () => {
+  const assert = (value, message) => { if (!value) throw new Error(message); };
+  render = () => {};
+  checkOverflow = () => {};
+  percentUnlocked = true;
+  squareUnlocked = true;
+  for (const id of ['1-1','3-1','3-2','4-2','5-1','5-4','6-1','7-1']) generalizationResearchState[id] = true;
+  for (const id of ['6-2','8-2','9-2']) abstractionResearchState[id] = true;
+  squareUpgradeState.percent_power_8 = true;
+  squareBreakthroughLevels.dyson_swarm = 14;
+  squareBreakthroughLevels.overclock = 8;
+  squareBreakthroughLevels.bottleneck_tracker = 16;
+  divergerPower = NumberMath.fromString('2.26e2700');
+  for (const dimension of squareDimensionStates) {
+    dimension.x = NumberMath.fromString('5e20');
+    dimension.y = NumberMath.fromString('4e20');
+    dimension.z = NumberMath.fromString('3e20');
+  }
+  const optimizedGain = percentFinalUseGain;
+  function legacyGain(value, power, bonus) {
+    return finalNumberProductionGain(percentUseGain(value, power, bonus),
+      percentPreExponentMultiplier(value), value, power, bonus, percentProductionExponent());
+  }
+  function batch() {
+    setBaseNumber(NumberMath.fromString('1e150000000'));
+    withPercentProductionCache(() => {
+      for (let lane = 0; lane < 16; lane++) applyPercentUsesBatch(40500 + lane, 1e41, 'isolated-test', 19.518);
+    });
+    return getBaseNumber();
+  }
+  const benchmarks = [];
+  let baselineValue, optimizedValue;
+  for (const [name, gain] of [['previous', legacyGain], ['optimized', optimizedGain]]) {
+    percentFinalUseGain = gain;
+    const timings = [];
+    let value;
+    for (let iteration = 0; iteration < 16; iteration++) {
+      const start = performance.now();
+      value = batch();
+      if (iteration >= 4) timings.push(performance.now() - start);
+    }
+    timings.sort((a,b) => a-b);
+    benchmarks.push({ mode: name, medianMs: timings[Math.floor(timings.length / 2)], value: NumberMath.serialize(value) });
+    if (name === 'previous') baselineValue = value;
+    else optimizedValue = value;
+  }
+  const relativeError = Math.abs(NumberMath.toNumber(NumberMath.divideApproximate(optimizedValue, baselineValue)) - 1);
+  assert(relativeError < 1e-6, 'Production differs beyond the verified precision');
+  percentFinalUseGain = optimizedGain;
+
+  // Load only the real charging and timer functions, without UI or live intervals.
+  const lanes = await (await fetch('../scripts/systems/percent-lanes.js')).text();
+  const system = await (await fetch('../scripts/systems/percent-system.js')).text();
+  const charge = new Function('amount', lanes.slice(lanes.indexOf('function chargeAllPercentLanes('),
+    lanes.indexOf('function createExtraPercentLaneUI(')) + '\nreturn chargeAllPercentLanes(amount);');
+  let now = 0;
+  gameClockNowMs = () => now;
+  gameTick = elapsed => elapsed;
+  abstractionResearchState['2-1'] = false;
+  percentAutoUnlocked = true;
+  percentAutoSpeed = 200;
+  percentChargeNeeded = 1;
+  const consumed = [];
+  applyPercentUsesBatch = (power, uses, source) => { consumed.push({ uses, source }); return true; };
+  const flush = new Function('setInterval', system.slice(system.indexOf('let lastPercentTraceHeartbeatAt'),
+    system.indexOf('function upgradePercentCharge(')) + '\nreturn flushAutomaticPercentUses;')(() => 0);
+  window.flushAutomaticPercentUses = flush;
+  now = 200;
+  flush();
+  charge(1);
+  const instantUses = consumed.length;
+  assert(instantUses === 1 && pendingPercentUses === 0, 'Ready uses must be consumed on charge');
+  flush();
+  assert(consumed.length === 1, 'The same elapsed time must not count twice');
+  now = 250;
+  charge(1);
+  assert(consumed.length === 1 && pendingPercentUses === 1, 'Cooldowns must still be respected');
+  now = 400;
+  flush();
+  assert(consumed.length === 2 && pendingPercentUses === 0, 'Queued use must resume when ready');
+  const report = {
+    passed: true,
+    savesAccessed: false,
+    firebaseLoaded: false,
+    charging: { consumedImmediately: instantUses, totalUses: consumed.length, duplicateElapsedTime: false },
+    production: { relativeError, withinTolerance: relativeError < 1e-6 },
+    benchmarks,
+    speedup: benchmarks[0].medianMs / benchmarks[1].medianMs
+  };
+  document.getElementById('status').textContent = 'PASS: immediate automatic use, cooldowns, production equivalence and bounded batches';
+  document.getElementById('status').dataset.status = 'passed';
+  document.getElementById('results').textContent = JSON.stringify(report, null, 2);
+})().catch(error => {
+  document.getElementById('status').textContent = 'FAIL: ' + error.message;
+  document.getElementById('status').dataset.status = 'failed';
+  document.getElementById('results').textContent = error.stack;
+});
+</script>
+</html>

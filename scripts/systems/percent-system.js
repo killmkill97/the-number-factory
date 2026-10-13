@@ -10,7 +10,7 @@ function unlockNextPercentLane() {
   const newLane = makePercentLane(percentLaneCount);
   extraPercentLanes.push(newLane);
   createExtraPercentLaneUI(newLane);
-  nextPercentLaneUnlockCost *= 2n;
+  nextPercentLaneUnlockCost = multiplyNumberValue(nextPercentLaneUnlockCost, 2);
   log(`퍼센트 레인 ${percentLaneCount}이 해금되었습니다.`);
   render();
   return true;
@@ -22,7 +22,7 @@ function usePercent() {
     traceNumberEvent('percent-use-skip', { lane: 1, reason: overflowed ? 'overflowed' : 'square-mode' });
     return false;
   }
-  if (percentCharge < percentChargeNeeded) {
+  if (percentCharge < percentChargeNeeded && pendingPercentUses < 1) {
     traceNumberEvent('percent-use-skip', {
       lane: 1,
       reason: 'not-ready',
@@ -39,7 +39,7 @@ function usePercent() {
     number: numberTraceValue(before)
   });
 
-  const gain = percentUseGain(before, percentPower);
+  const gain = percentUseGain(before, percentPower, percentPowerPurchaseBonus);
   traceNumberEvent('percent-gain', {
     lane: 1,
     power: percentPower,
@@ -48,11 +48,15 @@ function usePercent() {
   });
   if (!isPositiveNumberValue(gain)) return false;
 
-  applyPercentUse(before, percentPower, 'percent-lane-1');
-  percentCharge = 0;
+  if (pendingPercentUses >= 1) {
+    pendingPercentUses--;
+    applyPercentUsesBatch(percentPower, 1, 'percent-lane-1', percentPowerPurchaseBonus);
+  } else {
+    applyPercentUse(before, percentPower, 'percent-lane-1', percentPowerPurchaseBonus);
+    percentCharge = 0;
+  }
   checkOverflow();
 
-  // 사람이 먼저 눌렀든 자동으로 눌렀든 다음 자동 클릭은 처음부터 다시 기다림
   percentAutoTimer = 0;
   traceNumberEvent('percent-use-complete', {
     lane: 1,
@@ -66,14 +70,15 @@ function usePercent() {
 percentBtn.addEventListener('click', usePercent);
 
 function upgradePercentPower() {
+  repairPercentPowerCostState();
   if (!percentUnlocked) return false;
   if (percentChargeNeeded > PERCENT_POWER_UNLOCK_CHARGE) return false;
   const cost = percentPowerCost(percentPowerUpgradeCost, percentPowerCostCompounding);
+  if (!percentPowerCostAvailable(cost)) return false;
   if (!canAffordBaseCost(cost)) return false;
 
   spendBaseCost(cost);
   updatePercentPowerCostAfterPurchase();
-  log(`퍼센트 파워가 ${percentPowerText()}로 증가했습니다. ${percentPowerSoftcapStatus(percentPower)}`);
   render();
   return true;
 }
@@ -106,7 +111,7 @@ function upgradePercentAutoSpeed() {
   spendBaseCost(cost);
   if (percentAutoSpeed > 200) percentAutoSpeed = Math.max(200, percentAutoSpeed - 200);
   else if (percentAutoSpeed > percentAutoMinSpeed()) percentAutoSpeed = percentAutoMinSpeed();
-  percentAutoSpeedPrice *= 2n;
+  percentAutoSpeedPrice = multiplyNumberValue(percentAutoSpeedPrice, 2);
   percentAutoTimer = 0;
   log(`% 오토클리커 대기 시간이 ${formatDelay(percentAutoSpeed)}로 감소했습니다.`);
   render();
@@ -116,22 +121,56 @@ function upgradePercentAutoSpeed() {
 percentAutoSpeedBtn.addEventListener('click', upgradePercentAutoSpeed);
 
 let lastPercentTraceHeartbeatAt = -Infinity;
+let percentAutoLastTickAt = gameClockNowMs();
+
+function addPercentAutoTime(timer, elapsed) {
+  const total = timer + elapsed;
+  return Number.isFinite(total) ? Math.max(0, total) : Number.MAX_VALUE;
+}
+
+function consumeAutomaticPercentUses({ charge, setCharge, pendingUses, setPendingUses, power, purchaseBonus = 0, timer, setTimer, speed, source }) {
+  const cooldownsReady = Math.floor(timer / speed);
+  if (cooldownsReady <= 0) return false;
+
+  const readyUses = Math.min(Number.MAX_VALUE, pendingUses + (charge >= percentChargeNeeded ? 1 : 0));
+  if (readyUses <= 0) {
+    setTimer(Math.min(timer, speed));
+    return false;
+  }
+
+  const uses = Math.min(cooldownsReady, readyUses);
+  if (!applyPercentUsesBatch(power, uses, source, purchaseBonus)) {
+    setTimer(Math.min(timer, speed));
+    return false;
+  }
+
+  const queuedUsesConsumed = Math.min(pendingUses, uses);
+  setPendingUses(Math.max(0, pendingUses - queuedUsesConsumed));
+  if (uses > queuedUsesConsumed && charge >= percentChargeNeeded) setCharge(0);
+  const remainingTimer = Math.max(0, timer - (uses * speed));
+
+  const remainingReadyUses = Math.max(0, readyUses - uses);
+  setTimer(remainingReadyUses <= 0 ? Math.min(remainingTimer, speed) : remainingTimer);
+  traceNumberEvent('percent-auto-fire', { source, uses: String(uses), timer: `${timer}/${speed}` });
+  return true;
+}
 
 // 충전 중에도 각 레인의 쿨다운을 진행한다. 준비된 레인은 독립적으로 사용하므로
-// 퍼센트 병렬화의 원래 성장성은 유지하되, percentGain의 1회 +100% 제한을 따른다.
-setInterval(() => {
+// 가속 틱에 누적된 충전과 쿨다운을 묶어서 처리한다.
+function advanceAutomaticPercentUses(elapsedRealMs) {
   if (overflowed || squareMode) {
     percentAutoTimer = 0;
     for (const lane of extraPercentLanes) lane.autoTimer = 0;
     return;
   }
 
-  const elapsed = gameTick(PERCENT_AUTO_TICK_MS);
-  if (percentAutoUnlocked) {
-    percentAutoTimer = Math.min(percentAutoSpeed, percentAutoTimer + elapsed);
-  } else {
-    percentAutoTimer = 0;
-  }
+  const elapsed = gameTick(elapsedRealMs);
+  const percentAutoElapsed = hasAbstractionResearch('2-1')
+    ? elapsed * autoUpgradeSpeedMultiplier()
+    : elapsed;
+  percentAutoTimer = percentAutoUnlocked
+    ? addPercentAutoTime(percentAutoTimer, percentAutoElapsed)
+    : 0;
 
   for (const lane of extraPercentLanes) {
     if (!lane.autoUnlocked) {
@@ -139,15 +178,12 @@ setInterval(() => {
       continue;
     }
 
-    lane.autoTimer = Math.min(
-      lane.autoSpeed,
-      lane.autoTimer + elapsed
-    );
+    lane.autoTimer = addPercentAutoTime(lane.autoTimer, percentAutoElapsed);
   }
 
-  const now = typeof performance === 'undefined' ? 0 : performance.now();
-  if (numberTraceEnabled && now - lastPercentTraceHeartbeatAt >= 50) {
-    lastPercentTraceHeartbeatAt = now;
+  const traceNow = gameClockNowMs();
+  if (numberTraceEnabled && traceNow - lastPercentTraceHeartbeatAt >= 50) {
+    lastPercentTraceHeartbeatAt = traceNow;
     traceNumberEvent('percent-auto-tick', {
       elapsed,
       main: `${percentCharge}/${percentChargeNeeded}`,
@@ -156,25 +192,51 @@ setInterval(() => {
     });
   }
 
-  if (
-    percentAutoUnlocked &&
-    percentCharge >= percentChargeNeeded &&
-    percentAutoTimer >= percentAutoSpeed
-  ) {
-    traceNumberEvent('percent-auto-fire', { lane: 1, timer: `${percentAutoTimer}/${percentAutoSpeed}` });
-    usePercent();
+  let changed = false;
+  if (percentAutoUnlocked) {
+    changed = consumeAutomaticPercentUses({
+      charge: percentCharge,
+      setCharge: value => { percentCharge = value; },
+      pendingUses: pendingPercentUses,
+      setPendingUses: value => { pendingPercentUses = value; },
+      power: percentPower,
+      purchaseBonus: percentPowerPurchaseBonus,
+      timer: percentAutoTimer,
+      setTimer: value => { percentAutoTimer = value; },
+      speed: percentAutoSpeed,
+      source: 'percent-lane-1'
+    }) || changed;
   }
 
   for (const lane of extraPercentLanes) {
-    if (lane.charge >= percentChargeNeeded && lane.autoTimer >= lane.autoSpeed) {
-      traceNumberEvent('percent-auto-fire', {
-        lane: lane.laneNumber,
-        timer: `${lane.autoTimer}/${lane.autoSpeed}`
-      });
-      useExtraPercent(lane);
-    }
+    if (!lane.autoUnlocked) continue;
+    changed = consumeAutomaticPercentUses({
+      charge: lane.charge,
+      setCharge: value => { lane.charge = value; },
+      pendingUses: lane.pendingUses,
+      setPendingUses: value => { lane.pendingUses = value; },
+      power: lane.power,
+      purchaseBonus: lane.powerPurchaseBonus,
+      timer: lane.autoTimer,
+      setTimer: value => { lane.autoTimer = value; },
+      speed: lane.autoSpeed,
+      source: `percent-lane-${lane.laneNumber}`
+    }) || changed;
+    if (overflowed) break;
   }
-}, PERCENT_AUTO_TICK_MS);
+  if (changed) {
+    checkOverflow();
+    render();
+  }
+}
+
+function flushAutomaticPercentUses() {
+  const { now, elapsedMs } = elapsedRealTimeSince(percentAutoLastTickAt);
+  percentAutoLastTickAt = now;
+  withPercentProductionCache(() => advanceAutomaticPercentUses(elapsedMs));
+}
+
+setInterval(flushAutomaticPercentUses, PERCENT_AUTO_TICK_MS);
 
 function upgradePercentCharge() {
   if (!percentUnlocked) return false;
@@ -192,7 +254,10 @@ function upgradePercentCharge() {
   }
 
   // 업그레이드 횟수가 많으므로 가격은 완만하게 증가
-  percentChargeUpgradeCost = (percentChargeUpgradeCost * 6n + 4n) / 5n;
+  percentChargeUpgradeCost = divideNumberValue(
+    addBaseNumbers(multiplyNumberValue(percentChargeUpgradeCost, 6), 4),
+    5
+  );
 
   log(`% 충전 필요 클릭 수가 최대 ${reduction}회 감소하여 ${percentChargeNeeded}회가 되었습니다.`);
   render();

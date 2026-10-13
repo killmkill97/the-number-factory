@@ -1,6 +1,12 @@
 const AUTOMATIUM_STORAGE_KEY = 'numberTycoonAutomatiumPrograms_v1';
 const AUTOMATIUM_COMMAND_BUDGET = 256;
 const AUTOMATIUM_TICK_MS = 50;
+const AUTOMATIUM_BULK_TICK_BUDGET_MS = 12;
+const AUTOMATIUM_BULK_MAX_PER_TICK = 2048;
+const AUTOMATIUM_BULK_MAX_PER_COMMAND = 512;
+let automatiumBulkRemaining = 0;
+let automatiumBulkDeadline = 0;
+let automatiumBudgetYieldRequested = false;
 const AUTOMATIUM_MAX_PROGRAMS = 32;
 const AUTOMATIUM_CLICK_COOLDOWN_MS = 1000;
 
@@ -14,7 +20,11 @@ const N_BASE_UPGRADE_GUIDE = [
   { id: 'percent_power', title: '퍼센트 파워', aliases: [], indexed: true },
   { id: 'percent_auto', title: '퍼센트 오토클리커', aliases: [], indexed: true },
   { id: 'percent_auto_speed', title: '퍼센트 오토클리커 속도', aliases: [], indexed: true },
-  { id: 'percent_line', title: '퍼센트 라인', aliases: [] }
+  {
+    id: 'percent_line',
+    title: '퍼센트 사용 병렬화',
+    aliases: ['percent_parallel', 'percent_parallelization', 'percent_lane']
+  }
 ];
 
 const N_BREAKTHROUGH_UPGRADE_ALIASES = {
@@ -24,12 +34,18 @@ const N_BREAKTHROUGH_UPGRADE_ALIASES = {
 };
 
 const automatiumWorkspace = document.getElementById('automatiumWorkspace');
+const automatiumQuickPanel = document.getElementById('automatiumQuickPanel');
+const automatiumQuickProgramList = document.getElementById('automatiumQuickProgramList');
+const automatiumQuickCollapseBtn = document.getElementById('automatiumQuickCollapseBtn');
+const automatiumQuickEditorBtn = document.getElementById('automatiumQuickEditorBtn');
 const automatiumCloseBtn = document.getElementById('automatiumCloseBtn');
 const automatiumNewBtn = document.getElementById('automatiumNewBtn');
 const automatiumProgramList = document.getElementById('automatiumProgramList');
 const automatiumProgramName = document.getElementById('automatiumProgramName');
 const automatiumRenameBtn = document.getElementById('automatiumRenameBtn');
 const automatiumSource = document.getElementById('automatiumSource');
+const automatiumSourceWrap = document.getElementById('automatiumSourceWrap');
+const automatiumCaretMirror = document.getElementById('automatiumCaretMirror');
 const automatiumSaveBtn = document.getElementById('automatiumSaveBtn');
 const automatiumDeleteBtn = document.getElementById('automatiumDeleteBtn');
 const automatiumEditorStatus = document.getElementById('automatiumEditorStatus');
@@ -58,9 +74,11 @@ let automatiumAutocompleteItems = [];
 let automatiumAutocompleteIndex = 0;
 const automatiumExecutions = new Map();
 const automatiumProgramUi = new Map();
+const automatiumQuickProgramUi = new Map();
 let automatiumEmptyListElement = null;
+let automatiumQuickEmptyListElement = null;
 let automatiumLastNumberClickAt = Number.NEGATIVE_INFINITY;
-let automatiumBulkPurchasesRemaining = AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
+let automatiumLastTickAt = gameClockNowMs();
 
 function automatiumId() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -119,29 +137,36 @@ function nLanguageError(message, node) {
   throw new NLexer.NLanguageError(message, { line: node?.line ?? 1, column: 1 });
 }
 
+function nValueType(value) {
+  if (
+    (typeof value === 'number' && Number.isFinite(value)) ||
+    (typeof value === 'string' && /^\d+$/.test(value)) ||
+    (typeof isApproximateNumber === 'function' && isApproximateNumber(value))
+  ) return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  return 'unknown';
+}
+
 function nLog2(value) {
-  let count = 0n;
-  let current = BigInt(value);
-  while (current > 1n) {
-    current /= 2n;
-    count++;
-  }
-  return count;
+  return NumberMath.floor(
+    NumberMath.divideApproximate(NumberMath.log10(value), Math.log10(2))
+  );
 }
 
 function nPercentLaneNumber(rawIndex, node) {
   if (rawIndex === null || rawIndex === undefined) return null;
-  if (typeof rawIndex !== 'bigint' && typeof rawIndex !== 'number') {
+  if (nValueType(rawIndex) !== 'number') {
     nLanguageError('퍼센트 레인 번호는 number여야 합니다.', node);
   }
-  const laneNumber = typeof rawIndex === 'bigint' ? rawIndex : BigInt(Math.floor(rawIndex));
-  if (typeof rawIndex === 'number' && rawIndex !== Math.floor(rawIndex)) {
+  const numericIndex = realNumberFromValue(rawIndex);
+  const laneNumber = Math.floor(numericIndex);
+  if (!Number.isSafeInteger(numericIndex) || numericIndex !== laneNumber) {
     nLanguageError('퍼센트 레인 번호는 정수여야 합니다.', node);
   }
-  if (laneNumber < 1n || laneNumber > BigInt(MAX_PERCENT_LANES)) {
+  if (laneNumber < 1 || laneNumber > MAX_PERCENT_LANES) {
     nLanguageError(`퍼센트 레인 번호는 1부터 ${MAX_PERCENT_LANES}까지 사용할 수 있습니다.`, node);
   }
-  return Number(laneNumber);
+  return laneNumber;
 }
 
 function nPercentLaneUpgradeSnapshot(id, laneNumber, node) {
@@ -152,27 +177,34 @@ function nPercentLaneUpgradeSnapshot(id, laneNumber, node) {
 
   if (id === 'percent_power') {
     const power = laneNumber === 1 ? percentPower : lane?.power ?? 1;
-    const rawCost = laneNumber === 1 ? percentPowerUpgradeCost : lane?.powerCost ?? scaleByLane(40000n, laneNumber);
-    const cost = percentPowerCost(rawCost, laneNumber === 1 ? percentPowerCostCompounding : lane?.powerCostCompounding ?? false);
+    const purchaseBonus = laneNumber === 1 ? percentPowerPurchaseBonus : lane?.powerPurchaseBonus ?? 0;
+    const rawCost = laneNumber === 1 ? percentPowerUpgradeCost : lane?.powerCost ?? scaleByLane(40000, laneNumber);
+    const purchaseCount = laneNumber === 1 ? percentPowerPurchaseCount : lane?.powerPurchaseCount ?? 0;
+    const cost = percentPowerCost(
+      rawCost,
+      laneNumber === 1 ? percentPowerCostCompounding : lane?.powerCostCompounding ?? false,
+      purchaseCount,
+      scaleByLane(40000, laneNumber)
+    );
     return {
-      upgraded: BigInt(Math.max(0, power - 1)),
-      amount: BigInt(percentEffectivePower(power)),
+      upgraded: numberValueFromReal(purchaseCount),
+      amount: numberValueFromReal(percentEffectivePower(power, purchaseBonus)),
       cost,
-      max: 0n,
-      available: laneExists && !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && canAffordBaseCost(cost),
+      max: 0,
+      available: laneExists && !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && percentPowerCostAvailable(cost) && canAffordBaseCost(cost),
       buy: () => laneNumber === 1 ? upgradePercentPower() : lane ? buyExtraLanePower(lane) : false
     };
   }
 
   if (id === 'percent_auto') {
     const unlocked = laneNumber === 1 ? percentAutoUnlocked : lane?.autoUnlocked ?? false;
-    const rawCost = laneNumber === 1 ? percentAutoPrice : lane?.autoPrice ?? scaleByLane(150n, laneNumber);
+    const rawCost = laneNumber === 1 ? percentAutoPrice : lane?.autoPrice ?? scaleByLane(150, laneNumber);
     const cost = discountedCost(rawCost);
     return {
-      upgraded: unlocked ? 1n : 0n,
-      amount: unlocked ? 1n : 0n,
-      cost: unlocked ? 0n : cost,
-      max: 1n,
+      upgraded: unlocked ? 1 : 0,
+      amount: unlocked ? 1 : 0,
+      cost: unlocked ? 0 : cost,
+      max: 1,
       available: laneExists && !overflowed && percentUnlocked && !unlocked && canAffordBaseCost(cost),
       buy: () => laneNumber === 1 ? buyPercentAuto() : lane ? buyExtraLaneAuto(lane) : false
     };
@@ -182,14 +214,14 @@ function nPercentLaneUpgradeSnapshot(id, laneNumber, node) {
     const speedLevel = laneNumber === 1 ? percentAutoSpeedLevel : lane?.autoSpeedLevel ?? 0;
     const speed = laneNumber === 1 ? percentAutoSpeed : lane?.autoSpeed ?? 1000;
     const unlocked = laneNumber === 1 ? percentAutoUnlocked : lane?.autoUnlocked ?? false;
-    const rawCost = laneNumber === 1 ? percentAutoSpeedPrice : lane?.autoSpeedPrice ?? scaleByLane(250n, laneNumber);
+    const rawCost = laneNumber === 1 ? percentAutoSpeedPrice : lane?.autoSpeedPrice ?? scaleByLane(250, laneNumber);
     const cost = discountedCost(rawCost);
     const maxed = speed <= percentAutoMinSpeed();
     return {
-      upgraded: BigInt(speedLevel),
-      amount: BigInt(speed),
-      cost: maxed ? 0n : cost,
-      max: percentAutoMinSpeed() < 200 ? 5n : 4n,
+      upgraded: numberValueFromReal(speedLevel),
+      amount: numberValueFromReal(speed),
+      cost: maxed ? 0 : cost,
+      max: percentAutoMinSpeed() < 200 ? 5 : 4,
       available: laneExists && !overflowed && percentUnlocked && unlocked && !maxed && canAffordBaseCost(cost),
       buy: () => laneNumber === 1 ? upgradePercentAutoSpeed() : lane ? upgradeExtraLaneAutoSpeed(lane) : false
     };
@@ -212,7 +244,10 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
     percent_power: 'percent_power',
     percent_auto: 'percent_auto',
     percent_auto_speed: 'percent_auto_speed',
-    percent_line: 'percent_line'
+    percent_line: 'percent_line',
+    percent_parallel: 'percent_line',
+    percent_parallelization: 'percent_line',
+    percent_lane: 'percent_line'
   };
   const id = aliases[normalizeNName(rawUpgrade)];
   if (!id) nLanguageError(`알 수 없는 base 업그레이드 '${rawUpgrade}'`, node);
@@ -223,10 +258,10 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
     click: () => {
       const cost = discountedCost(perClickUpgradeCost);
       return {
-        upgraded: perClick - 1n,
+        upgraded: subtractNumberValues(perClick, 1),
         amount: effectivePerClick(),
         cost,
-        max: BASE_PER_CLICK_CAP - 1n,
+        max: subtractNumberValues(BASE_PER_CLICK_CAP, 1),
         available: !overflowed && perClick < BASE_PER_CLICK_CAP && canAffordBaseCost(cost),
         buy: upgradePerClick
       };
@@ -234,10 +269,10 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
     auto_clicker: () => {
       const cost = discountedCost(autoClickerPrice);
       return {
-        upgraded: autoClickerUnlocked ? 1n : 0n,
-        amount: autoClickerUnlocked ? 1n : 0n,
-        cost: autoClickerUnlocked ? 0n : cost,
-        max: 1n,
+        upgraded: autoClickerUnlocked ? 1 : 0,
+        amount: autoClickerUnlocked ? 1 : 0,
+        cost: autoClickerUnlocked ? 0 : cost,
+        max: 1,
         available: !overflowed && !autoClickerUnlocked && canAffordBaseCost(cost),
         buy: buyAutoClicker
       };
@@ -245,10 +280,10 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
     auto_speed: () => {
       const cost = discountedCost(autoClickerSpeedPrice);
       return {
-        upgraded: nLog2(autoClickerSpeedPrice / 200n),
-        amount: BigInt(autoClickerSpeed),
-        cost: autoClickerSpeed <= autoClickerMinSpeed() ? 0n : cost,
-        max: autoClickerMinSpeed() < 25 ? 8n : 7n,
+        upgraded: nLog2(divideNumberValue(autoClickerSpeedPrice, 200)),
+        amount: numberValueFromReal(autoClickerSpeed),
+        cost: autoClickerSpeed <= autoClickerMinSpeed() ? 0 : cost,
+        max: autoClickerMinSpeed() < 25 ? 8 : 7,
         available: !overflowed && autoClickerUnlocked && autoClickerSpeed > autoClickerMinSpeed() && canAffordBaseCost(cost),
         buy: upgradeAutoClickerSpeed
       };
@@ -258,7 +293,7 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
       return {
         upgraded: nLog2(autoClickerParallel),
         amount: autoClickerParallel,
-        cost: autoClickerParallel >= autoClickerParallelCap() ? 0n : cost,
+        cost: autoClickerParallel >= autoClickerParallelCap() ? 0 : cost,
         max: nLog2(autoClickerParallelCap()),
         available: !overflowed && autoClickerUnlocked && autoClickerParallel < autoClickerParallelCap() && canAffordBaseCost(cost),
         buy: upgradeAutoClickerParallel
@@ -267,10 +302,10 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
     auto_percent: () => {
       const cost = discountedCost(autoClickerPercentFillPrice);
       return {
-        upgraded: autoClickerPercentFillUnlocked ? 1n : 0n,
-        amount: autoClickerPercentFillUnlocked ? 1n : 0n,
-        cost: autoClickerPercentFillUnlocked ? 0n : cost,
-        max: 1n,
+        upgraded: autoClickerPercentFillUnlocked ? 1 : 0,
+        amount: autoClickerPercentFillUnlocked ? 1 : 0,
+        cost: autoClickerPercentFillUnlocked ? 0 : cost,
+        max: 1,
         available: !overflowed && autoClickerUnlocked && percentUnlocked && !autoClickerPercentFillUnlocked && canAffordBaseCost(cost),
         buy: buyAutoClickerPercentFill
       };
@@ -278,10 +313,10 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
     percent_charge: () => {
       const cost = discountedCost(percentChargeUpgradeCost);
       return {
-        upgraded: BigInt(percentChargeLevel),
-        amount: BigInt(percentChargeNeeded),
-        cost: percentChargeNeeded <= minimumPercentChargeNeeded() ? 0n : cost,
-        max: BigInt(percentChargeLevel + Math.ceil((percentChargeNeeded - minimumPercentChargeNeeded()) / percentChargeReduction())),
+        upgraded: numberValueFromReal(percentChargeLevel),
+        amount: numberValueFromReal(percentChargeNeeded),
+        cost: percentChargeNeeded <= minimumPercentChargeNeeded() ? 0 : cost,
+        max: numberValueFromReal(percentChargeLevel + Math.ceil((percentChargeNeeded - minimumPercentChargeNeeded()) / percentChargeReduction())),
         available: !overflowed && percentUnlocked && percentChargeNeeded > minimumPercentChargeNeeded() && canAffordBaseCost(cost),
         buy: upgradePercentCharge
       };
@@ -289,21 +324,21 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
     percent_power: () => {
       const cost = percentPowerCost(percentPowerUpgradeCost, percentPowerCostCompounding);
       return {
-        upgraded: BigInt(Math.max(0, percentPower - 1)),
-        amount: BigInt(percentEffectivePower(percentPower)),
+        upgraded: numberValueFromReal(percentPowerPurchaseCount),
+        amount: numberValueFromReal(percentEffectivePower(percentPower, percentPowerPurchaseBonus)),
         cost,
-        max: 0n,
-        available: !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && canAffordBaseCost(cost),
+        max: 0,
+        available: !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && percentPowerCostAvailable(cost) && canAffordBaseCost(cost),
         buy: upgradePercentPower
       };
     },
     percent_auto: () => {
       const cost = discountedCost(percentAutoPrice);
       return {
-        upgraded: percentAutoUnlocked ? 1n : 0n,
-        amount: percentAutoUnlocked ? 1n : 0n,
-        cost: percentAutoUnlocked ? 0n : cost,
-        max: 1n,
+        upgraded: percentAutoUnlocked ? 1 : 0,
+        amount: percentAutoUnlocked ? 1 : 0,
+        cost: percentAutoUnlocked ? 0 : cost,
+        max: 1,
         available: !overflowed && percentUnlocked && !percentAutoUnlocked && canAffordBaseCost(cost),
         buy: buyPercentAuto
       };
@@ -311,10 +346,10 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
     percent_auto_speed: () => {
       const cost = discountedCost(percentAutoSpeedPrice);
       return {
-        upgraded: nLog2(percentAutoSpeedPrice / 250n),
-        amount: BigInt(percentAutoSpeed),
-        cost: percentAutoSpeed <= percentAutoMinSpeed() ? 0n : cost,
-        max: percentAutoMinSpeed() < 200 ? 5n : 4n,
+        upgraded: nLog2(divideNumberValue(percentAutoSpeedPrice, 250)),
+        amount: numberValueFromReal(percentAutoSpeed),
+        cost: percentAutoSpeed <= percentAutoMinSpeed() ? 0 : cost,
+        max: percentAutoMinSpeed() < 200 ? 5 : 4,
         available: !overflowed && percentUnlocked && percentAutoUnlocked && percentAutoSpeed > percentAutoMinSpeed() && canAffordBaseCost(cost),
         buy: upgradePercentAutoSpeed
       };
@@ -322,10 +357,10 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
     percent_line: () => {
       const cost = discountedCost(nextPercentLaneUnlockCost);
       return {
-        upgraded: BigInt(percentLaneCount - 1),
-        amount: BigInt(percentLaneCount),
-        cost: percentLaneCount >= percentLaneLimit() ? 0n : cost,
-        max: BigInt(percentLaneLimit() - 1),
+        upgraded: numberValueFromReal(percentLaneCount - 1),
+        amount: numberValueFromReal(percentLaneCount),
+        cost: percentLaneCount >= percentLaneLimit() ? 0 : cost,
+        max: numberValueFromReal(percentLaneLimit() - 1),
         available: !overflowed && percentUnlocked && percentLaneCount < percentLaneLimit() && canAffordBaseCost(cost),
         buy: unlockNextPercentLane
       };
@@ -337,23 +372,23 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
 function nSquareUpgradeAmount(id) {
   const bought = hasSquareUpgrade(id);
   const amounts = {
-    click_double: () => bought ? 2n : 1n,
-    percent_power_8: () => BigInt(percentPowerSoftcapDecayPower()),
-    percent_auto_125: () => BigInt(percentAutoMinSpeed()),
-    percent_charge_minus_16: () => BigInt(percentChargeReduction()),
+    click_double: () => bought ? 2 : 1,
+    percent_power_8: () => numberValueFromReal(percentPowerSoftcapDecayPower()),
+    percent_auto_125: () => numberValueFromReal(percentAutoMinSpeed()),
+    percent_charge_minus_16: () => numberValueFromReal(percentChargeReduction()),
     all_cost_half: () => bought ? 0.5 : 1,
     auto_parallel_64: () => autoClickerParallelCap(),
     game_speed_1_5: () => bought ? 1.5 : 1,
-    sp_gain_double: () => bought ? 2n : 1n,
+    sp_gain_double: () => bought ? 2 : 1,
     auto_upgrade_top_down: () => autoUpgradeEnabled,
     skip_cutscene: () => bought,
     restart_percent_unlock: () => bought,
-    restart_auto_4x: () => bought ? 4n : 0n,
+    restart_auto_4x: () => bought ? 4 : 0,
     restart_auto_percent_fill: () => bought,
-    restart_start_100k: () => bought ? 100000n : 0n,
-    restart_percent_lane2: () => bought ? 2n : 1n
+    restart_start_100k: () => numberValueFromReal(bought ? 100000 : 0),
+    restart_percent_lane2: () => numberValueFromReal(bought ? 2 : 1)
   };
-  return (amounts[id] ?? (() => bought ? 1n : 0n))();
+  return (amounts[id] ?? (() => bought ? 1 : 0))();
 }
 
 function nSquareUpgradeSnapshot(rawUpgrade, node) {
@@ -362,10 +397,10 @@ function nSquareUpgradeSnapshot(rawUpgrade, node) {
   if (!upgrade) nLanguageError(`알 수 없는 square 업그레이드 '${rawUpgrade}'`, node);
   const bought = hasSquareUpgrade(id);
   return {
-    upgraded: bought ? 1n : 0n,
+    upgraded: numberValueFromReal(bought ? 1 : 0),
     amount: nSquareUpgradeAmount(id),
-    cost: bought ? 0n : upgrade.cost,
-    max: 1n,
+    cost: bought ? 0 : upgrade.cost,
+    max: 1,
     available: squareUnlocked && !bought && compareNumberValues(squarePoints, upgrade.cost) >= 0,
     buy: () => buySquareUpgrade(id)
   };
@@ -373,19 +408,19 @@ function nSquareUpgradeSnapshot(rawUpgrade, node) {
 
 function nBreakthroughUpgradeAmount(id, level) {
   if (id === 'black_hole') return level > 0 ? 2 * dysonEffectNumber() : 1;
-  if (id === 'extra_investment') return affectedBigIntMultiplier(2, level);
-  if (id === 'tas') return BigInt(autoClickerMinSpeed());
+  if (id === 'extra_investment') return affectedNumberMultiplierValue(2, level);
+  if (id === 'tas') return numberValueFromReal(autoClickerMinSpeed());
   if (id === 'invisible_hand') return autoUpgradeSpeedMultiplier();
-  if (id === 'overclock') return BigInt(4 * dysonEffectNumber() * level);
+  if (id === 'overclock') return numberValueFromReal(4 * dysonEffectNumber() * level);
   if (id === 'deflation') return level > 0 ? 0.1 : 1;
-  if (id === 'doctor_octopus') return affectedBigIntMultiplier(8, level);
-  if (id === 'solid_start') return level > 0 ? 2000000n : 0n;
-  if (id === 'overcharge') return BigInt(minimumPercentChargeNeeded());
-  if (id === 'gregtech') return affectedBigIntMultiplier(2, level);
+  if (id === 'doctor_octopus') return affectedNumberMultiplierValue(8, level);
+  if (id === 'solid_start') return level > 0 ? 2000000 : 0;
+  if (id === 'overcharge') return numberValueFromReal(minimumPercentChargeNeeded());
+  if (id === 'gregtech') return affectedNumberMultiplierValue(2, level);
   if (id === 'bottleneck_tracker') return percentEfficiencyMultiplier();
-  if (id === 'percent_expansion') return BigInt(percentLaneLimit());
+  if (id === 'percent_expansion') return numberValueFromReal(percentLaneLimit());
   if (id === 'dyson_swarm') return dysonEffectMultiplier();
-  return BigInt(level);
+  return numberValueFromReal(level);
 }
 
 function nBreakthroughUpgradeSnapshot(rawUpgrade, node) {
@@ -403,11 +438,14 @@ function nBreakthroughUpgradeSnapshot(rawUpgrade, node) {
   const max = squareBreakthroughMax(upgrade);
   const cost = squareBreakthroughCost(upgrade);
   return {
-    upgraded: BigInt(level),
+    upgraded: numberValueFromReal(level),
     amount: nBreakthroughUpgradeAmount(id, level),
-    cost: cost ?? 0n,
-    max: BigInt(max),
-    available: canOpenSquareBreakthrough() && cost !== null && compareNumberValues(squarePoints, cost) >= 0,
+    cost: cost ?? 0,
+    max: numberValueFromReal(max),
+    available: canOpenSquareBreakthrough()
+      && !(id === 'dyson_swarm' && isKnuthChallengeActive('kc1'))
+      && cost !== null
+      && compareNumberValues(squarePoints, cost) >= 0,
     buy: () => buySquareBreakthroughUpgrade(id)
   };
 }
@@ -417,17 +455,22 @@ function nConvergenceUpgradeSnapshot(rawUpgrade, node) {
   const upgrade = SQUARE_CONVERGENCE_UPGRADES.find(item => item.id === id);
   if (!upgrade) nLanguageError(`알 수 없는 square_convergence 업그레이드 '${rawUpgrade}'`, node);
   const bought = hasSquareConvergenceUpgrade(id);
+  const level = squareConvergenceUpgradeLevel(id);
+  const max = upgrade.max ?? (upgrade.repeatable ? 0 : 1);
+  const finished = max > 0 && (upgrade.max ? level >= max : bought);
+  const cost = finished ? 0 : squareConvergenceUpgradeCost(upgrade);
   const amounts = {
-    timium: () => bought ? 2048n : 1n,
-    galaxium: () => bought ? 2048n : 1n,
-    automatium: () => bought
+    timium: () => bought ? 2048 : 1,
+    galaxium: () => bought ? 2048 : 1,
+    automatium: () => bought,
+    cp_gain_5x: () => NumberMath.power(5, level)
   };
   return {
-    upgraded: bought ? 1n : 0n,
+    upgraded: numberValueFromReal(level),
     amount: (amounts[id] ?? (() => bought))(),
-    cost: bought ? 0n : upgrade.cost,
-    max: 1n,
-    available: canOpenSquareConvergence() && !bought && compareNumberValues(squareConvergencePoints, upgrade.cost) >= 0,
+    cost,
+    max,
+    available: canOpenSquareConvergence() && !finished && compareNumberValues(squareConvergencePoints, cost) >= 0,
     buy: () => buySquareConvergenceUpgrade(id)
   };
 }
@@ -438,10 +481,10 @@ function nGeneralizationResearchSnapshot(rawResearch, node) {
   if (!research) nLanguageError(`알 수 없는 일반화 연구 '${rawResearch}'`, node);
   const bought = hasGeneralizationResearch(id);
   return {
-    upgraded: bought ? 1n : 0n,
-    amount: bought ? 1n : 0n,
-    cost: bought ? 0n : research.theoryCost,
-    max: 1n,
+    upgraded: bought ? 1 : 0,
+    amount: bought ? 1 : 0,
+    cost: bought ? 0 : research.theoryCost,
+    max: 1,
     available: canResearchGeneralization(id),
     buy: () => researchGeneralization(id)
   };
@@ -456,12 +499,35 @@ function nTheoryPurchaseSnapshot(rawResource, node) {
     upgraded: totalTheoryPurchased,
     amount: theory,
     cost,
-    max: 0n,
+    max: 0,
     available: canOpenSquareConvergence() && canAffordTheoryResource(resourceIndex),
     buy: () => {
       theoryCostResourceIndex = resourceIndex;
       return researchTheory();
     }
+  };
+}
+
+function nDivergerUpgradeSnapshot(rawUpgrade, node) {
+  const id = normalizeNName(rawUpgrade);
+  const upgrades = {
+    a: { level: divergerALevel, amount: divergerA, cost: divergerACpCost, max: 0, buy: buyDivergerAUpgrade },
+    b: { level: divergerBLevel, amount: divergerB, cost: divergerBCpCost, max: 0, buy: buyDivergerBUpgrade },
+    c: { level: divergerCLevel, amount: divergerC, cost: divergerCCpCost, max: DIVERGER_C_MAX, buy: buyDivergerCUpgrade },
+    speed: { level: divergerSpeedLevel, amount: divergerInterval, cost: divergerSpeedCpCost,
+      max: 0, buy: buyDivergerSpeedUpgrade }
+  };
+  const upgrade = upgrades[id];
+  if (!upgrade) nLanguageError(`알 수 없는 diverger 업그레이드 '${rawUpgrade}'`, node);
+  const atMaximum = id === 'c' ? divergerC >= DIVERGER_C_MAX
+    : id === 'speed' ? divergerInterval <= divergerMinInterval() : false;
+  return {
+    upgraded: numberValueFromReal(upgrade.level),
+    amount: upgrade.amount,
+    cost: atMaximum ? 0 : upgrade.cost,
+    max: numberValueFromReal(id === 'speed' ? divergerSpeedLevelFromInterval(divergerMinInterval()) : upgrade.max),
+    available: divergerAutoUpgradeAvailable() && !atMaximum && divergerCanAfford(upgrade.cost),
+    buy: () => divergerAutoUpgradeAvailable() && upgrade.buy()
   };
 }
 
@@ -477,7 +543,8 @@ function nUpgradeSnapshot(rawKind, rawUpgrade, node, rawUpgradeIndex = null) {
     cp: 'square_convergence',
     generalization: 'generalization',
     gz: 'generalization',
-    theory: 'theory'
+    theory: 'theory',
+    diverger: 'diverger'
   };
   const kind = aliases[normalizeNName(rawKind)];
   if (!kind) nLanguageError(`알 수 없는 업그레이드 종류 '${rawKind}'`, node);
@@ -489,6 +556,7 @@ function nUpgradeSnapshot(rawKind, rawUpgrade, node, rawUpgradeIndex = null) {
   if (kind === 'square_break') return nBreakthroughUpgradeSnapshot(rawUpgrade, node);
   if (kind === 'generalization') return nGeneralizationResearchSnapshot(rawUpgrade, node);
   if (kind === 'theory') return nTheoryPurchaseSnapshot(rawUpgrade, node);
+  if (kind === 'diverger') return nDivergerUpgradeSnapshot(rawUpgrade, node);
   return nConvergenceUpgradeSnapshot(rawUpgrade, node);
 }
 
@@ -525,23 +593,44 @@ const automatiumGameAdapter = {
 
   buy(kind, upgrade, upgradeIndex, node) {
     const bulkEnabled = hasGeneralizationResearch('3-4');
-    const purchaseLimit = bulkEnabled
-      ? Math.min(
-        automatiumBulkPurchasesRemaining,
-        automaticUpgradeBatchSizeForElapsed(AUTOMATIUM_TICK_MS)
-      )
-      : 1;
-    let purchased = 0;
-
-    while (purchased < purchaseLimit) {
-      // 가격과 최대 단계는 구매마다 변하므로 스냅샷도 매번 새로 계산한다.
-      const snapshot = nUpgradeSnapshot(kind, upgrade, node, upgradeIndex);
-      if (!snapshot.available || snapshot.buy() !== true) break;
-      purchased++;
+    automatiumBudgetYieldRequested = false;
+    if (bulkEnabled && (automatiumBulkRemaining <= 0 || gameClockNowMs() >= automatiumBulkDeadline)) {
+      automatiumBudgetYieldRequested = true;
+      return false;
     }
+    let snapshot = nUpgradeSnapshot(kind, upgrade, node, upgradeIndex);
+    if (!snapshot.available) return false;
+    if (!bulkEnabled) return snapshot.buy() === true;
 
-    if (bulkEnabled) automatiumBulkPurchasesRemaining -= purchased;
+    const reusablePercentPower = normalizeNName(kind) === 'base'
+      && normalizeNName(upgrade) === 'percent_power';
+    const limit = Math.min(AUTOMATIUM_BULK_MAX_PER_COMMAND, automatiumBulkRemaining);
+    let purchased = 0;
+    let resourceBefore = reusablePercentPower ? getBaseNumber() : null;
+    while (purchased < limit && snapshot.available) {
+      if (snapshot.buy() !== true) break;
+      purchased++;
+      if (reusablePercentPower) {
+        if (purchased % 16 === 0) {
+          const nextSnapshot = nUpgradeSnapshot(kind, upgrade, node, upgradeIndex);
+          if (compareNumberValues(nextSnapshot.cost, snapshot.cost) <= 0
+            && compareNumberValues(getBaseNumber(), resourceBefore) >= 0) break;
+          snapshot = nextSnapshot;
+          resourceBefore = getBaseNumber();
+        }
+      } else {
+        snapshot = nUpgradeSnapshot(kind, upgrade, node, upgradeIndex);
+      }
+      if (purchased % 4 === 0 && gameClockNowMs() >= automatiumBulkDeadline) break;
+    }
+    automatiumBulkRemaining -= purchased;
     return purchased > 0;
+  },
+
+  consumeBudgetYield() {
+    const requested = automatiumBudgetYieldRequested;
+    automatiumBudgetYieldRequested = false;
+    return requested;
   },
 
   square(statement, requestedSp = null, programId = null) {
@@ -582,6 +671,7 @@ function automatiumGameAdapterFor(programId) {
     click: (...args) => automatiumGameAdapter.click(...args),
     get: (...args) => automatiumGameAdapter.get(...args),
     buy: (...args) => automatiumGameAdapter.buy(...args),
+    consumeBudgetYield: (...args) => automatiumGameAdapter.consumeBudgetYield(...args),
     square: (statement, target) => automatiumGameAdapter.square(statement, target, programId),
     cp: (...args) => automatiumGameAdapter.cp(...args)
   };
@@ -780,8 +870,13 @@ buy base percent_auto[2]
 buy generalization 2-2
 buy gz 3-1 s
 buy theory sp
-buy theory cp s</code></pre>
+buy theory cp s
+buy diverger a
+buy diverger b
+buy diverger c
+buy diverger speed s</code></pre>
     <p><code>generalization</code>은 <code>gz</code>로 줄여 쓸 수 있습니다. <code>buy theory sp</code>와 <code>buy theory cp</code>는 지정한 화폐로 이론을 구매합니다. <code>buy</code>는 구매할 수 없으면 다음 줄로 넘어가며, 끝에 <code>s</code>를 붙이면 구매 가능할 때까지 현재 프로그램만 대기합니다. 일반화 연구 3-4가 있으면 자동 구매 가속량만큼 한 틱에 여러 번 구매할 수 있습니다.</p>
+    <p>추상화 연구 7-1 이후 <code>buy diverger a/b/c/speed</code>로 발산자를 CP로 강화합니다. 실제 명령에는 하나의 ID만 적습니다. <code>get.diverger.a.cost</code>, <code>get.diverger.b.amount</code> 등 기존 조회 문법도 지원합니다. 속도의 <code>amount</code>는 현재 간격(ms), <code>max</code>는 현재 하한 기준 최대 구매 횟수입니다. a와 b의 <code>max</code>는 제한 없음을 뜻하는 0입니다. 발산자 자동 강화 토글과 N 프로그램은 별도로 작동합니다.</p>
 
     <h4>숫자 클릭</h4>
     <pre><code>click
@@ -914,6 +1009,13 @@ function automatiumUpgradeIdRows() {
     indexNote: '구매: buy generalization ID 또는 buy gz ID'
   })));
 
+  rows.push(...['a', 'b', 'c', 'speed'].map(id => ({
+    kind: 'diverger', kindLabel: '발산자',
+    title: id === 'speed' ? '발산자 속도 강화' : `발산자 ${id} 강화`,
+    id, rawId: id, indexed: false, aliases: [],
+    indexNote: '추상화 7-1 필요 · CP 구매'
+  })));
+
   rows.push(
     {
       kind: 'theory',
@@ -974,10 +1076,13 @@ function automatiumProgramExamplesList() {
     .filter(upgrade => !upgrade.indexed)
     .map(upgrade => `    buy base ${upgrade.id}`)
     .join('\n');
-  const baseIndexedIds = N_BASE_UPGRADE_GUIDE
-    .filter(upgrade => upgrade.indexed)
-    .map(upgrade => `        buy base ${upgrade.id}[lane]`)
-    .join('\n');
+  const baseIndexedIds = Array.from({ length: MAX_PERCENT_LANES }, (_, index) => {
+    const laneNumber = index + 1;
+    return N_BASE_UPGRADE_GUIDE
+      .filter(upgrade => upgrade.indexed)
+      .map(upgrade => `    buy base ${upgrade.id}[${laneNumber}]`)
+      .join('\n');
+  }).join('\n');
   const squareCommands = SQUARE_UPGRADES
     .map(upgrade => `    buy square ${upgrade.id}`)
     .join('\n');
@@ -992,21 +1097,11 @@ function automatiumProgramExamplesList() {
     {
       id: 'all_base',
       title: '모든 기본 업글 자동 구매',
-      description: '구매 가능한 베이스 업그레이드와 1~16번 퍼센트 레인의 업그레이드를 반복해서 확인합니다.',
+      description: `구매 가능한 베이스 업그레이드와 1~${MAX_PERCENT_LANES}번 퍼센트 레인의 업그레이드를 반복해서 확인합니다. SP 교환은 하지 않습니다.`,
       source: `// 모든 기본 업그레이드 자동 구매
-lane = number
-lane = 1
-
 while true {
 ${baseSingleIds}
-
-    lane = 1
-    for ${MAX_PERCENT_LANES} {
 ${baseIndexedIds}
-        lane = lane + 1
-    }
-
-    square
 }`
     },
     {
@@ -1038,6 +1133,54 @@ while true {
 ${convergenceCommands}
     cp s
 }`
+    },
+    {
+      id: 'all_diverger',
+      title: '모든 발산자 업글 자동 구매',
+      description: '추상화 7-1 이후 a, b, c, 속도 강화를 CP로 반복 구매합니다.',
+      source: `// 추상화 7-1 필요
+while true {
+    buy diverger a
+    buy diverger b
+    buy diverger c
+    buy diverger speed
+}`
+    },
+    {
+      id: 'generalization_to_knuth',
+      title: '이론 구매와 일반화 8-1 자동 연구',
+      description: 'CP를 한 번 이상 얻은 뒤 사용합니다. 보유 SP·CP로 이론과 8-1의 필수 선행 연구를 구매합니다. SP·CP 교환은 하지 않으며, 8-1 구매 후 종료합니다.',
+      source: `// CP 획득 후 실행. 다른 프로그램에서 재화를 생산해도 됩니다.
+// 불필요한 선택 연구는 건너뛰고, 연구에 먼저 이론을 사용합니다.
+while true {
+    buy gz 1-1
+    buy gz 2-1
+    buy gz 2-2
+    buy gz 2-4
+    buy gz 3-1
+    buy gz 3-2
+    buy gz 3-4
+    buy gz 4-1
+    buy gz 4-2
+    buy gz 4-3
+    buy gz 4-4
+    buy gz 5-1
+    buy gz 5-3
+    buy gz 5-4
+    buy gz 6-1
+    buy gz 6-2
+    buy gz 7-1
+    buy gz 7-2
+
+    // 선행 연구를 구매하고도 이론 160개가 남으면 마지막 연구로 이동
+    if get.theory.sp.amount >= 160 {
+        break
+    }
+    buy theory sp
+    buy theory cp
+    wait 100ms
+}
+buy gz 8-1 s`
     },
     {
       id: 'target_sp',
@@ -1116,7 +1259,14 @@ function nAutocompleteUpgradeRows(kind) {
       { rawId: 'cp', title: 'CP로 이론 구매', indexed: false }
     ];
   }
-  return automatiumUpgradeIdRows().filter(row => row.kind === kind);
+  return automatiumUpgradeIdRows()
+    .filter(row => row.kind === kind)
+    .flatMap(row => [
+      row,
+      ...(kind === 'base'
+        ? row.aliases.map(alias => ({ ...row, id: alias, rawId: alias }))
+        : [])
+    ]);
 }
 
 function nAutocompleteVariables(source) {
@@ -1204,7 +1354,8 @@ function nAutocompleteContext() {
         { label: 'base', insert: 'base.', detail: '베이스 업그레이드' },
         { label: 'square', insert: 'square.', detail: '제곱 업그레이드' },
         { label: 'square_break', insert: 'square_break.', detail: '제곱돌파 업그레이드' },
-        { label: 'square_convergence', insert: 'square_convergence.', detail: '제곱 수렴 업그레이드' }
+        { label: 'square_convergence', insert: 'square_convergence.', detail: '제곱 수렴 업그레이드' },
+        { label: 'diverger', insert: 'diverger.', detail: '발산자 강화 · 추상화 7-1' }
       ];
       return { start: replaceStart, end: cursor, items: nAutocompleteMatches(candidates, prefix) };
     }
@@ -1269,7 +1420,8 @@ function nAutocompleteContext() {
         { label: 'square_convergence', insert: 'square_convergence ', detail: '제곱 수렴 업그레이드' },
         { label: 'generalization', insert: 'generalization ', detail: '일반화 연구' },
         { label: 'gz', insert: 'gz ', detail: '일반화 연구 단축어' },
-        { label: 'theory', insert: 'theory ', detail: '이론 구매 화폐 선택' }
+        { label: 'theory', insert: 'theory ', detail: '이론 구매 화폐 선택' },
+        { label: 'diverger', insert: 'diverger ', detail: '발산자 강화 · 추상화 7-1' }
       ];
       return { start, end: cursor, items: nAutocompleteMatches(kinds, kindPrefix) };
     }
@@ -1340,6 +1492,46 @@ function hideAutomatiumAutocomplete() {
   automatiumAutocomplete.innerHTML = '';
 }
 
+function positionAutomatiumAutocomplete() {
+  if (!automatiumSourceWrap || !automatiumCaretMirror || automatiumAutocomplete.classList.contains('hidden')) return;
+
+  const sourceStyle = window.getComputedStyle(automatiumSource);
+  const sourceRect = automatiumSource.getBoundingClientRect();
+  const wrapRect = automatiumSourceWrap.getBoundingClientRect();
+  automatiumCaretMirror.style.width = `${automatiumSource.clientWidth}px`;
+  automatiumCaretMirror.style.height = `${automatiumSource.clientHeight}px`;
+  automatiumCaretMirror.style.padding = sourceStyle.padding;
+  automatiumCaretMirror.style.fontFamily = sourceStyle.fontFamily;
+  automatiumCaretMirror.style.fontSize = sourceStyle.fontSize;
+  automatiumCaretMirror.style.fontWeight = sourceStyle.fontWeight;
+  automatiumCaretMirror.style.fontStyle = sourceStyle.fontStyle;
+  automatiumCaretMirror.style.lineHeight = sourceStyle.lineHeight;
+  automatiumCaretMirror.style.letterSpacing = sourceStyle.letterSpacing;
+  automatiumCaretMirror.style.wordSpacing = sourceStyle.wordSpacing;
+  automatiumCaretMirror.style.tabSize = sourceStyle.tabSize;
+  automatiumCaretMirror.textContent = automatiumSource.value.slice(0, automatiumSource.selectionStart);
+
+  const marker = document.createElement('span');
+  marker.textContent = '\u200b';
+  automatiumCaretMirror.appendChild(marker);
+  const markerRect = marker.getBoundingClientRect();
+  const caretTop = markerRect.top - sourceRect.top - automatiumSource.scrollTop;
+  const caretLeft = markerRect.left - sourceRect.left - automatiumSource.scrollLeft;
+  const popupWidth = Math.min(280, Math.max(0, wrapRect.width - 12));
+  const left = Math.max(4, Math.min(caretLeft, wrapRect.width - popupWidth - 4));
+  automatiumAutocomplete.style.width = `${popupWidth}px`;
+  automatiumAutocomplete.style.left = `${left}px`;
+  automatiumAutocomplete.style.right = 'auto';
+
+  const popupHeight = automatiumAutocomplete.offsetHeight;
+  const lineHeight = Number.parseFloat(sourceStyle.lineHeight) || 22;
+  let top = caretTop - popupHeight - 6;
+  if (top < 4) top = caretTop + lineHeight + 4;
+  top = Math.min(top, Math.max(4, wrapRect.height - popupHeight - 4));
+  automatiumAutocomplete.style.top = `${Math.max(4, top)}px`;
+  automatiumAutocomplete.style.bottom = 'auto';
+}
+
 function renderAutomatiumAutocomplete() {
   const context = nAutocompleteContext();
   if (!context || context.items.length === 0 || activeAutomatiumTab !== 'editor') {
@@ -1369,6 +1561,7 @@ function renderAutomatiumAutocomplete() {
     automatiumAutocomplete.appendChild(button);
   }
   automatiumAutocomplete.classList.remove('hidden');
+  positionAutomatiumAutocomplete();
 }
 
 function applyAutomatiumAutocomplete(index = automatiumAutocompleteIndex) {
@@ -1457,6 +1650,79 @@ function renderAutomatiumProgramList() {
   }
 }
 
+function createAutomatiumQuickProgramRow(program) {
+  const row = document.createElement('div');
+  row.className = 'automatium-quick-row';
+
+  const selectButton = document.createElement('button');
+  selectButton.className = 'automatium-quick-select';
+  selectButton.type = 'button';
+  selectButton.addEventListener('click', () => {
+    selectedAutomatiumProgramId = program.id;
+    if (automatiumWorkspace.classList.contains('hidden')) openAutomatiumEditor();
+    else renderAutomatiumUi({ syncEditor: true });
+  });
+
+  const name = document.createElement('span');
+  name.className = 'automatium-quick-name';
+  const state = document.createElement('span');
+  state.className = 'automatium-quick-state';
+  selectButton.append(name, state);
+
+  const toggle = document.createElement('button');
+  toggle.className = 'automatium-quick-toggle';
+  toggle.type = 'button';
+  toggle.addEventListener('click', () => toggleAutomatiumProgram(program.id));
+
+  row.append(selectButton, toggle);
+  const ui = { row, selectButton, name, state, toggle };
+  automatiumQuickProgramUi.set(program.id, ui);
+  return ui;
+}
+
+function renderAutomatiumQuickProgramList() {
+  if (!automatiumQuickProgramList) return;
+
+  const currentIds = new Set(automatiumPrograms.map(program => program.id));
+  for (const [programId, ui] of automatiumQuickProgramUi) {
+    if (currentIds.has(programId)) continue;
+    ui.row.remove();
+    automatiumQuickProgramUi.delete(programId);
+  }
+
+  for (const [index, program] of automatiumPrograms.entries()) {
+    const ui = automatiumQuickProgramUi.get(program.id) ?? createAutomatiumQuickProgramRow(program);
+    const expectedNode = automatiumQuickProgramList.children[index] ?? null;
+    if (expectedNode !== ui.row) automatiumQuickProgramList.insertBefore(ui.row, expectedNode);
+
+    const status = automatiumStatus(program);
+    ui.row.classList.toggle('selected', program.id === selectedAutomatiumProgramId);
+    ui.name.textContent = program.name;
+    ui.state.className = `automatium-quick-state ${status.tone}`;
+    ui.state.textContent = status.label;
+    ui.selectButton.title = `${program.name} 편집`;
+    ui.toggle.className = `automatium-quick-toggle ${program.enabled ? 'on' : 'off'}`;
+    ui.toggle.textContent = program.enabled ? 'ON' : 'OFF';
+    ui.toggle.title = `${program.name} ${program.enabled ? '끄기' : '켜기'}`;
+    ui.toggle.setAttribute('aria-label', `${program.name} ${program.enabled ? '끄기' : '켜기'}`);
+    ui.toggle.setAttribute('aria-pressed', String(program.enabled));
+    ui.toggle.disabled = !hasSquareConvergenceUpgrade('automatium');
+  }
+
+  if (automatiumPrograms.length === 0) {
+    if (!automatiumQuickEmptyListElement) {
+      automatiumQuickEmptyListElement = document.createElement('div');
+      automatiumQuickEmptyListElement.className = 'automatium-quick-empty';
+      automatiumQuickEmptyListElement.textContent = '저장된 프로그램 없음';
+    }
+    if (automatiumQuickEmptyListElement.parentElement !== automatiumQuickProgramList) {
+      automatiumQuickProgramList.appendChild(automatiumQuickEmptyListElement);
+    }
+  } else if (automatiumQuickEmptyListElement?.parentElement === automatiumQuickProgramList) {
+    automatiumQuickEmptyListElement.remove();
+  }
+}
+
 function renderAutomatiumEditorStatus() {
   const program = selectedAutomatiumProgram();
   if (!program) {
@@ -1486,7 +1752,11 @@ function syncAutomatiumEditor() {
 }
 
 function renderAutomatiumUi({ syncEditor = false } = {}) {
-  if (!automatiumWorkspace || automatiumWorkspace.classList.contains('hidden')) return;
+  renderAutomatiumQuickProgramList();
+  if (!automatiumWorkspace || automatiumWorkspace.classList.contains('hidden')) {
+    automatiumUiDirty = false;
+    return;
+  }
   renderAutomatiumProgramList();
   if (syncEditor) syncAutomatiumEditor();
   else renderAutomatiumEditorStatus();
@@ -1615,17 +1885,22 @@ function closeAutomatiumEditor() {
 }
 
 function renderAutomatiumAccess() {
-  if (!hasSquareConvergenceUpgrade('automatium')) {
+  const unlocked = hasSquareConvergenceUpgrade('automatium');
+  automatiumQuickPanel?.classList.toggle('hidden', !unlocked);
+  if (automatiumUiDirty) renderAutomatiumQuickProgramList();
+  if (!unlocked) {
     if (!automatiumWorkspace.classList.contains('hidden')) closeAutomatiumEditor();
   }
 }
 
 function runAutomatiumTick() {
+  const { now: tickAt } = elapsedRealTimeSince(automatiumLastTickAt);
+  automatiumLastTickAt = tickAt;
+  automatiumBulkRemaining = AUTOMATIUM_BULK_MAX_PER_TICK;
+  automatiumBulkDeadline = tickAt + AUTOMATIUM_BULK_TICK_BUDGET_MS;
   if (!hasSquareConvergenceUpgrade('automatium')) return;
   const enabledPrograms = automatiumPrograms.filter(program => program.enabled);
   if (enabledPrograms.length === 0) return;
-
-  automatiumBulkPurchasesRemaining = AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
 
   const blockedThisTick = new Set();
   const now = Date.now();
@@ -1675,6 +1950,9 @@ function runAutomatiumTick() {
         if (event.kind === 'blocked') {
           setAutomatiumRuntimeStatus(program.id, 'blocked', event.message);
           blockedThisTick.add(program.id);
+        } else if (event.kind === 'budget') {
+          setAutomatiumRuntimeStatus(program.id, 'waiting', event.message);
+          blockedThisTick.add(program.id);
         } else if (event.kind === 'wait-ticks') {
           execution.waitTicks = event.ticks;
           setAutomatiumRuntimeStatus(program.id, 'waiting', `${event.ticks}틱 대기`);
@@ -1699,6 +1977,13 @@ for (const program of automatiumPrograms) {
   if (program.enabled) startAutomatiumProgram(program);
 }
 
+automatiumQuickEditorBtn.addEventListener('click', openAutomatiumEditor);
+automatiumQuickCollapseBtn.addEventListener('click', () => {
+  const collapsed = automatiumQuickPanel.classList.toggle('collapsed');
+  automatiumQuickCollapseBtn.textContent = collapsed ? '+' : '−';
+  automatiumQuickCollapseBtn.title = collapsed ? '목록 펼치기' : '목록 접기';
+  automatiumQuickCollapseBtn.setAttribute('aria-expanded', String(!collapsed));
+});
 automatiumCloseBtn.addEventListener('click', closeAutomatiumEditor);
 automatiumNewBtn.addEventListener('click', createAutomatiumProgram);
 automatiumRenameBtn.addEventListener('click', renameSelectedAutomatiumProgram);
@@ -1720,6 +2005,8 @@ automatiumSource.addEventListener('input', () => {
   renderAutomatiumAutocomplete();
 });
 automatiumSource.addEventListener('click', renderAutomatiumAutocomplete);
+automatiumSource.addEventListener('scroll', positionAutomatiumAutocomplete);
+window.addEventListener('resize', positionAutomatiumAutocomplete);
 automatiumSource.addEventListener('keydown', event => {
   const autocompleteVisible = !automatiumAutocomplete.classList.contains('hidden') && automatiumAutocompleteItems.length > 0;
   if (autocompleteVisible && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
@@ -1779,4 +2066,5 @@ setInterval(() => {
 renderAutomatiumDocs();
 renderAutomatiumUpgradeIds();
 renderAutomatiumExamples();
+renderAutomatiumQuickProgramList();
 setAutomatiumTab(activeAutomatiumTab);
