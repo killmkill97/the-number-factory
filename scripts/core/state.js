@@ -50,6 +50,20 @@ let knuthRunStartedAtMs = Date.now();
 let shortestKnuthRealSeconds = null;
 let longestKnuthRealSeconds = null;
 let pendingKnuthCompletionSeconds = null;
+function makeAchievementRunProgress(known = true) {
+  return {
+    version: 1,
+    knuthKnown: known,
+    convergenceKnown: known,
+    manualGameplay: false,
+    manualSpExchange: false,
+    percentUsedKnuth: false,
+    percentUsedConvergence: false,
+    productionUnlocked: false
+  };
+}
+let achievementRunProgress = makeAchievementRunProgress();
+let pendingAchievementKnuthRun = null;
 let squareSincePrestigeGameSeconds = 0;
 let knuthPercentOverflow = 0;
 let activeKnuthChallengeId = null;
@@ -1445,6 +1459,7 @@ function toggleKnuthUpgrade(id) {
   if (knuthSlotsUsed() + upgrade.slots > knuthSlotCapacity()) return false;
 
   knuthEquippedUpgradeIds.add(id);
+  if (typeof observeAchievementProductionUnlocks === 'function') observeAchievementProductionUnlocks();
   render();
   return true;
 }
@@ -2596,6 +2611,7 @@ function percentUseGain(value, power, purchaseBonus = 0) {
 function applyPercentUse(value, power, source, purchaseBonus = 0) {
   const gain = percentUseGain(value, power, purchaseBonus);
   if (!isPositiveNumberValue(gain)) return 0;
+  if (typeof recordAchievementPercentUse === 'function') recordAchievementPercentUse();
   addToBaseNumber(gain, source, power, purchaseBonus, percentPreExponentMultiplier(value), percentProductionExponent());
   return gain;
 }
@@ -2827,6 +2843,7 @@ function calculatePercentUsesBatch(power, uses, source, purchaseBonus = 0) {
 
   const before = getBaseNumber();
   if (!isPositiveNumberValue(percentUseGain(before, power, purchaseBonus))) return false;
+  if (typeof recordAchievementPercentUse === 'function') recordAchievementPercentUse();
 
   let value = before;
   const exactSteps = Math.min(count, PERCENT_USE_BULK_EXACT_LIMIT);
@@ -3368,6 +3385,7 @@ function collectSquareConvergenceIfReady() {
 
   squarePoints = 0;
   squareConvergencePoints = addBaseNumbers(squareConvergencePoints, gainedConvergencePoints);
+  if (typeof recordAchievementConvergence === 'function') recordAchievementConvergence();
   hasEverEarnedSquareConvergencePoint = true;
   if (hasGeneralizationResearch('4-4')) {
     squarePoints = addBaseNumbers(squarePoints, GENERALIZATION_CONVERGENCE_SP_REWARD);
@@ -4021,6 +4039,7 @@ function researchGeneralization(id, { renderAfter = true } = {}) {
 
   theory = subtractNumberValues(theory, research.theoryCost);
   generalizationResearchState[id] = true;
+  if (typeof observeAchievementProductionUnlocks === 'function') observeAchievementProductionUnlocks();
   if (id === '7-2') {
     squareDimensionAutoUpgradeEnabled = true;
     squareDimensionAutoUpgradeTimer = 0;
@@ -4151,6 +4170,8 @@ function resetProgressForNewKnuthRun() {
   squareRunGameSeconds = 0;
   knuthRunStartedAtMs = Date.now();
   pendingKnuthCompletionSeconds = null;
+  achievementRunProgress = makeAchievementRunProgress();
+  pendingAchievementKnuthRun = null;
   resetSquarePrestigeCycleTime();
   knuthPercentOverflow = 0;
   resetSquareUpgradeState();
@@ -4272,6 +4293,10 @@ function forceCompleteKnuthChallengeForDev(id) {
 
 function claimKnuthPoint() {
   if (!pendingKnuthPointClaim) return false;
+  if (typeof recordAchievementKnuthReward === 'function') {
+    recordAchievementKnuthReward(1, pendingKnuthCompletionSeconds, pendingAchievementKnuthRun);
+  }
+  pendingAchievementKnuthRun = null;
   knuthPoints = addBaseNumbers(knuthPoints, 1);
   hasClaimedKnuthPoint = true;
   recordKnuthCompletion(pendingKnuthCompletionSeconds);
@@ -4310,16 +4335,24 @@ function exchangeKnuthPointsManually() {
 }
 
 function beginKnuthPrestige() {
-  const claimedBefore = hasClaimedKnuthPoint;
   const completionSeconds = knuthRunRealSeconds();
+  if (typeof updateAchievements === 'function') updateAchievements();
+  const claimedBefore = hasClaimedKnuthPoint;
   if (claimedBefore && !activeKnuthChallengeId) recordKnuthCompletion(completionSeconds);
   const gainedKnuthPoints = knuthPointGain();
+  const achievementRun = typeof snapshotAchievementKnuthRun === 'function'
+    ? snapshotAchievementKnuthRun()
+    : null;
+  if (claimedBefore && typeof recordAchievementKnuthReward === 'function') {
+    recordAchievementKnuthReward(gainedKnuthPoints, completionSeconds, achievementRun);
+  }
   activeKnuthChallengeId = null;
   knuthChallengeDysonSwarmMaxAtEntry = 8;
   resetProgressForNewKnuthRun();
   knuthUnlocked = true;
   pendingKnuthPointClaim = !claimedBefore;
   if (!claimedBefore) pendingKnuthCompletionSeconds = completionSeconds;
+  if (!claimedBefore) pendingAchievementKnuthRun = achievementRun;
   if (claimedBefore) {
     knuthPoints = addBaseNumbers(knuthPoints, gainedKnuthPoints);
     applyAbstractionResetOnKnuthPoint();

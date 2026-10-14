@@ -3,6 +3,9 @@ const ACHIEVEMENT_ONE_SEXTILLION = NumberMath.powerOfTen(21);
 const ACHIEVEMENT_E9000 = NumberMath.powerOfTen(9000);
 const ACHIEVEMENT_NO_UNIT_MINIMUM = NumberMath.powerOfTen(30);
 const ACHIEVEMENT_NO_UNIT_MAXIMUM = NumberMath.powerOfTen(33);
+const ACHIEVEMENT_SECONDS_PER_YEAR = 365.25 * 24 * 60 * 60;
+const ACHIEVEMENT_UNIVERSE_AGE_SECONDS = multiplyNumberValue(13800000000, ACHIEVEMENT_SECONDS_PER_YEAR);
+const ACHIEVEMENT_INFINITE_YEAR_SECONDS = multiplyNumberValue('1.8e308', ACHIEVEMENT_SECONDS_PER_YEAR);
 const ACHIEVEMENT_OBFUSCATION_GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*+=?<>[]{}';
 const ACHIEVEMENT_CARD_CLICK_COUNT_KEY = 'numberTycoonAchievementCardClickCounts_v1';
 const ANSAN_RAIN_WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=37.3333&longitude=126.7956&current=rain,showers&timezone=Asia%2FSeoul';
@@ -150,6 +153,143 @@ const ACHIEVEMENTS = [
     title: '하이퍼 연산',
     description: 'KP 1개를 얻으세요.',
     condition: () => compareNumberValues(knuthPoints, 1) >= 0
+  },
+  {
+    id: 'is_that_abstraction', title: '추상화라고?',
+    description: '대이론을 구매하세요.',
+    condition: () => isPositiveNumberValue(greatTheory)
+      || compareNumberValues(greatTheoryCpCost, ABSTRACTION_CP_BASE_COST) > 0
+      || compareNumberValues(greatTheoryKpCost, ABSTRACTION_KP_BASE_COST) > 0
+      || compareNumberValues(greatTheorySpCost, ABSTRACTION_SP_BASE_COST) > 0
+      || compareNumberValues(greatTheoryTheoryCost, 4) > 0
+  },
+  {
+    id: 'two_arrow_slots', title: '슬롯이 두 개지요!',
+    description: '커누스 화살표 슬롯을 2개 이상 가지세요.',
+    condition: () => knuthSlotCapacity() >= 2
+  },
+  {
+    id: 'life_is_choices', title: '인생은 선택의 연속',
+    description: '추상화의 첫 번째 분기에서 연구를 하나 구매하세요.',
+    condition: () => ABSTRACTION_RESEARCHES.some(research => research.branch
+      && (research.branchGroup ?? 1) === 1 && hasAbstractionResearch(research.id))
+  },
+  {
+    id: 'no_hands', title: '난 손이 없어',
+    description: '이번 커누스 동안 직접 생산·구매·교환하지 않고 KP를 한 번에 500개 이상 얻으세요.',
+    condition: () => false
+  },
+  {
+    id: 'not_a_knuth', title: '이건 커누스가 아니야',
+    description: '현실 시간 30초 이내에 커누스에 도달해 KP를 얻으세요.',
+    condition: () => false
+  },
+  {
+    id: 'i_am_speed', title: '내가 스피드야',
+    description: '현실 시간 0.5초 이내에 커누스에 도달해 KP를 얻으세요.',
+    condition: () => false
+  },
+  {
+    id: 'all_those_upgrades', title: '이거 하려고 수많은 업글을 해 왔어',
+    description: '기본 커누스 업그레이드의 2그룹을 해금하세요.',
+    condition: () => knuthUnlocked && hasClaimedKnuthPoint && knuthBaseGroupUnlocked(2)
+  },
+  {
+    id: 'current_energy_509', title: '현재 에너지 4.2e509',
+    description: '다이슨 스웜을 32개 이상 보유하세요.',
+    condition: () => squareBreakthroughLevel('dyson_swarm') >= 32
+  },
+  {
+    id: 'a_challenge', title: '오호 도전이라',
+    description: '아무 커누스 도전이나 완료하세요.',
+    condition: () => KNUTH_CHALLENGES.some(challenge => hasCompletedKnuthChallenge(challenge.id))
+  },
+  {
+    id: 'praise_sticker', title: '칭찬 스티커를 주마!',
+    description: '모든 커누스 도전을 완료하세요.',
+    condition: () => KNUTH_CHALLENGES.length > 0
+      && KNUTH_CHALLENGES.every(challenge => hasCompletedKnuthChallenge(challenge.id))
+  },
+  {
+    id: 'trained_convergence', title: '수렴을 수련한 자',
+    description: 'CP를 1e50 이상 모으세요.',
+    condition: () => compareNumberValues(squareConvergencePoints, '1e50') >= 0
+  },
+  {
+    id: 'math_doctor', title: '수학박사',
+    description: '분기 확장을 구매하고, 첫 분기 두 길을 포함해 함께 연구할 수 있는 모든 추상화 연구를 완료하세요.',
+    condition: () => allCompatibleAbstractionResearchComplete()
+  },
+  {
+    id: 'already_dead', title: '넌 이미 죽어 있다',
+    description: '이번 수렴 구간 동안 퍼센트를 한 번도 사용하지 않고 CP를 얻으세요. 자동 사용도 포함합니다.',
+    condition: () => false
+  },
+  {
+    id: 'ora_ora', title: '설마 오라오라입니까~!?',
+    description: '이번 커누스 동안 퍼센트를 한 번도 사용하지 않고 KP를 얻으세요. 자동 사용도 포함합니다.',
+    condition: () => false
+  },
+  {
+    id: 'pierce_universe', title: '우주를 뚫어 버려',
+    description: '발산력을 1e1k 이상 얻으세요.',
+    condition: () => compareNumberValues(divergerPower, '1e1000') >= 0
+  },
+  {
+    id: 'how_to_erase_you', title: '널 없애려면 어떻게 해야 돼?',
+    description: '이번 커누스 동안 직접 SP를 교환하지 않고 KP를 얻으세요.',
+    condition: () => false
+  },
+  {
+    id: 'destroyer_of_worlds', title: '세계의 파괴자',
+    description: '클릭당 획득 수를 1e150k 이상으로 만드세요.',
+    condition: () => compareNumberValues(effectivePerClick(), '1e150000') >= 0
+      && compareNumberValues(finalNumberProductionGain(perClick, effectivePerClickMultiplier()), '1e150000') >= 0
+  },
+  {
+    id: 'enough_already', title: '고마해라 마이 무겄다 아이가',
+    description: '모든 1연산 장착 업그레이드를 동시에 착용하세요.',
+    condition: () => {
+      const upgrades = KNUTH_SLOT_UPGRADES.filter(upgrade => upgrade.slots === 1);
+      return upgrades.length > 0 && upgrades.every(upgrade => hasKnuthUpgrade(upgrade.id));
+    }
+  },
+  {
+    id: 'twist_everything', title: '온몸 비틀기',
+    description: '현재 가장 높은 퍼센트 소프트캡보다 수를 1e1m배 이상으로 만드세요.',
+    condition: () => numberExceedsAchievementSoftcap()
+  },
+  {
+    id: 'that_is_wrong', title: '그건 틀렸어!',
+    description: '이번 커누스 동안 발산자와 제곱 차원을 한 번도 해금하지 않고 KP를 한 번에 20개 이상 얻으세요.',
+    condition: () => false
+  },
+  {
+    id: 'interstellar', title: '인터스텔라',
+    description: '숫자 블랙홀을 해금하세요.',
+    condition: () => knuthBaseUpgradeLevel('number_black_hole') > 0 || numberBlackHoleSystemEnabled
+  },
+  {
+    id: 'beyond_universe', title: '우주를 지나서',
+    description: '숫자 블랙홀의 누적 가속 시간을 138억 년 이상으로 만드세요.',
+    condition: () => compareNumberValues(numberBlackHoleAccumulatedGameSeconds, ACHIEVEMENT_UNIVERSE_AGE_SECONDS) >= 0
+  },
+  {
+    id: 'infinity_starts_here', title: '여기부터는 무한이야',
+    description: '숫자 블랙홀의 누적 가속 시간을 1.8e308년 이상으로 만드세요.',
+    condition: () => compareNumberValues(numberBlackHoleAccumulatedGameSeconds, ACHIEVEMENT_INFINITE_YEAR_SECONDS) >= 0
+  },
+  {
+    id: 'ultramassive_black_hole', title: '극대질량 블랙홀',
+    description: '숫자 블랙홀의 슈바르츠실트 반지름을 120b 이상으로 만드세요.',
+    condition: () => isPositiveNumberValue(numberBlackHoleTotalInvested)
+      && typeof numberBlackHoleSchwarzschildRadius === 'function'
+      && compareNumberValues(numberBlackHoleSchwarzschildRadius(), 120000000000) >= 0
+  },
+  {
+    id: 'hello_mr_knuth', title: '커누스 씨 안녕하세요',
+    description: 'KP를 1e100 이상으로 만드세요.',
+    condition: () => compareNumberValues(knuthPoints, '1e100') >= 0
   },
   {
     id: 'debug_mode',
@@ -444,7 +584,120 @@ function baseNumberIsInNoUnit() {
     && compareNumberValues(getBaseNumber(), ACHIEVEMENT_NO_UNIT_MAXIMUM) < 0;
 }
 
+function allCompatibleAbstractionResearchComplete() {
+  if (!knuthUnlocked || knuthBaseUpgradeLevel('extra_branch') < 1 || ABSTRACTION_RESEARCHES.length === 0) return false;
+  return ABSTRACTION_RESEARCHES.every(research => hasAbstractionResearch(research.id)
+    || abstractionResearchBranchLocked(research));
+}
+
+function numberExceedsAchievementSoftcap() {
+  if (!percentUnlocked || compareNumberValues(NumberMath.log10(getBaseNumber()), 1000000) < 0) return false;
+  let highestSoftcap = percentPowerSoftcap(percentPower, percentPowerPurchaseBonus);
+  for (const lane of extraPercentLanes) {
+    highestSoftcap = NumberMath.max(highestSoftcap, percentPowerSoftcap(lane.power, lane.powerPurchaseBonus));
+  }
+  return compareNumberValues(
+    NumberMath.subtract(NumberMath.log10(getBaseNumber()), NumberMath.log10(highestSoftcap)),
+    1000000
+  ) >= 0;
+}
+
+function observeAchievementProductionUnlocks() {
+  if (hasGeneralizationResearch('3-1') || hasGeneralizationResearch('3-2') || hasKnuthUpgrade('permanent_production')) {
+    achievementRunProgress.productionUnlocked = true;
+  }
+}
+
+function snapshotAchievementKnuthRun() {
+  observeAchievementProductionUnlocks();
+  return { ...achievementRunProgress };
+}
+
+function normalizedAchievementRunProgress(saved) {
+  const state = makeAchievementRunProgress(false);
+  if (!saved || saved.version !== 1) return state;
+  for (const key of Object.keys(state)) {
+    if (key !== 'version') state[key] = saved[key] === true;
+  }
+  return state;
+}
+
+function loadAchievementRunProgress(saved, pending) {
+  // Missing history cannot prove a restriction was respected in an old run.
+  achievementRunProgress = normalizedAchievementRunProgress(saved);
+  pendingAchievementKnuthRun = pendingKnuthPointClaim && pending
+    ? normalizedAchievementRunProgress(pending)
+    : null;
+  observeAchievementProductionUnlocks();
+}
+
+function recordAchievementPercentUse() {
+  achievementRunProgress.percentUsedKnuth = true;
+  achievementRunProgress.percentUsedConvergence = true;
+}
+
+function recordAchievementConvergence() {
+  if (compareNumberValues(squareConvergencePoints, '1e50') >= 0) unlockAchievement('trained_convergence');
+  if (achievementRunProgress.convergenceKnown && !achievementRunProgress.percentUsedConvergence) {
+    unlockAchievement('already_dead');
+  }
+  achievementRunProgress.convergenceKnown = true;
+  achievementRunProgress.percentUsedConvergence = false;
+}
+
+function recordAchievementKnuthReward(gain, seconds, run) {
+  if (!isPositiveNumberValue(gain)) return;
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    if (seconds <= 30) unlockAchievement('not_a_knuth');
+    if (seconds <= 0.5) unlockAchievement('i_am_speed');
+  }
+  if (!run?.knuthKnown) return;
+  if (!run.manualGameplay && compareNumberValues(gain, 500) >= 0) unlockAchievement('no_hands');
+  if (!run.percentUsedKnuth) unlockAchievement('ora_ora');
+  if (!run.manualSpExchange) unlockAchievement('how_to_erase_you');
+  if (!run.productionUnlocked && compareNumberValues(gain, 20) >= 0) unlockAchievement('that_is_wrong');
+}
+
+const ACHIEVEMENT_GAMEPLAY_BUTTON_IDS = new Set([
+  'addBtn', 'upgradeClickBtn', 'autoClickerBtn', 'autoClickerSpeedBtn', 'autoClickerParallelBtn',
+  'autoClickerPercentFillBtn', 'percentBtn', 'upgradeChargeBtn', 'percentPowerBtn', 'percentAutoBtn',
+  'percentAutoSpeedBtn', 'percentParallelUnlockBtn', 'prestigeBtn', 'manualSquareExchangeBtn',
+  'manualConvergenceExchangeBtn', 'manualKnuthExchangeBtn', 'knuthChallengeCompleteBtn',
+  'researchTheoryBtn', 'researchTheoryMaxBtn', 'generalizationResetBtn', 'buyGreatTheoryBtn',
+  'buyGreatTheoryMaxBtn', 'squareDimensionAutoUpgradeBtn', 'divergerAutoUpgradeBtn',
+  'knuthOperationUpgradeBtn', 'autoUpgradeToggleBtn', 'abstractionResetToggle', 'knuthResetEquipmentToggle'
+]);
+
+function recordAchievementPlayerAction(event) {
+  if (!event.isTrusted) return;
+  if (event.type === 'contextmenu'
+    && (!event.shiftKey || typeof devConsoleIsOpen !== 'function' || !devConsoleIsOpen())) return;
+  const button = event.target?.closest?.('button');
+  if (!button || button.disabled) return;
+  const gameplay = ACHIEVEMENT_GAMEPLAY_BUTTON_IDS.has(button.id)
+    || button.matches('.square-upgrade, .knuth-upgrade, [data-dev-upgrade-kind], [data-diverger-upgrade-id], .percent-lane button')
+    || button.closest('#squareDimensionProductionPanel, #knuthProductionPanel');
+  if (!gameplay || button.matches('.formula-help-trigger')) return;
+  // Reopening the purchased N editor is navigation, not another purchase.
+  if (button.dataset.devUpgradeId === 'automatium' && hasSquareConvergenceUpgrade('automatium')) return;
+  achievementRunProgress.manualGameplay = true;
+  if (button.id === 'manualSquareExchangeBtn' || button.id === 'prestigeBtn') {
+    achievementRunProgress.manualSpExchange = true;
+  }
+}
+
+document.addEventListener('click', recordAchievementPlayerAction, true);
+document.addEventListener('contextmenu', recordAchievementPlayerAction, true);
+document.addEventListener('keydown', event => {
+  if (!event.isTrusted || event.key !== 'Enter') return;
+  if (['numberBlackHoleAmountInput', 'numberBlackHoleSpeedInput'].includes(event.target?.id)
+    || event.target?.closest?.('.dev-console')) {
+    achievementRunProgress.manualGameplay = true;
+  }
+}, true);
+
 function updateAchievements() {
+  observeAchievementProductionUnlocks();
   let changed = false;
   for (const achievement of ACHIEVEMENTS) {
     if (achievementState[achievement.id] || !achievement.condition()) continue;

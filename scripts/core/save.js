@@ -191,6 +191,8 @@ function saveGame() {
     saveCount: nextSaveCount,
     loadCount,
     achievementState,
+    achievementRunProgress: { ...achievementRunProgress },
+    pendingAchievementKnuthRun,
     theorySquarePointCost: serializeNumberValue(theorySquarePointCost),
     theoryConvergencePointCost: serializeNumberValue(theoryConvergencePointCost),
     generalizationResetCost: serializeNumberValue(generalizationResetCost),
@@ -710,6 +712,9 @@ function loadGame(rawOverride = null, options = {}) {
   addBtn.textContent = `+${fmt(perClick)}`;
     upgradeClickBtn.classList.remove('hidden');
 
+    if (typeof loadAchievementRunProgress === 'function') {
+      loadAchievementRunProgress(d.achievementRunProgress, d.pendingAchievementKnuthRun);
+    }
     resetAchievementTimers();
     if (countAsLoad) {
       loadCount += 1;
