@@ -1535,17 +1535,71 @@
   .automatium-program-list {
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 8px;
   }
   .automatium-program-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 48px;
+    grid-template-columns: 28px minmax(0, 1fr) 44px;
     gap: 6px;
     margin-bottom: 6px;
     border-left: 2px solid transparent;
   }
   .automatium-program-row.selected {
     border-left-color: #c99dff;
+  }
+  .automatium-program-row.program-hidden {
+    opacity: 0.5;
+  }
+  .automatium-program-row.drag-source {
+    opacity: 0.25;
+  }
+  button.automatium-program-handle {
+    width: 28px;
+    min-width: 0;
+    min-height: 48px;
+    padding: 0;
+    border-color: transparent;
+    color: #9aa4b2;
+    font: 24px/1 system-ui, sans-serif;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  button.automatium-program-handle:hover,
+  button.automatium-program-handle:focus-visible {
+    border-color: #6b3fa0;
+    color: #e6edf3;
+  }
+  button.automatium-program-handle.drag-active {
+    cursor: grabbing;
+    background: #30343c;
+    color: #fff;
+  }
+  .automatium-drag-preview {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1302;
+    margin: 0;
+    pointer-events: none;
+    background: #202731;
+    box-shadow: 0 8px 24px #0008;
+  }
+  .automatium-drag-preview::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: #ffffff18;
+  }
+  .automatium-program-drop-line {
+    position: fixed;
+    z-index: 1303;
+    height: 2px;
+    pointer-events: none;
+    background: #e6edf3;
+    box-shadow: 0 0 4px #ffffff66;
   }
   button.automatium-program-select {
     min-width: 0;
@@ -2033,6 +2087,49 @@
   .knuth-reset-toggle.toggle-active {
     border-color: #56d364;
     color: #7ee787;
+  }
+  .abstraction-settings-button {
+    width: 100%;
+    margin-bottom: 12px;
+    border-color: #315f3c;
+    color: #7ee787;
+  }
+  .formula-help-dialog.abstraction-settings-dialog {
+    width: min(480px, calc(100vw - 28px));
+    border-color: #3fb950;
+  }
+  .abstraction-settings-dialog h2,
+  .abstraction-settings-dialog legend {
+    color: #7ee787;
+  }
+  .abstraction-settings-dialog fieldset {
+    min-width: 0;
+    margin: 18px 0 0;
+    padding: 0;
+    border: 0;
+  }
+  .abstraction-settings-dialog legend {
+    margin-bottom: 10px;
+    font-size: 14px;
+  }
+  .abstraction-settings-dialog label {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(110px, 1fr);
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+    font-size: 12px;
+  }
+  .abstraction-settings-dialog select {
+    width: 100%;
+    min-width: 0;
+    min-height: 40px;
+    padding: 8px;
+    border: 1px solid #315f3c;
+    border-radius: 2px;
+    background: #171d23;
+    color: #e6edf3;
+    font: inherit;
   }
   .number-black-hole-status {
     margin-bottom: 12px;

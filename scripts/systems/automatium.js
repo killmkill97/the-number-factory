@@ -9,6 +9,7 @@ let automatiumBulkDeadline = 0;
 let automatiumBudgetYieldRequested = false;
 const AUTOMATIUM_MAX_PROGRAMS = 32;
 const AUTOMATIUM_CLICK_COOLDOWN_MS = 1000;
+const AUTOMATIUM_PROGRAM_HOLD_MS = 500;
 
 const N_BASE_UPGRADE_GUIDE = [
   { id: 'click', title: '클릭당 값', aliases: [] },
@@ -72,6 +73,8 @@ let automatiumUiDirty = true;
 let activeAutomatiumTab = 'editor';
 let automatiumAutocompleteItems = [];
 let automatiumAutocompleteIndex = 0;
+let automatiumAutocompleteActive = false;
+let automatiumProgramDrag = null;
 const automatiumExecutions = new Map();
 const automatiumProgramUi = new Map();
 const automatiumQuickProgramUi = new Map();
@@ -95,6 +98,7 @@ function makeAutomatiumProgram(index = automatiumPrograms.length + 1) {
     name: `프로그램 ${index}`,
     source: defaultAutomatiumSource(),
     enabled: false,
+    hidden: false,
     updatedAt: Date.now()
   };
 }
@@ -108,6 +112,7 @@ function loadAutomatiumPrograms() {
       name: typeof program?.name === 'string' && program.name.trim() ? program.name.trim().slice(0, 40) : `프로그램 ${index + 1}`,
       source: typeof program?.source === 'string' ? program.source : '',
       enabled: program?.enabled === true,
+      hidden: program?.hidden === true,
       updatedAt: Number(program?.updatedAt) || Date.now()
     }));
   } catch (error) {
@@ -663,6 +668,14 @@ const automatiumGameAdapter = {
     if (!isPositiveNumberValue(gain)) return false;
     if (requestedCp !== null && compareNumberValues(gain, requestedCp) < 0) return false;
     return exchangeSquareConvergencePointsManually();
+  },
+
+  kp(statement, requestedKp = null) {
+    if (!hasAbstractionResearch('2-2') || !canManuallyExchangeKnuthPoints()) return false;
+    const gain = knuthPointGain();
+    if (!isPositiveNumberValue(gain)) return false;
+    if (requestedKp !== null && compareNumberValues(gain, requestedKp) < 0) return false;
+    return exchangeKnuthPointsManually();
   }
 };
 
@@ -673,7 +686,8 @@ function automatiumGameAdapterFor(programId) {
     buy: (...args) => automatiumGameAdapter.buy(...args),
     consumeBudgetYield: (...args) => automatiumGameAdapter.consumeBudgetYield(...args),
     square: (statement, target) => automatiumGameAdapter.square(statement, target, programId),
-    cp: (...args) => automatiumGameAdapter.cp(...args)
+    cp: (...args) => automatiumGameAdapter.cp(...args),
+    kp: (...args) => automatiumGameAdapter.kp(...args)
   };
 }
 
@@ -850,7 +864,16 @@ flag = get.cp == 0</code></pre>
     <pre><code>get.base.click.available
 get.square.click_double.upgraded
 get.square_break.doctor_octopus.cost
-get.square_convergence.timium.amount</code></pre>
+get.square_convergence.timium.amount
+get.gz.8-1.available
+get.generalization.8-1.upgraded</code></pre>
+    <p>일반화 연구는 <code>get.gz.&lt;연구ID&gt;.&lt;내용&gt;</code> 또는 <code>get.generalization.&lt;연구ID&gt;.&lt;내용&gt;</code>으로 조회합니다. <code>available</code>은 미연구 상태, 연구 접근, 선행 연구, 이론 비용을 모두 만족해야 <code>true</code>입니다. 연구 완료 여부는 <code>upgraded == 1</code>로 확인합니다. 연구의 <code>amount</code>는 완료 시 1, 미완료 시 0이며 <code>max</code>는 1, <code>cost</code>는 이론 가격(완료 시 0)입니다.</p>
+    <pre><code>if get.gz.8-1.available == false {
+    buy theory sp
+}
+if get.gz.8-1.upgraded == 0 {
+    buy gz 8-1
+}</code></pre>
 
     <h4>퍼센트 레인 지정</h4>
     <p>퍼센트 파워, 퍼센트 오토클리커, 퍼센트 오토 속도는 맨 뒤에 <code>[레인 번호]</code>를 붙여 구분합니다. 1번은 기본 퍼센트 레인이며 최대 16번까지 지정할 수 있습니다. 아직 열리지 않은 레인의 <code>available</code>은 <code>false</code>입니다.</p>
@@ -893,18 +916,22 @@ wait 3m
 wait 1h</code></pre>
     <p><code>wait</code>는 현재 프로그램만 지정한 실제 시간 동안 멈춥니다. 단위는 밀리초(<code>ms</code>), 초(<code>s</code>), 분(<code>m</code>), 시간(<code>h</code>)을 지원합니다.</p>
 
-    <h4>SP·CP 획득</h4>
+    <h4>SP·CP·KP 획득</h4>
     <pre><code>square
 sp
 sp 10
 square 10 s
 cp
 cp 5 s
+kp
+kp 5
+kp (5) s
 
 target = number
 target = 20
 sp target s</code></pre>
     <p><code>square</code>와 <code>sp</code>는 현재 가능한 제곱 포인트 수동 교환을 실행합니다. <code>cp</code>는 현재 가능한 수렴 포인트 수동 교환을 실행합니다. 숫자를 붙이면 업그레이드 배율을 포함한 실제 획득량이 그 목표 이상일 때 교환합니다. 교환할 수 없으면 다음 줄로 넘어가며, 끝에 <code>s</code>를 붙인 명령만 조건을 만족할 때까지 현재 프로그램을 대기시킵니다.</p>
+    <p><code>kp</code>는 추상화 2-2 연구 후 사용할 수 있습니다. 일반화 8-1과 필수 선행 연구 등 기존 수동 KP 교환 조건을 만족하면 커누스 교환을 실행하고 현재 가능한 KP를 모두 얻습니다. <code>kp 5</code>는 이번 교환 보상이 5 KP 이상일 때만 실행하며, <code>kp (5) s</code>는 조건을 만족할 때까지 대기합니다. 숫자 대신 변수나 계산식을 넣거나, 목표 없이 <code>kp s</code>로 대기할 수도 있습니다. 교환 시 진행 초기화와 추상화 초기화 예약은 기존 커누스와 동일하게 적용됩니다.</p>
 
     <h4>조건문</h4>
     <pre><code>if get.sp &gt;= 1000 and get.cp == 0 {
@@ -929,10 +956,10 @@ whiletick 20 get.sp &lt; 1000 {
 for 10 {
     square
 }</code></pre>
-    <p><code>whiletick 20</code>은 조건이 참인 동안 20 자동화 틱마다 본문을 한 번 실행합니다. <code>break</code>는 가장 가까운 <code>while</code>, <code>whiletick</code>, <code>for</code>를 빠져나옵니다. SP와 CP 교환은 각각 <code>sp</code>, <code>cp</code> 명령으로 자동화할 수 있습니다.</p>
+    <p><code>whiletick 20</code>은 조건이 참인 동안 20 자동화 틱마다 본문을 한 번 실행합니다. <code>break</code>는 가장 가까운 <code>while</code>, <code>whiletick</code>, <code>for</code>를 빠져나옵니다. SP와 CP 교환은 각각 <code>sp</code>, <code>cp</code>, 추상화 2-2 이후 KP 교환은 <code>kp</code> 명령으로 자동화할 수 있습니다.</p>
 
     <h4>연산자</h4>
-    <p>산술: <code>+ - * / % ^</code> · 비교: <code>== != &gt; &gt;= &lt; &lt;=</code> · 논리: <code>and or not</code>. 괄호도 사용할 수 있습니다. 정수끼리 나누면 소수점 이하는 버립니다. <code>1e1000</code>처럼 큰 과학적 표기법도 변수, 계산, 비교, SP/CP 목표값에 사용할 수 있습니다.</p>
+    <p>산술: <code>+ - * / % ^</code> · 비교: <code>== != &gt; &gt;= &lt; &lt;=</code> · 논리: <code>and or not</code>. 괄호도 사용할 수 있습니다. 정수끼리 나누면 소수점 이하는 버립니다. <code>1e1000</code>처럼 큰 과학적 표기법도 변수, 계산, 비교, SP/CP/KP 목표값에 사용할 수 있습니다.</p>
     <pre><code>x = number
 x = (2 ^ 10 + 100) * 2
 
@@ -949,7 +976,7 @@ if x &gt;= 2000 and not false {
     <p><code>Ctrl+S</code>로 현재 이름과 코드를 저장할 수 있습니다. 저장할 때 문법을 검사하며, 오류가 있으면 프로그램이 꺼지고 편집기 아래에 줄 번호와 오류가 표시됩니다.</p>
 
     <h4>자동완성</h4>
-    <p>코드를 입력하면 현재 위치에 맞는 명령, 게임 값, 업그레이드 ID와 변수가 표시됩니다. <code>↑</code>/<code>↓</code>로 항목을 고르고 <code>Tab</code>으로 입력합니다. 제안이 없을 때 <code>Tab</code>은 공백 4칸을 넣습니다.</p>
+    <p>코드를 입력하면 현재 위치에 맞는 명령, 게임 값, 업그레이드 ID와 변수가 표시됩니다. 빈 줄이나 편집기에 다시 포커스를 맞춘 직후에는 제안하지 않으며, 새 글자를 입력하면 다시 제안합니다. <code>↑</code>/<code>↓</code>로 항목을 고르고 <code>Tab</code>으로 입력합니다. 표시된 제안이 없을 때 <code>Tab</code>은 공백 4칸을 넣습니다.</p>
   `;
 }
 
@@ -1006,7 +1033,7 @@ function automatiumUpgradeIdRows() {
     rawId: research.id,
     indexed: false,
     aliases: ['gz'],
-    indexNote: '구매: buy generalization ID 또는 buy gz ID'
+    indexNote: '조회: get.gz.ID.내용 · 구매: buy generalization ID 또는 buy gz ID'
   })));
 
   rows.push(...['a', 'b', 'c', 'speed'].map(id => ({
@@ -1291,6 +1318,7 @@ function nAutocompleteContext() {
   const before = automatiumSource.value.slice(0, cursor);
   const lineStart = before.lastIndexOf('\n') + 1;
   const line = before.slice(lineStart);
+  if (!line.trim()) return null;
   const indent = line.match(/^\s*/)?.[0] ?? '';
 
   const waitUnitMatch = line.match(/^\s*wait\s+[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?([A-Za-z]*)$/);
@@ -1309,9 +1337,9 @@ function nAutocompleteContext() {
     };
   }
 
-  const spTargetMatch = line.match(/^\s*(square|sp|cp)\s+([A-Za-z_][A-Za-z0-9_]*)?$/);
+  const spTargetMatch = line.match(/^\s*(square|sp|cp|kp)\s+([A-Za-z_][A-Za-z0-9_]*)?$/);
   if (spTargetMatch) {
-    const currency = spTargetMatch[1] === 'cp' ? 'CP' : 'SP';
+    const currency = spTargetMatch[1] === 'kp' ? 'KP' : spTargetMatch[1] === 'cp' ? 'CP' : 'SP';
     const prefix = spTargetMatch[2] ?? '';
     const variables = nAutocompleteVariables(automatiumSource.value).map(name => ({
       label: name,
@@ -1330,7 +1358,8 @@ function nAutocompleteContext() {
     };
   }
 
-  const getMatch = line.match(/get(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\]?)?){0,3}$/);
+  const getMatch = line.match(/get\.(?:generalization|gz)\.(?:\d+(?:-\d*)?(?:\.(?:[A-Za-z_][A-Za-z0-9_]*)?)?)?$/i)
+    ?? line.match(/get(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\]?)?){0,3}$/);
   if (getMatch) {
     const expression = getMatch[0];
     const expressionStart = cursor - expression.length;
@@ -1355,6 +1384,8 @@ function nAutocompleteContext() {
         { label: 'square', insert: 'square.', detail: '제곱 업그레이드' },
         { label: 'square_break', insert: 'square_break.', detail: '제곱돌파 업그레이드' },
         { label: 'square_convergence', insert: 'square_convergence.', detail: '제곱 수렴 업그레이드' },
+        { label: 'generalization', insert: 'generalization.', detail: '일반화 연구' },
+        { label: 'gz', insert: 'gz.', detail: '일반화 연구 단축어' },
         { label: 'diverger', insert: 'diverger.', detail: '발산자 강화 · 추상화 7-1' }
       ];
       return { start: replaceStart, end: cursor, items: nAutocompleteMatches(candidates, prefix) };
@@ -1469,6 +1500,7 @@ function nAutocompleteContext() {
     { label: 'square', insert: 'square ', detail: '목표 SP 지정 가능' },
     { label: 'sp', insert: 'sp ', detail: '목표 SP 지정 가능' },
     { label: 'cp', insert: 'cp ', detail: '목표 CP 지정 가능' },
+    { label: 'kp', insert: 'kp ', detail: '목표 KP 지정 가능 · 추상화 2-2' },
     { label: 'if', insert: `if true {\n${indent}    \n${indent}}`, cursorBack: indent.length + 2, detail: '조건문' },
     { label: 'elif', insert: `elif true {\n${indent}    \n${indent}}`, cursorBack: indent.length + 2, detail: '추가 조건' },
     { label: 'else', insert: `else {\n${indent}    \n${indent}}`, cursorBack: indent.length + 2, detail: '그 외 조건' },
@@ -1486,6 +1518,7 @@ function nAutocompleteContext() {
 }
 
 function hideAutomatiumAutocomplete() {
+  automatiumAutocompleteActive = false;
   automatiumAutocompleteItems = [];
   automatiumAutocompleteIndex = 0;
   automatiumAutocomplete.classList.add('hidden');
@@ -1533,8 +1566,13 @@ function positionAutomatiumAutocomplete() {
 }
 
 function renderAutomatiumAutocomplete() {
+  if (!automatiumAutocompleteActive || document.activeElement !== automatiumSource
+    || automatiumSource.selectionStart !== automatiumSource.selectionEnd || activeAutomatiumTab !== 'editor') {
+    hideAutomatiumAutocomplete();
+    return;
+  }
   const context = nAutocompleteContext();
-  if (!context || context.items.length === 0 || activeAutomatiumTab !== 'editor') {
+  if (!context || context.items.length === 0) {
     hideAutomatiumAutocomplete();
     return;
   }
@@ -1576,19 +1614,119 @@ function applyAutomatiumAutocomplete(index = automatiumAutocompleteIndex) {
   hideAutomatiumAutocomplete();
   renderAutomatiumEditorStatus();
   automatiumSource.focus();
+  automatiumAutocompleteActive = true;
   renderAutomatiumAutocomplete();
   return true;
 }
 
 function insertAutomatiumIndent() {
+  hideAutomatiumAutocomplete();
   automatiumSource.setRangeText('    ', automatiumSource.selectionStart, automatiumSource.selectionEnd, 'end');
   automatiumEditorDirty = true;
   renderAutomatiumEditorStatus();
 }
 
+function reorderAutomatiumProgram(programId, beforeProgramId = null) {
+  const index = automatiumPrograms.findIndex(program => program.id === programId);
+  if (index < 0 || beforeProgramId === programId) return false;
+  const ordered = automatiumPrograms.filter(program => program.id !== programId);
+  const targetIndex = beforeProgramId === null ? ordered.length : ordered.findIndex(program => program.id === beforeProgramId);
+  if (targetIndex < 0 || targetIndex === index) return false;
+  ordered.splice(targetIndex, 0, automatiumPrograms[index]);
+  automatiumPrograms = ordered;
+  saveAutomatiumPrograms();
+  renderAutomatiumUi();
+  return true;
+}
+
+function toggleAutomatiumProgramHidden(programId) {
+  const program = automatiumPrograms.find(item => item.id === programId);
+  if (!program) return false;
+  program.hidden = !program.hidden;
+  saveAutomatiumPrograms();
+  renderAutomatiumUi();
+  return true;
+}
+
+function updateAutomatiumProgramDropTarget(drag) {
+  const bounds = automatiumProgramList.getBoundingClientRect();
+  drag.inside = drag.x >= bounds.left && drag.x <= bounds.right && drag.y >= bounds.top && drag.y <= bounds.bottom;
+  drag.line.classList.toggle('hidden', !drag.inside);
+  if (!drag.inside) return;
+  const rows = automatiumPrograms.filter(program => program.id !== drag.programId)
+    .map(program => ({ id: program.id, bounds: automatiumProgramUi.get(program.id).row.getBoundingClientRect() }));
+  const before = rows.find(row => drag.y < row.bounds.top + row.bounds.height / 2);
+  drag.beforeId = before?.id ?? null;
+  const top = before ? before.bounds.top - 3 : rows.length > 0 ? rows.at(-1).bounds.bottom + 3 : bounds.top + 8;
+  drag.line.style.left = `${bounds.left + 8}px`;
+  drag.line.style.width = `${Math.max(0, automatiumProgramList.clientWidth - 16)}px`;
+  drag.line.style.top = `${Math.max(bounds.top + 2, Math.min(bounds.bottom - 2, top ?? bounds.top + 8))}px`;
+}
+
+function animateAutomatiumProgramDrag(drag) {
+  if (automatiumProgramDrag !== drag || !drag.active) return;
+  const bounds = automatiumProgramList.getBoundingClientRect();
+  if (drag.x >= bounds.left && drag.x <= bounds.right) {
+    if (drag.y >= bounds.top - 20 && drag.y < bounds.top + 32) automatiumProgramList.scrollTop -= 10;
+    else if (drag.y <= bounds.bottom + 20 && drag.y > bounds.bottom - 32) automatiumProgramList.scrollTop += 10;
+  }
+  drag.preview.style.transform = `translate(${drag.x - drag.offsetX}px, ${drag.y - drag.offsetY}px)`;
+  updateAutomatiumProgramDropTarget(drag);
+  drag.frame = requestAnimationFrame(() => animateAutomatiumProgramDrag(drag));
+}
+
+function finishAutomatiumProgramDrag(commit = false) {
+  const drag = automatiumProgramDrag;
+  if (!drag) return;
+  if (commit && drag.active) updateAutomatiumProgramDropTarget(drag);
+  automatiumProgramDrag = null;
+  clearTimeout(drag.timer);
+  if (drag.frame !== undefined) cancelAnimationFrame(drag.frame);
+  drag.ui.suppressHandleClick = true;
+  drag.ui.row.classList.remove('drag-source');
+  drag.ui.handle.classList.remove('drag-active');
+  drag.ui.handle.setAttribute('aria-grabbed', 'false');
+  drag.preview?.remove();
+  drag.line?.remove();
+  if (drag.ui.handle.hasPointerCapture(drag.pointerId)) drag.ui.handle.releasePointerCapture(drag.pointerId);
+  if (commit && drag.active && drag.inside) reorderAutomatiumProgram(drag.programId, drag.beforeId);
+}
+
+function beginAutomatiumProgramHold(event, programId, ui) {
+  if (event.button !== 0 || automatiumProgramDrag) return;
+  ui.suppressHandleClick = false;
+  const bounds = ui.row.getBoundingClientRect();
+  const drag = {
+    programId, ui, pointerId: event.pointerId, active: false,
+    startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY,
+    offsetX: event.clientX - bounds.left, offsetY: event.clientY - bounds.top
+  };
+  automatiumProgramDrag = drag;
+  ui.handle.setPointerCapture(event.pointerId);
+  drag.timer = setTimeout(() => {
+    if (automatiumProgramDrag !== drag || automatiumWorkspace.classList.contains('hidden')) return;
+    drag.active = true;
+    drag.preview = ui.row.cloneNode(true);
+    drag.preview.classList.add('automatium-drag-preview');
+    drag.preview.classList.remove('program-hidden');
+    drag.preview.style.width = `${bounds.width}px`;
+    drag.preview.setAttribute('aria-hidden', 'true');
+    drag.preview.inert = true;
+    drag.line = document.createElement('div');
+    drag.line.className = 'automatium-program-drop-line';
+    drag.line.setAttribute('aria-hidden', 'true');
+    document.body.append(drag.line, drag.preview);
+    ui.row.classList.add('drag-source');
+    ui.handle.classList.add('drag-active');
+    ui.handle.setAttribute('aria-grabbed', 'true');
+    animateAutomatiumProgramDrag(drag);
+  }, AUTOMATIUM_PROGRAM_HOLD_MS);
+}
+
 function createAutomatiumProgramRow(program) {
     const row = document.createElement('div');
     row.className = 'automatium-program-row';
+    row.dataset.programId = program.id;
 
     const selectButton = document.createElement('button');
     selectButton.className = 'automatium-program-select';
@@ -1606,8 +1744,42 @@ function createAutomatiumProgramRow(program) {
     toggle.type = 'button';
     toggle.addEventListener('click', () => toggleAutomatiumProgram(program.id));
 
-    row.append(selectButton, toggle);
-    const ui = { row, name, state, toggle };
+    const handle = document.createElement('button');
+    handle.className = 'automatium-program-handle';
+    handle.type = 'button';
+    handle.textContent = '\u22ee';
+    handle.setAttribute('aria-grabbed', 'false');
+    const ui = { row, name, state, toggle, handle, suppressHandleClick: false };
+    handle.addEventListener('pointerdown', event => beginAutomatiumProgramHold(event, program.id, ui));
+    handle.addEventListener('pointermove', event => {
+      const drag = automatiumProgramDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      drag.x = event.clientX;drag.y = event.clientY;
+      if (!drag.active && Math.hypot(drag.x - drag.startX, drag.y - drag.startY) > 8) finishAutomatiumProgramDrag();
+    });
+    handle.addEventListener('pointerup', event => {
+      const drag = automatiumProgramDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      if (drag.active) {
+        drag.x = event.clientX;drag.y = event.clientY;
+        finishAutomatiumProgramDrag(true);
+      } else {
+        finishAutomatiumProgramDrag();
+        ui.suppressHandleClick = false;
+      }
+    });
+    for (const name of ['pointercancel', 'lostpointercapture']) {
+      handle.addEventListener(name, () => {
+        if (automatiumProgramDrag?.ui === ui) finishAutomatiumProgramDrag();
+      });
+    }
+    handle.addEventListener('contextmenu', event => event.preventDefault());
+    handle.addEventListener('click', event => {
+      if (ui.suppressHandleClick && event.detail !== 0) { ui.suppressHandleClick = false;return; }
+      ui.suppressHandleClick = false;
+      toggleAutomatiumProgramHidden(program.id);
+    });
+    row.append(handle, selectButton, toggle);
     automatiumProgramUi.set(program.id, ui);
     return ui;
 }
@@ -1616,6 +1788,7 @@ function renderAutomatiumProgramList() {
   const currentIds = new Set(automatiumPrograms.map(program => program.id));
   for (const [programId, ui] of automatiumProgramUi) {
     if (currentIds.has(programId)) continue;
+    if (automatiumProgramDrag?.programId === programId) finishAutomatiumProgramDrag();
     ui.row.remove();
     automatiumProgramUi.delete(programId);
   }
@@ -1627,6 +1800,10 @@ function renderAutomatiumProgramList() {
 
     const status = automatiumStatus(program);
     ui.row.classList.toggle('selected', program.id === selectedAutomatiumProgramId);
+    ui.row.classList.toggle('program-hidden', program.hidden === true);
+    ui.handle.title = `빠른 목록에서 ${program.hidden ? '표시' : '숨기기'} · 0.5초 홀드하여 순서 변경`;
+    ui.handle.setAttribute('aria-label', `${program.name} 빠른 목록에서 ${program.hidden ? '표시' : '숨기기'}`);
+    ui.handle.setAttribute('aria-pressed', String(program.hidden === true));
     ui.name.textContent = program.name;
     ui.state.className = `automatium-program-state ${status.tone}`;
     ui.state.textContent = status.label;
@@ -1683,14 +1860,15 @@ function createAutomatiumQuickProgramRow(program) {
 function renderAutomatiumQuickProgramList() {
   if (!automatiumQuickProgramList) return;
 
-  const currentIds = new Set(automatiumPrograms.map(program => program.id));
+  const visiblePrograms = automatiumPrograms.filter(program => !program.hidden);
+  const currentIds = new Set(visiblePrograms.map(program => program.id));
   for (const [programId, ui] of automatiumQuickProgramUi) {
     if (currentIds.has(programId)) continue;
     ui.row.remove();
     automatiumQuickProgramUi.delete(programId);
   }
 
-  for (const [index, program] of automatiumPrograms.entries()) {
+  for (const [index, program] of visiblePrograms.entries()) {
     const ui = automatiumQuickProgramUi.get(program.id) ?? createAutomatiumQuickProgramRow(program);
     const expectedNode = automatiumQuickProgramList.children[index] ?? null;
     if (expectedNode !== ui.row) automatiumQuickProgramList.insertBefore(ui.row, expectedNode);
@@ -1709,12 +1887,12 @@ function renderAutomatiumQuickProgramList() {
     ui.toggle.disabled = !hasSquareConvergenceUpgrade('automatium');
   }
 
-  if (automatiumPrograms.length === 0) {
+  if (visiblePrograms.length === 0) {
     if (!automatiumQuickEmptyListElement) {
       automatiumQuickEmptyListElement = document.createElement('div');
       automatiumQuickEmptyListElement.className = 'automatium-quick-empty';
-      automatiumQuickEmptyListElement.textContent = '저장된 프로그램 없음';
     }
+    automatiumQuickEmptyListElement.textContent = automatiumPrograms.length === 0 ? '저장된 프로그램 없음' : '표시할 프로그램 없음';
     if (automatiumQuickEmptyListElement.parentElement !== automatiumQuickProgramList) {
       automatiumQuickProgramList.appendChild(automatiumQuickEmptyListElement);
     }
@@ -1880,6 +2058,7 @@ function openAutomatiumEditor() {
 }
 
 function closeAutomatiumEditor() {
+  finishAutomatiumProgramDrag();
   automatiumWorkspace.classList.add('hidden');
   document.body.classList.remove('automatium-open');
 }
@@ -1985,6 +2164,7 @@ automatiumQuickCollapseBtn.addEventListener('click', () => {
   automatiumQuickCollapseBtn.setAttribute('aria-expanded', String(!collapsed));
 });
 automatiumCloseBtn.addEventListener('click', closeAutomatiumEditor);
+window.addEventListener('blur', () => finishAutomatiumProgramDrag());
 automatiumNewBtn.addEventListener('click', createAutomatiumProgram);
 automatiumRenameBtn.addEventListener('click', renameSelectedAutomatiumProgram);
 automatiumSaveBtn.addEventListener('click', saveSelectedAutomatiumProgram);
@@ -2002,8 +2182,10 @@ automatiumSource.addEventListener('input', () => {
   automatiumEditorDirty = true;
   renderAutomatiumEditorStatus();
   automatiumAutocompleteIndex = 0;
+  automatiumAutocompleteActive = true;
   renderAutomatiumAutocomplete();
 });
+automatiumSource.addEventListener('focus', hideAutomatiumAutocomplete);
 automatiumSource.addEventListener('click', renderAutomatiumAutocomplete);
 automatiumSource.addEventListener('scroll', positionAutomatiumAutocomplete);
 window.addEventListener('resize', positionAutomatiumAutocomplete);
@@ -2020,7 +2202,7 @@ automatiumSource.addEventListener('keydown', event => {
   if (event.key === 'Tab' && !event.shiftKey) {
     event.preventDefault();
     event.stopPropagation();
-    if (!applyAutomatiumAutocomplete()) insertAutomatiumIndent();
+    if (!autocompleteVisible || !applyAutomatiumAutocomplete()) insertAutomatiumIndent();
     return;
   }
   if (event.key === 'Tab' && event.shiftKey) {
@@ -2037,9 +2219,7 @@ automatiumSource.addEventListener('keyup', event => {
   if (['ArrowDown', 'ArrowUp', 'Tab', 'Escape'].includes(event.key)) return;
   renderAutomatiumAutocomplete();
 });
-automatiumSource.addEventListener('blur', () => {
-  setTimeout(hideAutomatiumAutocomplete, 0);
-});
+automatiumSource.addEventListener('blur', hideAutomatiumAutocomplete);
 automatiumEditorTabBtn.addEventListener('click', () => setAutomatiumTab('editor'));
 automatiumDocsTabBtn.addEventListener('click', () => setAutomatiumTab('docs'));
 automatiumIdsTabBtn.addEventListener('click', () => setAutomatiumTab('ids'));

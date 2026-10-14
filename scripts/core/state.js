@@ -128,6 +128,7 @@ let automatiumPrestigeRetentionUnlocked = false;
 const abstractionResearchState = {};
 const abstractionResearchPaidCosts = {};
 let abstractionResetOnNextKnuthPoint = false;
+let abstractionBranchPriorities = { 1: ['time', 'expansion', 'percent'], 2: ['active', 'passive', 'idle'] };
 let generalizationResetCount = 0;
 let saveCount = 0;
 let loadCount = 0;
@@ -1054,6 +1055,15 @@ const ABSTRACTION_RESEARCHES = [
     row: 1,
     title: '퍼센트 자동 사용 가속',
     description: '퍼센트 오토클리커의 속도가 자동 업그레이드 속도 배율만큼 증가합니다.',
+    parents: ['1-1'],
+    greatTheoryCost: 1
+  },
+  {
+    id: '2-2',
+    column: 2,
+    row: 2,
+    title: 'KP 자동 교환',
+    description: 'N 언어의 kp 명령을 해금합니다. 현재 획득 가능한 KP와 기존 커누스 교환 조건에 따라 자동 교환할 수 있습니다.',
     parents: ['1-1'],
     greatTheoryCost: 1
   },
@@ -3664,7 +3674,7 @@ function canResearchAbstraction(id) {
     && compareNumberValues(greatTheory, research.greatTheoryCost) >= 0;
 }
 
-function researchAbstraction(id) {
+function researchAbstraction(id, { renderAfter = true } = {}) {
   const research = ABSTRACTION_RESEARCHES.find(item => item.id === id);
   if (!research || !canResearchAbstraction(id)) return false;
   greatTheory = subtractNumberValues(greatTheory, research.greatTheoryCost);
@@ -3673,6 +3683,104 @@ function researchAbstraction(id) {
   if (id === '3-1') automatiumPrestigeRetentionUnlocked = true;
   if (['14-1', '14-2', '14-3'].includes(id) && divergerAvailable()) {
     divergerPower = divergerProductionValue();
+  }
+  if (renderAfter) render();
+  return true;
+}
+
+const ABSTRACTION_BRANCH_OPTIONS = {
+  1: [{ id: 'time', label: '시간' }, { id: 'expansion', label: '확장' }, { id: 'percent', label: '퍼센트' }],
+  2: [{ id: 'active', label: '액티브' }, { id: 'passive', label: '패시브' }, { id: 'idle', label: '아이들' }]
+};
+
+function loadAbstractionBranchPriorities(saved) {
+  for (const group of [1, 2]) {
+    const allowed = ABSTRACTION_BRANCH_OPTIONS[group].map(option => option.id);
+    const values = Array.isArray(saved?.[group]) ? saved[group] : [];
+    abstractionBranchPriorities[group] = [...new Set([...values.filter(value => allowed.includes(value)), ...allowed])];
+  }
+}
+
+function setAbstractionBranchPriority(group, rank, branch) {
+  if (![1, 2].includes(group) || !Number.isInteger(rank) || rank < 0 || rank > (group === 1 ? 1 : 0)) return false;
+  const priorities = abstractionBranchPriorities[group];
+  const previousRank = priorities.indexOf(branch);
+  if (previousRank < 0) return false;
+  [priorities[rank], priorities[previousRank]] = [priorities[previousRank], priorities[rank]];
+  return true;
+}
+
+function researchPurchasePlan(kind, id) {
+  const abstraction = kind === 'abstraction';
+  if (kind !== 'generalization' && !abstraction) return null;
+  if (!(abstraction ? canOpenAbstraction() : canOpenGeneralizationResearch())) return null;
+  const researches = abstraction ? ABSTRACTION_RESEARCHES : GENERALIZATION_RESEARCHES;
+  const hasResearch = abstraction ? hasAbstractionResearch : hasGeneralizationResearch;
+  const byId = new Map(researches.map(research => [research.id, research]));
+  if (!byId.has(id) || hasResearch(id)) return null;
+  const planned = new Set();
+  const visiting = new Set();
+  const selectedBranches = new Map();
+  for (const research of researches) {
+    if (!research.branch || !hasResearch(research.id)) continue;
+    const group = research.branchGroup ?? 1;
+    if (!selectedBranches.has(group)) selectedBranches.set(group, new Set());
+    selectedBranches.get(group).add(research.branch);
+  }
+  const branchLimit = group => group === 1 && knuthBaseUpgradeLevel('extra_branch') > 0 ? 2 : 1;
+  let cost = 0;
+  function visit(researchId) {
+    if (hasResearch(researchId) || planned.has(researchId)) return true;
+    const research = byId.get(researchId);
+    if (!research || visiting.has(researchId)) return false;
+    visiting.add(researchId);
+    if (research.branch) {
+      const group = research.branchGroup ?? 1;
+      if (!selectedBranches.has(group)) selectedBranches.set(group, new Set());
+      const selected = selectedBranches.get(group);
+      if (!selected.has(research.branch) && selected.size >= branchLimit(group)) return false;
+      selected.add(research.branch);
+    }
+    const branchParents = [];
+    for (const parentId of research.parents) {
+      const parent = byId.get(parentId);
+      if (abstraction && parent?.branch) branchParents.push(parent);
+      else if (!visit(parentId)) return false;
+    }
+    if (branchParents.length > 0) {
+      // Existing choices come first; empty branch slots follow the saved priorities.
+      const groups = [...new Set(branchParents.map(parent => parent.branchGroup ?? 1))];
+      let selectedParent = false;
+      for (const group of groups) {
+        const selected = selectedBranches.get(group) ?? new Set();
+        const priorities = abstractionBranchPriorities[group] ?? [];
+        const candidates = branchParents.filter(parent => (parent.branchGroup ?? 1) === group)
+          .sort((a, b) => priorities.indexOf(a.branch) - priorities.indexOf(b.branch));
+        const parents = candidates.filter(parent => selected.has(parent.branch));
+        parents.push(...candidates.filter(parent => !selected.has(parent.branch))
+          .slice(0, Math.max(0, branchLimit(group) - selected.size)));
+        for (const parent of parents) {
+          if (!visit(parent.id)) return false;
+          selectedParent = true;
+        }
+      }
+      if (!selectedParent) return false;
+    }
+    visiting.delete(researchId);
+    planned.add(researchId);
+    cost = addBaseNumbers(cost, abstraction ? research.greatTheoryCost : research.theoryCost);
+    return true;
+  }
+  return visit(id) ? { ids: [...planned], cost } : null;
+}
+
+function purchaseResearchWithParents(kind, id) {
+  const plan = researchPurchasePlan(kind, id);
+  const abstraction = kind === 'abstraction';
+  if (!plan || compareNumberValues(abstraction ? greatTheory : theory, plan.cost) < 0) return false;
+  const purchase = abstraction ? researchAbstraction : researchGeneralization;
+  for (const researchId of plan.ids) {
+    if (!purchase(researchId, { renderAfter: false })) return false;
   }
   render();
   return true;
@@ -3907,7 +4015,7 @@ function canResearchGeneralization(id) {
     compareNumberValues(theory, research.theoryCost) >= 0;
 }
 
-function researchGeneralization(id) {
+function researchGeneralization(id, { renderAfter = true } = {}) {
   const research = GENERALIZATION_RESEARCHES.find(item => item.id === id);
   if (!research || !canResearchGeneralization(id)) return false;
 
@@ -3924,7 +4032,7 @@ function researchGeneralization(id) {
     }
   }
   log(`${research.id} ${research.title} 연구를 완료했습니다.`, true);
-  render();
+  if (renderAfter) render();
   return true;
 }
 

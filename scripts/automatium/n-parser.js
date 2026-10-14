@@ -59,7 +59,7 @@ const NParser = (() => {
       if (this.isWord('buy')) return this.parseBuy();
       if (this.isWord('click')) return this.parseClick();
       if (this.isWord('wait')) return this.parseWait();
-      if (this.isWord('square') || this.isWord('sp') || this.isWord('cp')) return this.parsePointExchange();
+      if (this.isWord('square') || this.isWord('sp') || this.isWord('cp') || this.isWord('kp')) return this.parsePointExchange();
       if (this.isWord('if')) return this.parseIf();
       if (this.isWord('while')) return this.parseWhile();
       if (this.isWord('whiletick')) return this.parseWhileTick();
@@ -154,7 +154,7 @@ const NParser = (() => {
       this.finishStatement();
       return {
         type: 'PointExchange',
-        currency: start.value === 'cp' ? 'cp' : 'sp',
+        currency: start.value === 'cp' || start.value === 'kp' ? start.value : 'sp',
         amount,
         wait,
         line: start.line
@@ -297,7 +297,20 @@ const NParser = (() => {
         const path = [];
         while (this.is('punctuation', '.')) {
           this.index++;
-          const name = this.consumeWord("get 뒤에 값 이름이 필요합니다.");
+          let name;
+          if (
+            path.length === 1 && ['generalization', 'gz'].includes(path[0].name.toLowerCase()) &&
+            this.is('number_literal') && /^\d+$/.test(this.current().value) &&
+            this.is('operator', '-', 1) &&
+            this.is('number_literal', undefined, 2) && /^\d+$/.test(this.current(2).value)
+          ) {
+            const column = this.consume('number_literal');
+            this.consume('operator', '-');
+            const row = this.consume('number_literal');
+            name = { ...column, value: `${column.value}-${row.value}` };
+          } else {
+            name = this.consumeWord("get 뒤에 값 이름이 필요합니다.");
+          }
           path.push({ name: name.value, index: this.parseOptionalIndex() });
         }
         if (path.length === 0) throw new NLanguageError("get 뒤에 '.값'이 필요합니다.", token);

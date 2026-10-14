@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>숫자의 끝을 보는 타이쿤 - 프로토타입</title>
-  <link rel="stylesheet" href="./styles/number-tycoon.css?v=20261012-abstraction-time-info-v1">
+  <link rel="stylesheet" href="./styles/number-tycoon.css?v=20261014-n-program-order-v1">
 </head>
 <body>
 <div class="news-ticker" aria-live="polite">
@@ -523,6 +523,7 @@
         <span id="abstractionResetLabel">다음 KP 획득 시 추상화 초기화: OFF</span>
         <span class="cost" id="abstractionResetRefund">반환 예정: 0 대이론</span>
       </button>
+      <button id="abstractionSettingsBtn" class="abstraction-settings-button" type="button" aria-haspopup="dialog">분기 설정</button>
       <div class="generalization-tree-toolbar abstraction-tree-toolbar" role="group" aria-label="추상화 연구 트리 확대 및 축소">
         <button id="abstractionZoomOutBtn" type="button" title="연구 트리 축소" aria-label="연구 트리 축소">−</button>
         <button id="abstractionZoomResetBtn" type="button" title="연구 트리 배율 초기화" aria-label="연구 트리 배율 초기화">
@@ -540,6 +541,24 @@
 
   <div class="dev-console-host" id="devConsoleHost"></div>
 </div>
+
+<dialog id="abstractionSettingsDialog" class="formula-help-dialog abstraction-settings-dialog" aria-labelledby="abstractionSettingsTitle">
+  <section class="formula-help-shell">
+    <header class="formula-help-header">
+      <h2 id="abstractionSettingsTitle">추상화 분기 설정</h2>
+      <button id="abstractionSettingsCloseBtn" class="formula-help-close" type="button" title="분기 설정 닫기" aria-label="분기 설정 닫기">×</button>
+    </header>
+    <fieldset>
+      <legend>첫 번째 분기</legend>
+      <label>1순위<select id="abstractionBranchPriority1"></select></label>
+      <label>2순위 · 두 경로 해금 시<select id="abstractionBranchPriority2"></select></label>
+    </fieldset>
+    <fieldset>
+      <legend>두 번째 분기</legend>
+      <label>1순위<select id="abstractionSecondBranchPriority"></select></label>
+    </fieldset>
+  </section>
+</dialog>
 
 <div id="manualExchangeDock" class="manual-exchange-dock hidden">
   <button id="knuthChallengeCompleteBtn" class="knuth-challenge-complete hidden" type="button">KC1 도전 완료</button>
@@ -659,14 +678,14 @@
 <script src="./scripts/data/chapter-roadmap.js?v=20260919-knuth"></script>
 <script src="./scripts/core/constants.js?v=20261013-black-hole-linear-v2"></script>
 <script src="./scripts/core/number-math.js?v=20261013-percent-performance-v2"></script>
-<script src="./scripts/core/state.js?v=20261013-percent-continuous-v1"></script>
+<script src="./scripts/core/state.js?v=20261014-research-path-v1"></script>
 <script src="./scripts/systems/formula-help.js?v=20261012-log-overflow-v1"></script>
-<script src="./scripts/core/dom.js?v=20261012-abstraction-reset-v1"></script>
+<script src="./scripts/core/dom.js?v=20261014-research-path-v1"></script>
 <script src="./scripts/core/chapter-ui.js?v=20260922-performance"></script>
 <script src="./scripts/systems/percent-lanes.js?v=20261013-percent-continuous-v1"></script>
 <script src="./scripts/systems/square-upgrades.js?v=20261001-formula-help-v1"></script>
 <script src="./scripts/systems/square-breakthrough.js?v=20261001-formula-help-v1"></script>
-<script src="./scripts/systems/square-convergence.js?v=20261012-abstraction-reset-v1"></script>
+<script src="./scripts/systems/square-convergence.js?v=20261014-research-path-v2"></script>
 <script src="./scripts/systems/abstraction.js?v=20260924-abstraction"></script>
 <script src="./scripts/systems/square-dimensions.js?v=20261012-abstraction-tier11-v1"></script>
 <script src="./scripts/systems/diverger.js?v=20261012-abstraction-second-branch-v1"></script>
@@ -679,11 +698,11 @@
 <script src="./scripts/systems/news-ticker.js?v=20261008-human-messages-v1"></script>
 <script src="./scripts/chapters/square.js?v=20261005-square-prestige-time-v1"></script>
 <script src="./scripts/chapters/knuth.js?v=20261012-log-overflow-v1"></script>
-<script src="./scripts/core/save.js?v=20261012-abstraction-reset-v1"></script>
+<script src="./scripts/core/save.js?v=20261014-research-path-v1"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/automatium/n-parser.js?v=20260922-no-bigint"></script>
-<script src="./scripts/automatium/n-runtime.js?v=20260927-automatium-budget-yield-v1"></script>
-<script src="./scripts/systems/automatium.js?v=20261012-convergence-repeatable-v1"></script>
+<script src="./scripts/automatium/n-parser.js?v=20261014-n-research-query-v1"></script>
+<script src="./scripts/automatium/n-runtime.js?v=20261014-n-kp-automation-v1"></script>
+<script src="./scripts/systems/automatium.js?v=20261014-n-program-order-v2"></script>
 <script src="./scripts/systems/dev-console.js?v=20261012-abstraction-reset-v1"></script>
 <script src="./scripts/main.js?v=20260905-cache-refresh"></script>
 <script src="./scripts/config/firebase-config.js?v=20260918-auth"></script>

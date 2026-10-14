@@ -119,7 +119,7 @@ function renderGeneralizationTreeLayout() {
           && hasGeneralizationResearch(path.dataset.childId)
       );
     }
-    applyGeneralizationTreeFocus();
+    applyGeneralizationResearchFocus();
     return;
   }
 
@@ -378,7 +378,7 @@ function ensureGeneralizationResearchUi(research) {
   button.type = 'button';
   button.dataset.devUpgradeKind = 'generalization';
   button.dataset.devUpgradeId = research.id;
-  button.addEventListener('click', () => researchGeneralization(research.id));
+  button.addEventListener('click', () => purchaseResearchWithParents('generalization', research.id));
 
   node.append(id, title, description, parents, button);
   ensureFormulaHelpButton(node, 'generalization', research.id);
@@ -393,7 +393,8 @@ function renderGeneralizationResearchBoard() {
     const position = researchNodePosition(research);
     const bought = hasGeneralizationResearch(research.id);
     const parentsReady = research.parents.every(parentId => hasGeneralizationResearch(parentId));
-    const available = canResearchGeneralization(research.id);
+    const plan = researchPurchasePlan('generalization', research.id);
+    const available = plan !== null && compareNumberValues(theory, plan.cost) >= 0;
 
     ui.node.classList.toggle('bought', bought);
     ui.node.classList.toggle('locked', !bought && !parentsReady);
@@ -406,7 +407,8 @@ function renderGeneralizationResearchBoard() {
     ui.button.disabled = !canOpenGeneralizationResearch() || (devMode ? false : bought || !available);
     ui.button.textContent = bought
       ? '연구 완료'
-      : `연구 · ${fmt(research.theoryCost)} 이론`;
+      : `연구 · ${fmt(plan?.cost ?? research.theoryCost)} 이론`;
+    ui.button.title = plan && plan.ids.length > 1 ? `선행 포함 ${plan.ids.length}개 연구` : '';
   }
   renderGeneralizationTreeLayout();
 }
@@ -632,7 +634,7 @@ function ensureAbstractionResearchUi(research) {
   button.type = 'button';
   button.dataset.devUpgradeKind = 'abstraction';
   button.dataset.devUpgradeId = research.id;
-  button.addEventListener('click', () => researchAbstraction(research.id));
+  button.addEventListener('click', () => purchaseResearchWithParents('abstraction', research.id));
 
   node.append(id, title, description, parents, liveInfo, button);
   ensureFormulaHelpButton(node, 'abstraction', research.id);
@@ -796,7 +798,8 @@ function renderAbstractionBoard() {
     const bought = hasAbstractionResearch(research.id);
     const parentsReady = abstractionResearchParentsReady(research);
     const branchLocked = abstractionResearchBranchLocked(research);
-    const available = canResearchAbstraction(research.id);
+    const plan = researchPurchasePlan('abstraction', research.id);
+    const available = plan !== null && compareNumberValues(greatTheory, plan.cost) >= 0;
     ui.node.classList.toggle('bought', bought);
     ui.node.classList.toggle('locked', !bought && (!parentsReady || branchLocked));
     updateAbstractionTimeResearchUi(research.id, ui);
@@ -808,9 +811,35 @@ function renderAbstractionBoard() {
     ui.button.textContent = bought
       ? '연구 완료'
       : branchLocked ? '다른 분기 선택됨'
-      : `연구 · ${fmt(research.greatTheoryCost)} 대이론`;
+      : `연구 · ${fmt(plan?.cost ?? research.greatTheoryCost)} 대이론`;
+    ui.button.title = plan && plan.ids.length > 1 ? `선행 포함 ${plan.ids.length}개 연구` : '';
   }
   renderAbstractionTreeLayout();
+}
+
+function renderAbstractionBranchSettings() {
+  for (const [select, group, rank] of [
+    [abstractionBranchPriority1, 1, 0],
+    [abstractionBranchPriority2, 1, 1],
+    [abstractionSecondBranchPriority, 2, 0]
+  ]) {
+    if (select.options.length === 0) {
+      for (const branch of ABSTRACTION_BRANCH_OPTIONS[group]) {
+        const option = document.createElement('option');
+        option.value = branch.id;
+        option.textContent = branch.label;
+        select.appendChild(option);
+      }
+    }
+    select.value = abstractionBranchPriorities[group][rank];
+  }
+}
+
+function openAbstractionBranchSettings() {
+  if (!canOpenAbstraction()) return false;
+  renderAbstractionBranchSettings();
+  abstractionSettingsDialog.showModal();
+  return true;
 }
 
 function finishSquareConvergence(gainedConvergencePoints) {
@@ -843,6 +872,22 @@ researchTheoryBtn.addEventListener('click', researchTheory);
 researchTheoryMaxBtn.addEventListener('click', researchTheoryMaximum);
 generalizationResetBtn.addEventListener('click', resetGeneralizationResearch);
 abstractionResetToggle.addEventListener('click', toggleAbstractionReset);
+abstractionSettingsBtn.addEventListener('click', openAbstractionBranchSettings);
+abstractionSettingsCloseBtn.addEventListener('click', () => abstractionSettingsDialog.close());
+abstractionSettingsDialog.addEventListener('click', event => {
+  if (event.target === abstractionSettingsDialog) abstractionSettingsDialog.close();
+});
+for (const [select, group, rank] of [
+  [abstractionBranchPriority1, 1, 0],
+  [abstractionBranchPriority2, 1, 1],
+  [abstractionSecondBranchPriority, 2, 0]
+]) {
+  select.addEventListener('change', () => {
+    setAbstractionBranchPriority(group, rank, select.value);
+    renderAbstractionBranchSettings();
+    render();
+  });
+}
 greatTheoryCpResourceBtn.addEventListener('click', () => setAbstractionCostResource(0));
 greatTheoryKpResourceBtn.addEventListener('click', () => setAbstractionCostResource(1));
 greatTheorySpResourceBtn.addEventListener('click', () => setAbstractionCostResource(2));

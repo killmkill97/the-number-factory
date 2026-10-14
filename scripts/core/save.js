@@ -186,6 +186,7 @@ function saveGame() {
     abstractionResearchState: { ...abstractionResearchState },
     abstractionResearchPaidCosts: { ...abstractionResearchPaidCosts },
     abstractionResetOnNextKnuthPoint,
+    abstractionBranchPriorities: { 1: [...abstractionBranchPriorities[1]], 2: [...abstractionBranchPriorities[2]] },
     generalizationResetCount,
     saveCount: nextSaveCount,
     loadCount,
@@ -276,6 +277,7 @@ function loadGame(rawOverride = null, options = {}) {
     );
     loadAbstractionResearchState(d.abstractionResearchState);
     loadAbstractionResetState(d.abstractionResearchPaidCosts, d.abstractionResetOnNextKnuthPoint);
+    loadAbstractionBranchPriorities(d.abstractionBranchPriorities);
     loadKnuthRealTimeState(isLegacySave ? {} : d);
     generalizationResetCount = normalizeSaveCounter(d.generalizationResetCount);
     loadAchievementState(d.achievementState);

@@ -175,7 +175,7 @@ const NRuntime = (() => {
   }
 
   function pointTarget(value, node, currency) {
-    const label = currency === 'cp' ? 'CP' : 'SP';
+    const label = currency === 'kp' ? 'KP' : currency === 'cp' ? 'CP' : 'SP';
     requireNumber(value, node);
     if (isScientificNumber(value)) {
       if (compareNumberValues(value, 0) <= 0) {
@@ -268,7 +268,8 @@ const NRuntime = (() => {
       const requestedTarget = statement.amount === null
         ? null
         : pointTarget(evaluate(statement.amount, context), statement.amount, statement.currency);
-      const exchange = statement.currency === 'cp' ? context.adapter.cp : context.adapter.square;
+      const exchange = statement.currency === 'kp' ? context.adapter.kp
+        : statement.currency === 'cp' ? context.adapter.cp : context.adapter.square;
       if (typeof exchange !== 'function') runtimeError(`${statement.currency.toUpperCase()} 교환 기능을 사용할 수 없습니다.`, statement);
       while (!exchange(statement, requestedTarget)) {
         if (!statement.wait) return null;
