@@ -85,6 +85,61 @@ function upgradePercentPower() {
 
 percentPowerBtn.addEventListener('click', upgradePercentPower);
 
+function buyPercentPowerBatch(maxPurchases, lane = null, deadline = Infinity) {
+  const result = { purchased: 0, operations: 0 };
+  if (overflowed || squareMode || !percentUnlocked || percentChargeNeeded > PERCENT_POWER_UNLOCK_CHARGE) return result;
+  const requested = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(maxPurchases)));
+  if (!(requested > 0)) return result;
+
+  while (result.purchased < requested && result.operations < 64 && gameClockNowMs() < deadline) {
+    if (lane) repairPercentLanePowerCost(lane);
+    else repairPercentPowerCostState();
+    const count = lane ? lane.powerPurchaseCount : percentPowerPurchaseCount;
+    const power = lane ? lane.power : percentPower;
+    const bonus = lane ? lane.powerPurchaseBonus : percentPowerPurchaseBonus;
+    const limit = Math.min(
+      requested - result.purchased,
+      Number.MAX_SAFE_INTEGER - 1 - count,
+      Number.MAX_SAFE_INTEGER - power
+    );
+    if (limit <= 0) break;
+    const model = percentPowerBulkPriceModel(
+      lane ? lane.powerCost : percentPowerUpgradeCost,
+      lane ? lane.powerCostCompounding : percentPowerCostCompounding,
+      count,
+      lane ? scaleByLane(40000, lane.laneNumber) : 40000
+    );
+    result.operations++;
+    const plan = model ? planPercentPowerBulkPurchase(model, limit, deadline) : null;
+    if (plan !== null) {
+      if (plan.purchased <= 0) break;
+      const nextCost = model.nextCost(plan.purchased);
+      const granted = grantPercentPowerBatch(power, bonus, count, plan.purchased);
+      setBaseNumber(plan.balance);
+      if (lane) {
+        lane.power = granted.power;
+        lane.powerPurchaseBonus = granted.purchaseBonus;
+        lane.powerPurchaseCount = count + plan.purchased;
+        lane.powerCost = nextCost;
+        lane.powerCostCompounding = true;
+      } else {
+        percentPower = granted.power;
+        percentPowerPurchaseBonus = granted.purchaseBonus;
+        percentPowerPurchaseCount = count + plan.purchased;
+        percentPowerUpgradeCost = nextCost;
+        percentPowerCostCompounding = true;
+      }
+      result.purchased += plan.purchased;
+      render();
+      break;
+    }
+    if (gameClockNowMs() >= deadline) break;
+    if (!(lane ? buyExtraLanePower(lane) : upgradePercentPower())) break;
+    result.purchased++;
+  }
+  return result;
+}
+
 function buyPercentAuto() {
   if (!percentUnlocked) return false;
   if (percentAutoUnlocked) return false;
@@ -121,7 +176,7 @@ function upgradePercentAutoSpeed() {
 percentAutoSpeedBtn.addEventListener('click', upgradePercentAutoSpeed);
 
 let lastPercentTraceHeartbeatAt = -Infinity;
-let percentAutoLastTickAt = gameClockNowMs();
+let percentAutoLastTickAt = gameTimelineNowMs();
 
 function addPercentAutoTime(timer, elapsed) {
   const total = timer + elapsed;
@@ -236,7 +291,7 @@ function flushAutomaticPercentUses() {
   withPercentProductionCache(() => advanceAutomaticPercentUses(elapsedMs));
 }
 
-setInterval(flushAutomaticPercentUses, PERCENT_AUTO_TICK_MS);
+setGameInterval(flushAutomaticPercentUses, PERCENT_AUTO_TICK_MS);
 
 function upgradePercentCharge() {
   if (!percentUnlocked) return false;

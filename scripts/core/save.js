@@ -42,13 +42,24 @@ function persistSaveStats() {
 loadPersistedSaveStats();
 
 function saveGame() {
+  syncKc4RealTime();
   repairPercentPowerCostState();
   repairExtraPercentLanePowerCosts();
   updateAchievements();
   if (baseNumberIsInNoUnit()) unlockAchievement('no_unit_save');
   const nextSaveCount = saveCount + 1;
+  const data = captureGameSaveData(nextSaveCount);
+  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  saveCount = nextSaveCount;
+  saveStatsLoadedFromStorage = true;
+  persistSaveStats();
+  window.numberTycoonSession?.noteSave();
+  log('게임을 이 브라우저에 저장했습니다.', true);
+}
+
+function captureGameSaveData(nextSaveCount = saveCount) {
   const primarySquareDimension = squareDimensionState(0);
-  const data = {
+  return {
     version: SAVE_VERSION,
     num: serializeBaseNumber(),
     perClick: serializeNumberValue(perClick),
@@ -110,6 +121,10 @@ function saveGame() {
     squareSincePrestigeGameSeconds: serializeKnuthContinuousValue(squareSincePrestigeGameSeconds),
     knuthPercentOverflow: serializeKnuthContinuousValue(knuthPercentOverflow),
     numberBlackHoleSystemEnabled,
+    numberBlackHoleAutoUpgradeEnabled,
+    numberBlackHoleAutoMaxEnabled,
+    numberBlackHoleAutoAmountLimit,
+    numberBlackHoleAutoSpeedLimit,
     numberBlackHoleDonationPercent,
     numberBlackHoleDonationRate,
     numberBlackHoleDonationAmountLevel,
@@ -117,14 +132,25 @@ function saveGame() {
     numberBlackHoleDonationAmountCost: serializeNumberValue(numberBlackHoleDonationAmountCost),
     numberBlackHoleDonationSpeedCost: serializeNumberValue(numberBlackHoleDonationSpeedCost),
     numberBlackHoleTotalInvested: serializeNumberValue(numberBlackHoleTotalInvested),
+    numberBlackHoleDonationResource,
+    numberBlackHoleTotalSpInvested: serializeNumberValue(numberBlackHoleTotalSpInvested),
+    numberBlackHoleSpDonationCount: serializeNumberValue(numberBlackHoleSpDonationCount),
     numberBlackHoleAccumulatedGameSeconds: serializeNumberValue(numberBlackHoleAccumulatedGameSeconds),
+    numberBlackHolePassiveRadius: serializeNumberValue(numberBlackHolePassiveRadius),
+    singularityPoints: serializeNumberValue(singularityPoints),
+    totalSingularitiesPurchased: serializeNumberValue(totalSingularitiesPurchased),
+    singularityUpgradeLevels: Object.fromEntries(SINGULARITY_UPGRADES.map(upgrade => [
+      upgrade.id, serializeNumberValue(singularityUpgradeLevels[upgrade.id])
+    ])),
     hasClaimedKnuthPoint,
     pendingKnuthPointClaim,
     knuthOperationLevel,
     knuthBaseUpgradeLevels: { ...knuthBaseUpgradeLevels },
+    knuthBaseAutoEnabled: { ...knuthBaseAutoEnabled },
     knuthResetEquipmentOnNextPrestige,
     knuthEquippedUpgradeIds: [...knuthEquippedUpgradeIds],
     activeKnuthChallengeId,
+    kc4ElapsedRealSeconds,
     knuthChallengeDysonSwarmMaxAtEntry,
     completedKnuthChallengeIds: [...completedKnuthChallengeIds],
     activeChapter,
@@ -184,9 +210,11 @@ function saveGame() {
     abstractionCostResourceIndex,
     automatiumPrestigeRetentionUnlocked,
     abstractionResearchState: { ...abstractionResearchState },
+    abstractionSecondBranchPurchaseOrder: [...abstractionSecondBranchPurchaseOrder],
     abstractionResearchPaidCosts: { ...abstractionResearchPaidCosts },
     abstractionResetOnNextKnuthPoint,
     abstractionBranchPriorities: { 1: [...abstractionBranchPriorities[1]], 2: [...abstractionBranchPriorities[2]] },
+    abstractionResearchPresets: abstractionResearchPresets.map(preset => ({ name: preset.name, ids: [...preset.ids] })),
     generalizationResetCount,
     saveCount: nextSaveCount,
     loadCount,
@@ -208,11 +236,6 @@ function saveGame() {
     divergerAutoUpgradeEnabled
   };
 
-  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-  saveCount = nextSaveCount;
-  saveStatsLoadedFromStorage = true;
-  persistSaveStats();
-  log('게임을 이 브라우저에 저장했습니다.', true);
 }
 
 function normalizeKnuthSaveFields(data) {
@@ -239,19 +262,21 @@ function normalizeKnuthSaveFields(data) {
 }
 
 function loadGame(rawOverride = null, options = {}) {
+  if (gameSessionPaused() && options.offlineRecovery !== true) return false;
   const countAsLoad = options.countAsLoad !== false;
   const raw = rawOverride ?? localStorage.getItem(SAVE_KEY);
   if (!raw) {
     log('저장 데이터가 없습니다.', true);
-    return;
+    return false;
   }
 
   try {
     const d = normalizeKnuthSaveFields(JSON.parse(raw));
-    if (rawOverride !== null) localStorage.setItem(SAVE_KEY, raw);
+    if (rawOverride !== null && options.persistOverride !== false) localStorage.setItem(SAVE_KEY, raw);
     const saveVersion = Number(d.version ?? 1);
     const isLegacySave = !Number.isFinite(saveVersion) || saveVersion < 5;
     loadKnuthBaseUpgradeLevels(isLegacySave ? null : d.knuthBaseUpgradeLevels);
+    loadKnuthBaseAutomation(isLegacySave ? null : d.knuthBaseAutoEnabled);
 
     if (!saveStatsLoadedFromStorage) {
       saveCount = normalizeSaveCounter(d.saveCount);
@@ -278,8 +303,10 @@ function loadGame(rawOverride = null, options = {}) {
       d.abstractionResearchState
     );
     loadAbstractionResearchState(d.abstractionResearchState);
+    loadAbstractionSecondBranchOrder(d.abstractionSecondBranchPurchaseOrder);
     loadAbstractionResetState(d.abstractionResearchPaidCosts, d.abstractionResetOnNextKnuthPoint);
     loadAbstractionBranchPriorities(d.abstractionBranchPriorities);
+    loadAbstractionResearchPresets(d.abstractionResearchPresets);
     loadKnuthRealTimeState(isLegacySave ? {} : d);
     generalizationResetCount = normalizeSaveCounter(d.generalizationResetCount);
     loadAchievementState(d.achievementState);
@@ -438,6 +465,10 @@ function loadGame(rawOverride = null, options = {}) {
     }
 
     numberBlackHoleSystemEnabled = d.numberBlackHoleSystemEnabled === true;
+    numberBlackHoleAutoUpgradeEnabled = d.numberBlackHoleAutoUpgradeEnabled === true;
+    numberBlackHoleAutoMaxEnabled = d.numberBlackHoleAutoMaxEnabled === true;
+    numberBlackHoleAutoAmountLimit = numberBlackHoleAutoLimitFromSave(d.numberBlackHoleAutoAmountLimit);
+    numberBlackHoleAutoSpeedLimit = numberBlackHoleAutoLimitFromSave(d.numberBlackHoleAutoSpeedLimit);
     const savedBlackHoleAmountLevel = Number(d.numberBlackHoleDonationAmountLevel ?? 0);
     numberBlackHoleDonationAmountLevel = Number.isSafeInteger(savedBlackHoleAmountLevel)
       ? Math.min(NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT - 1, Math.max(0, savedBlackHoleAmountLevel))
@@ -476,7 +507,12 @@ function loadGame(rawOverride = null, options = {}) {
       NUMBER_BLACK_HOLE_BASE_UPGRADE_COST
     );
     numberBlackHoleTotalInvested = numberValueFromSave(d.numberBlackHoleTotalInvested);
+    numberBlackHoleDonationResource = d.numberBlackHoleDonationResource === 'sp' ? 'sp' : 'number';
+    numberBlackHoleTotalSpInvested = numberValueFromSave(d.numberBlackHoleTotalSpInvested);
+    numberBlackHoleSpDonationCount = NumberMath.floor(numberValueFromSave(d.numberBlackHoleSpDonationCount));
     numberBlackHoleAccumulatedGameSeconds = numberValueFromSave(d.numberBlackHoleAccumulatedGameSeconds);
+    numberBlackHolePassiveRadius = numberValueFromSave(d.numberBlackHolePassiveRadius);
+    loadSingularityState(d);
     if (typeof resetNumberBlackHoleTimers === 'function') resetNumberBlackHoleTimers();
 
     if (isLegacySave) {
@@ -528,11 +564,6 @@ function loadGame(rawOverride = null, options = {}) {
           : id;
         if (knownKnuthUpgradeIds.has(restoredId)) knuthEquippedUpgradeIds.add(restoredId);
       }
-      while (knuthSlotsUsed() > knuthSlotCapacity()) {
-        const lastId = [...knuthEquippedUpgradeIds].pop();
-        if (!lastId) break;
-        knuthEquippedUpgradeIds.delete(lastId);
-      }
       const knownKnuthChallengeIds = new Set(KNUTH_CHALLENGES.map(challenge => challenge.id));
       completedKnuthChallengeIds.clear();
       for (const id of d.completedKnuthChallengeIds ?? []) {
@@ -542,6 +573,11 @@ function loadGame(rawOverride = null, options = {}) {
         && !completedKnuthChallengeIds.has(d.activeKnuthChallengeId)
         ? d.activeKnuthChallengeId
         : null;
+      while (knuthSlotsUsed() > knuthSlotCapacity()) {
+        const lastId = [...knuthEquippedUpgradeIds].pop();
+        if (!lastId) break;
+        knuthEquippedUpgradeIds.delete(lastId);
+      }
       knuthChallengeDysonSwarmMaxAtEntry = activeKnuthChallengeId === 'kc1'
         && Number.isSafeInteger(Number(d.knuthChallengeDysonSwarmMaxAtEntry))
         && Number(d.knuthChallengeDysonSwarmMaxAtEntry) >= 8
@@ -630,6 +666,13 @@ function loadGame(rawOverride = null, options = {}) {
         : false;
     }
 
+    // The bonus depends on KC5, whose saved state is restored after diverger levels.
+    if (knuthBaseUpgradeLevel('diverger_b_bonus') > 0) divergerB = divergerBAtLevel(divergerBLevel);
+    resetKc4Time();
+    const savedKc4Seconds = Number(d.kc4ElapsedRealSeconds);
+    if (isKnuthChallengeActive('kc4') && Number.isFinite(savedKc4Seconds) && savedKc4Seconds >= 0) {
+      kc4ElapsedRealSeconds = savedKc4Seconds;
+    }
     // 화폐가 저장되어 있으면 오래된 해금 플래그가 빠져 있어도 해당 챕터 탭을 복구한다.
     if (isPositiveNumberValue(squarePoints) || isPositiveNumberValue(squareConvergencePoints)) {
       squareUnlocked = true;
@@ -722,6 +765,7 @@ function loadGame(rawOverride = null, options = {}) {
       persistSaveStats();
     }
     updateAchievements();
+    window.numberTycoonSession?.noteLoad();
     render();
     log(
       isLegacySave
@@ -729,9 +773,11 @@ function loadGame(rawOverride = null, options = {}) {
         : '저장 데이터를 불러왔습니다.',
       true
     );
+    return true;
   } catch (e) {
     console.error(e);
     log('저장 데이터를 읽는 중 오류가 발생했습니다.', true);
+    return false;
   }
 }
 

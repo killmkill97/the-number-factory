@@ -123,6 +123,11 @@ test('math doctor requires branch expansion and every compatible path, ignoring 
     for(const research of ABSTRACTION_RESEARCHES) {
       if(!research.branch || ['time','active'].includes(research.branch)) abstractionResearchState[research.id]=true;
     }
+    const miniGroups=new Set();
+    for(const research of ABSTRACTION_RESEARCHES){
+      if((research.branchGroup??1)<=2 || miniGroups.has(research.branchGroup))continue;
+      abstractionResearchState[research.id]=true;miniGroups.add(research.branchGroup);
+    }
     const noExpansion=condition('math_doctor');knuthBaseUpgradeLevels.extra_branch=1;
     const onlyOnePath=condition('math_doctor');
     ABSTRACTION_RESEARCHES.filter(r=>r.branch==='expansion').forEach(r=>abstractionResearchState[r.id]=true);

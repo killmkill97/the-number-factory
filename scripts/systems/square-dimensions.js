@@ -393,8 +393,8 @@ if (squareDimensionAutoUpgradeBtn) {
 }
 
 const SQUARE_DIMENSION_TICK_MS = 100;
-let squareDimensionLastTickAt = gameClockNowMs();
-setInterval(() => {
+let squareDimensionLastTickAt = gameTimelineNowMs();
+setGameInterval(() => {
   const { now, elapsedMs } = elapsedRealTimeSince(squareDimensionLastTickAt);
   squareDimensionLastTickAt = now;
   if (advanceSquareDimensions(elapsedMs)) render();

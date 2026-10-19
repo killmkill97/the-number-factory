@@ -1,10 +1,10 @@
 const AUTO_UPGRADE_INTERVAL_MS = 250;
 const AUTO_UPGRADE_POLL_MS = 50;
 // A single browser task must stay short enough for input and rendering to run.
-// Faster automation still receives its purchases in successive ticks instead of
-// attempting tens of thousands of synchronous DOM/game updates at once.
+// Power levels can be solved in bulk; other purchases remain bounded work.
 const AUTO_UPGRADE_BATCH_OPERATION_LIMIT = 256;
-let autoUpgradeLastTickAt = gameClockNowMs();
+const AUTO_UPGRADE_BATCH_BUDGET_MS = 12;
+let autoUpgradeLastTickAt = gameTimelineNowMs();
 
 function automaticUpgradeBatchSizeForElapsed(elapsedMs) {
   const acceleratedTime = gameTick(elapsedMs) * autoUpgradeSpeedMultiplier();
@@ -23,7 +23,9 @@ function automaticUpgradeChoices() {
     upgradeAutoClickerParallel,
     buyAutoClickerPercentFill,
     upgradePercentCharge,
-    upgradePercentPower,
+    Object.assign(() => upgradePercentPower(), {
+      buyBulk: (limit, deadline) => buyPercentPowerBatch(limit, null, deadline)
+    }),
     buyPercentAuto,
     upgradePercentAutoSpeed,
     unlockNextPercentLane
@@ -31,7 +33,9 @@ function automaticUpgradeChoices() {
 
   for (const lane of extraPercentLanes) {
     upgradeChoices.push(
-      () => buyExtraLanePower(lane),
+      Object.assign(() => buyExtraLanePower(lane), {
+        buyBulk: (limit, deadline) => buyPercentPowerBatch(limit, lane, deadline)
+      }),
       () => buyExtraLaneAuto(lane),
       () => upgradeExtraLaneAutoSpeed(lane)
     );
@@ -70,27 +74,40 @@ function tryAutomaticUpgradeBatch(maxPurchasesPerUpgrade) {
     Math.min(AUTO_UPGRADE_BATCH_OPERATION_LIMIT, Math.floor(maxPurchasesPerUpgrade))
   );
   let totalPurchased = 0;
+  let operations = 0;
+  const deadline = gameClockNowMs() + AUTO_UPGRADE_BATCH_BUDGET_MS;
 
-  // 3-4는 한 업그레이드가 누적 횟수를 독점하지 않는다. 현재 구매 가능한
-  // 모든 업그레이드가 각각 같은 수의 자동 구매 기회를 병렬로 받는다.
-  for (const upgrade of automaticUpgradeChoices()) {
+  // Solve power batches before a different repeatable upgrade can consume the
+  // whole sequential-work budget. Keep the shuffled order within both groups.
+  const choices = automaticUpgradeChoices();
+  const ordered = [...choices.filter(upgrade => upgrade.buyBulk), ...choices.filter(upgrade => !upgrade.buyBulk)];
+  for (const upgrade of ordered) {
+    if (operations >= AUTO_UPGRADE_BATCH_OPERATION_LIMIT || gameClockNowMs() >= deadline) break;
+    if (upgrade.buyBulk) {
+      const result = upgrade.buyBulk(maxPurchasesPerUpgrade, deadline);
+      totalPurchased += result.purchased;
+      operations += Math.max(1, result.operations);
+      continue;
+    }
     let purchased = 0;
     while (
       purchased < purchaseLimit
-      && totalPurchased < AUTO_UPGRADE_BATCH_OPERATION_LIMIT
+      && operations < AUTO_UPGRADE_BATCH_OPERATION_LIMIT
+      && gameClockNowMs() < deadline
       && upgrade()
     ) {
       purchased++;
       totalPurchased++;
+      operations++;
     }
 
-    if (totalPurchased >= AUTO_UPGRADE_BATCH_OPERATION_LIMIT) break;
+    if (operations >= AUTO_UPGRADE_BATCH_OPERATION_LIMIT) break;
   }
 
   return totalPurchased;
 }
 
-setInterval(() => {
+setGameInterval(() => {
   const { now, elapsedMs } = elapsedRealTimeSince(autoUpgradeLastTickAt);
   autoUpgradeLastTickAt = now;
   if (!automaticUpgradeCanRun()) {
@@ -98,22 +115,25 @@ setInterval(() => {
     return;
   }
 
+  const bulkEnabled = hasGeneralizationResearch('3-4');
+  const maximumTimer = AUTO_UPGRADE_INTERVAL_MS
+    * (bulkEnabled ? Number.MAX_SAFE_INTEGER : AUTO_UPGRADE_BATCH_OPERATION_LIMIT);
   autoUpgradeTimer += gameTick(elapsedMs) * autoUpgradeSpeedMultiplier();
   if (!Number.isFinite(autoUpgradeTimer)) {
-    autoUpgradeTimer = AUTO_UPGRADE_INTERVAL_MS * AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
+    autoUpgradeTimer = maximumTimer;
   }
   autoUpgradeTimer = Math.min(
     autoUpgradeTimer,
-    AUTO_UPGRADE_INTERVAL_MS * AUTO_UPGRADE_BATCH_OPERATION_LIMIT
+    maximumTimer
   );
 
   let attempts = Math.floor(autoUpgradeTimer / AUTO_UPGRADE_INTERVAL_MS);
   if (attempts <= 0) return;
 
-  if (hasGeneralizationResearch('3-4')) {
+  if (bulkEnabled) {
     tryAutomaticUpgradeBatch(attempts);
-    // 처리한 자동 구매 기회만 소비한다. 속도가 과도해도 다음 폴에서
-    // 같은 제한 안에서 계속 처리하므로 UI를 멈추게 하지 않는다.
+    // 초과 가속 시간은 기존처럼 무한 대기열로 남기지 않는다.
+    // 실제 계산 작업은 횟수/시간 예산을 유지하며 다음 폴에서도 재개한다.
     autoUpgradeTimer = Math.max(0, autoUpgradeTimer - attempts * AUTO_UPGRADE_INTERVAL_MS);
     return;
   }

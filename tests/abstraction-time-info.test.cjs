@@ -50,7 +50,7 @@ test('card readouts distinguish transformed game T, raw game U and wall-clock ti
   `);
   assert.match(data[0],/T 기본 4초/);assert.match(data[0],/적용 T 8초/);assert.match(data[0],/×2/);
   assert.match(data[1],/U 4초 \(제곱 게임 시간\)/);assert.match(data[1],/추가 T/);
-  assert.match(data[2],/U 120초 \(커누스 현실 시간\)/);assert.match(data[2],/SP·CP ×/);
+  assert.match(data[2],/U 120초 \(커누스 현실 시간\)/);assert.match(data[2],/SP ×/);assert.match(data[2],/CP ×/);
   assert.match(data[3],/T 120초 \(커누스 현실 시간\)/);
 });
 
@@ -74,7 +74,17 @@ test('live time readouts update with elapsed real time and hide again after rese
     const next=abstractionTimeResearchInfo('12-1');abstractionResearchState['12-1']=false;
     return {first,next,cancelled:abstractionTimeResearchInfo('12-1')};
   `);
-  assert.match(data.first,/U 0초/);assert.match(data.first,/×8/);
+  assert.match(data.first,/U 0초/);assert.match(data.first,/SP ×800000/);assert.match(data.first,/CP ×200/);
   assert.match(data.next,/U 300초/);assert.notEqual(data.first,data.next);assert.equal(data.cancelled,'');
-  assert.match(uiSource,/setInterval\(\(\) => \{\s*if \(activeChapter !== 'knuth'/);
+  assert.match(uiSource,/setInterval\(\(\) => \{\s*if \(gameSessionPaused\(\)\) return;\s*if \(activeChapter !== 'knuth'/);
+});
+
+test('resource cards show both distinct multipliers using the current balancing constants', () => {
+  const data=run(`
+    abstractionResearchState['12-1']=true;const active=abstractionTimeResearchInfo('12-1');
+    abstractionResearchState['12-1']=false;abstractionResearchState['12-3']=true;testNow+=300000;
+    return {active,idle:abstractionTimeResearchInfo('12-3'),descriptions:['12-1','13-1','14-1','12-3','13-3'].map(id=>ABSTRACTION_RESEARCHES.find(r=>r.id===id).description)};
+  `);
+  assert.match(data.active,/SP ×800000 · CP ×200/);assert.match(data.idle,/SP ×500000.5 · CP ×125.5/);
+  for(const [i,value] of ['799999','21/','1+3/','999999','26.5H'].entries())assert.ok(data.descriptions[i].includes(value));
 });

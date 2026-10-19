@@ -62,9 +62,9 @@ function applyAutoClickerGain(cycles) {
 }
 
 let lastAutoClickerTraceHeartbeatAt = -Infinity;
-let autoClickerLastTickAt = gameClockNowMs();
+let autoClickerLastTickAt = gameTimelineNowMs();
 
-setInterval(() => {
+setGameInterval(() => {
   const { now, elapsedMs: elapsedRealMs } = elapsedRealTimeSince(autoClickerLastTickAt);
   autoClickerLastTickAt = now;
   if (!autoClickerUnlocked || overflowed) {

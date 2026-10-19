@@ -89,6 +89,9 @@ function renderDivergerView() {
   divergerPowerSubValue.textContent = `${formula} · 현재 +${formatDivergerProduction(production)} / ${formatDivergerInterval(divergerEffectiveInterval())}`;
   divergerSoftcapValue.textContent = `제곱력 생산 및 최종 숫자 생산 배율 ×${formatDivergerScientific(divergerSquareDimensionMultiplier())}`;
   divergerNValue.textContent = formatDivergerScientific(divergerN);
+  if (hasAbstractionResearch('17-4')) {
+    divergerNValue.textContent += ` · n 증가 속도 ×${formatDivergerScientific(abstractionDivergerNSpeedMultiplier())}`;
+  }
   divergerAValue.textContent = compareNumberValues(abstractionEffectiveDivergerA(), divergerA) === 0
     ? formatDivergerScientific(divergerA)
     : `${formatDivergerScientific(divergerA)} → ${formatDivergerScientific(abstractionEffectiveDivergerA())}`;
@@ -140,8 +143,8 @@ divergerSpeedUpgradeBtn?.addEventListener('click', buyDivergerSpeedUpgrade);
 divergerAutoUpgradeBtn?.addEventListener('click', toggleDivergerAutoUpgrade);
 
 const DIVERGER_TICK_MS = 10;
-let divergerLastTick = gameClockNowMs();
-setInterval(() => {
+let divergerLastTick = gameTimelineNowMs();
+setGameInterval(() => {
   const { now, elapsedMs } = elapsedRealTimeSince(divergerLastTick);
   divergerLastTick = now;
   const upgraded = advanceDivergerAutoUpgrade(elapsedMs);

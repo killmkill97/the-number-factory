@@ -28,7 +28,7 @@ test('second branch has three paths with 5/6/8 costs and active final research i
     const bought=['12-1','13-1','14-1'].map(researchAbstraction);
     return {before,bought,left:NumberMath.toNumber(greatTheory),
       costs:ABSTRACTION_RESEARCHES.filter(r=>r.branchGroup===2).map(r=>r.greatTheoryCost),
-      locked:['12-2','12-3'].map(canResearchAbstraction),extra:ABSTRACTION_RESEARCHES.some(r=>r.id==='15-1')};
+      locked:['12-2','12-3'].map(canResearchAbstraction),extra:ABSTRACTION_RESEARCHES.some(r=>r.column===15&&r.branchGroup===2)};
   `), {before:[true,true,true],bought:[true,true,true],left:0,costs:[5,6,8,5,6,8,5,6,8],locked:[false,false],extra:false});
 });
 
@@ -52,8 +52,8 @@ test('active and idle rewards use unaccelerated real time with smooth neutral as
     const idle=[0,300,3600].map(s=>{testNow=1000000+s*1000;return abstractionSecondBranchResourceMultiplier();});
     return {active,idle};
   `);
-  [8,1+7/Math.sqrt(2),1+7/Math.sqrt(13)].forEach((v,i)=>close(result.active[i],v));
-  [1,6,1+5*Math.log2(13)].forEach((v,i)=>close(result.idle[i],v));
+  [800000,1+799999/Math.sqrt(2),1+799999/Math.sqrt(13)].forEach((v,i)=>close(result.active[i],v));
+  [1,500000.5,1+999999*Math.log2(13)/(1+Math.log2(13))].forEach((v,i)=>close(result.idle[i],v));
 });
 
 test('passive resource multipliers affect actual SP/CP rewards and KP remains integer', () => {
@@ -69,7 +69,7 @@ test('passive resource multipliers affect actual SP/CP rewards and KP remains in
 });
 
 test('active fastest and idle longest KP rewards include the current completion and match payout', () => {
-  for(const [id,expected] of [['13-1',Math.floor(10*(1+3/Math.sqrt(2)))],['13-3',40]]){
+  for(const [id,expected] of [['13-1',Math.floor(10*(1+21/Math.sqrt(2)))],['13-3',142]]){
     const data=run(`
       hasClaimedKnuthPoint=true;knuthPoints=0;squareConvergencePoints=NumberMath.fromString('1e150');
       abstractionResearchState['${id}']=true;testNow+=300000;
@@ -128,7 +128,7 @@ test('active final research strengthens parameters inversely with real time and 
     divergerInterval=105;applyDivergerSpeedUpgrade(false);
     return {before,after,initial,later,undo,floor:divergerInterval};
   `);
-  close(data.after,data.before-8*Math.log10(data.before));close(data.initial,3);close(data.later,1+2/Math.sqrt(2));
+  close(data.after,data.before-8*Math.log10(data.before));close(data.initial,4);close(data.later,1+3/Math.sqrt(2));
   assert.equal(data.undo,data.before);assert.equal(data.floor,100);
 });
 
@@ -153,4 +153,77 @@ test('save integration includes the real clock, records and speed history', () =
   assert.match(source,/loadKnuthRealTimeState\(isLegacySave \? \{\} : d\)/);
   assert.match(source,/divergerSpeedIntervalHistory: \[\.\.\.divergerSpeedIntervalHistory\]/);
   assert.match(source,/loadDivergerSpeedIntervalHistory\(d.divergerSpeedIntervalHistory\)/);
+});
+
+test('active peaks exceed passive fourfold and idle soft peaks are only twenty-five percent above active', () => {
+  const data=run(`
+    const t=ABSTRACTION_SECOND_BRANCH_BALANCE;
+    return {active:[abstractionActiveTimeBonus(0,t.activeSpStrength),abstractionActiveTimeBonus(0,t.activeCpStrength),abstractionActiveTimeBonus(0,t.activeKpStrength)],
+      passive:[t.passiveSp,t.passiveCp,t.passiveKp],
+      idle:[abstractionIdleTimeBonus(Infinity,t.idleSpStrength),abstractionIdleTimeBonus(Infinity,t.idleCpStrength),abstractionIdleTimeBonus(Infinity,t.idleKpStrength)]};
+  `);
+  assert.deepEqual(data.active,[800000,200,22]);assert.deepEqual(data.passive,[200000,50,5.5]);
+  assert.deepEqual(data.idle,[1000000,250,27.5]);
+  for(let i=0;i<3;i++){close(data.active[i]/data.passive[i],4);close(data.idle[i]/data.active[i],1.25);}
+});
+
+test('active declines and idle rises smoothly with real seconds while idle remains bounded', () => {
+  const data=run(`
+    const t=ABSTRACTION_SECOND_BRANCH_BALANCE,times=[0,1,30,300,3600,86400,1e300];
+    return ['Sp','Cp','Kp'].map(key=>({
+      active:times.map(time=>abstractionActiveTimeBonus(time,t['active'+key+'Strength'])),
+      idle:times.map(time=>abstractionIdleTimeBonus(time,t['idle'+key+'Strength'])),
+      limit:1+t['idle'+key+'Strength']}));
+  `);
+  for(const row of data){
+    assert.equal(row.idle[0],1);
+    for(let i=1;i<row.active.length;i++){assert.ok(row.active[i]<row.active[i-1]);assert.ok(row.idle[i]>row.idle[i-1]);}
+    assert.ok(row.idle.every(v=>Number.isFinite(v)&&v<=row.limit));
+    assert.ok(row.idle[5]>row.active[0]);assert.ok(row.idle[5]<row.active[0]*1.25);
+  }
+});
+
+test('actual SP CP and integer KP payouts favor active early and idle later without weakening passive', () => {
+  const data=run(`
+    hasClaimedKnuthPoint=true;setBaseNumber(NumberMath.fromString('1e100'));
+    squarePoints=NumberMath.fromString('1e100');squareConvergencePoints=NumberMath.fromString('1e15000');
+    const baseline=[squarePointGainForValue(getBaseNumber()),squareConvergencePointGain(),knuthPointGain()];
+    return [['12-2','13-2',0],['12-1','13-1',0],['12-3','13-3',86400]].map(([resource,kp,seconds])=>{
+      for(const id of ['12-1','12-2','12-3','13-1','13-2','13-3'])abstractionResearchState[id]=false;
+      abstractionResearchState[resource]=true;abstractionResearchState[kp]=true;testNow=1000000+seconds*1000;
+      const rewards=[squarePointGainForValue(getBaseNumber()),squareConvergencePointGain(),knuthPointGain()];
+      return {ratios:rewards.map((v,i)=>NumberMath.toNumber(NumberMath.divideApproximate(v,baseline[i]))),
+        kp:NumberMath.toNumber(rewards[2]),preview:NumberMath.toNumber(knuthPointGain())};
+    });
+  `);
+  [200000,50,5.5].forEach((v,i)=>close(data[0].ratios[i],v));
+  [800000,200,22].forEach((v,i)=>close(data[1].ratios[i],v));
+  for(let i=0;i<3;i++){assert.ok(data[2].ratios[i]>data[1].ratios[i]);assert.ok(data[2].ratios[i]<data[1].ratios[i]*1.25);}
+  for(const row of data){assert.equal(row.kp,row.preview);assert.equal(row.kp,Math.floor(row.kp));}
+});
+
+test('first-minute idle rewards are already meaningful and ordinary five-minute active rewards beat passive', () => {
+  const data=run(`
+    const t=ABSTRACTION_SECOND_BRANCH_BALANCE;
+    return ['Sp','Cp','Kp'].map(key=>({passive:t['passive'+key],
+      idle:abstractionIdleTimeBonus(60,t['idle'+key+'Strength']),
+      active:abstractionActiveTimeBonus(300,t['active'+key+'Strength'])}));
+  `);
+  for(const row of data){assert.ok(row.idle>row.passive);assert.ok(row.active>row.passive*2.8);}
+});
+
+test('diverger branch parameter peaks keep active below idle but both above passive', () => {
+  const data=run(`
+    generalizationResearchState['3-2']=true;generalizationResearchState['5-3']=true;
+    divergerA=2;divergerB=2;divergerC=50;divergerN=100;
+    return ['14-2','14-1','14-3'].map(id=>{
+      for(const research of ['14-1','14-2','14-3'])abstractionResearchState[research]=false;
+      abstractionResearchState[id]=true;
+      return {parameters:['a','b','c'].map(abstractionSecondBranchParameterMultiplier),
+        powerLog:NumberMath.toNumber(NumberMath.log10(divergerProductionValue())),base:[divergerA,divergerB,divergerC]};
+    });
+  `);
+  assert.deepEqual(data[0].parameters,[1.5,1,1.5]);assert.deepEqual(data[1].parameters,[4,4,4]);assert.deepEqual(data[2].parameters,[5,5,5]);
+  assert.ok(data[2].powerLog>data[1].powerLog&&data[1].powerLog>data[0].powerLog);
+  for(const row of data)assert.deepEqual(row.base,[2,2,50]);
 });

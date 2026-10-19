@@ -349,7 +349,10 @@ const NumberMath = (() => {
       if (magnitude === null || !isPositive(magnitude)) return fallback;
       exponent = makeSignedExponent(magnitude, -1);
     } else {
-      exponent = parseText(exponentText, null, depth + 1);
+      const magnitude = parseText(exponentText, null, depth + 1);
+      if (magnitude === null) return fallback;
+      // Exact digit strings must use the same scalar exponent as plain notation.
+      exponent = typeof magnitude === 'string' ? toNumber(magnitude) : magnitude;
       if (!isScientific(exponent) && !(typeof exponent === 'number' && Number.isFinite(exponent))) {
         return fallback;
       }

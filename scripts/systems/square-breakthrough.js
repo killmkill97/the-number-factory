@@ -19,6 +19,9 @@ function buySquareBreakthroughUpgrade(id) {
 }
 
 function applySquareBreakthroughSideEffects(id) {
+  if (id === 'dyson_swarm' && hasKnuthUpgrade('dyson_diverger') && divergerAvailable()) {
+    divergerPower = divergerProductionValue();
+  }
   if (id === 'solid_start') {
     ensureBaseNumberAtLeast(2000000);
     maybeUnlockPercent();

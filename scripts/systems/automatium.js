@@ -81,7 +81,7 @@ const automatiumQuickProgramUi = new Map();
 let automatiumEmptyListElement = null;
 let automatiumQuickEmptyListElement = null;
 let automatiumLastNumberClickAt = Number.NEGATIVE_INFINITY;
-let automatiumLastTickAt = gameClockNowMs();
+let automatiumLastTickAt = gameTimelineNowMs();
 
 function automatiumId() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -127,6 +127,23 @@ function saveAutomatiumPrograms() {
   } catch (error) {
     console.error(error);
     log('[automatium] 프로그램을 로컬 저장소에 저장하지 못했습니다.', true);
+  }
+}
+
+function captureAutomatiumOfflinePrograms() {
+  return JSON.parse(JSON.stringify(automatiumPrograms));
+}
+
+function restoreAutomatiumOfflinePrograms(programs) {
+  if (!Array.isArray(programs)) return;
+  localStorage.setItem(AUTOMATIUM_STORAGE_KEY, JSON.stringify(programs));
+  automatiumPrograms = loadAutomatiumPrograms();
+  automatiumExecutions.clear();
+  automatiumLastNumberClickAt = -Infinity;
+  selectedAutomatiumProgramId = automatiumPrograms[0]?.id ?? null;
+  automatiumUiDirty = true;
+  for (const program of automatiumPrograms) {
+    if (program.enabled) startAutomatiumProgram(program);
   }
 }
 
@@ -197,7 +214,10 @@ function nPercentLaneUpgradeSnapshot(id, laneNumber, node) {
       cost,
       max: 0,
       available: laneExists && !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && percentPowerCostAvailable(cost) && canAffordBaseCost(cost),
-      buy: () => laneNumber === 1 ? upgradePercentPower() : lane ? buyExtraLanePower(lane) : false
+      buy: () => laneNumber === 1 ? upgradePercentPower() : lane ? buyExtraLanePower(lane) : false,
+      buyBulk: (limit, deadline) => laneNumber === 1 || lane
+        ? buyPercentPowerBatch(limit, lane, deadline)
+        : { purchased: 0, operations: 0 }
     };
   }
 
@@ -334,7 +354,8 @@ function nBaseUpgradeSnapshot(rawUpgrade, node, rawLaneIndex = null) {
         cost,
         max: 0,
         available: !overflowed && percentUnlocked && percentChargeNeeded <= PERCENT_POWER_UNLOCK_CHARGE && percentPowerCostAvailable(cost) && canAffordBaseCost(cost),
-        buy: upgradePercentPower
+        buy: upgradePercentPower,
+        buyBulk: (limit, deadline) => buyPercentPowerBatch(limit, null, deadline)
       };
     },
     percent_auto: () => {
@@ -536,6 +557,45 @@ function nDivergerUpgradeSnapshot(rawUpgrade, node) {
   };
 }
 
+function nBlackHoleUpgradeSnapshot(rawUpgrade, node) {
+  const id = normalizeNName(rawUpgrade);
+  if (!['amount', 'speed'].includes(id)) nLanguageError(`알 수 없는 black_hole 업그레이드 '${rawUpgrade}'`, node);
+  const amount = id === 'amount';
+  const limit = amount ? numberBlackHoleDonationPercentLimit() : numberBlackHoleDonationRateLimit();
+  const maximum = amount ? NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT : NUMBER_BLACK_HOLE_MAX_DONATION_RATE;
+  const cost = amount ? numberBlackHoleDonationAmountCost : numberBlackHoleDonationSpeedCost;
+  return {
+    upgraded: amount ? numberBlackHoleDonationAmountLevel : numberBlackHoleDonationSpeedLevel,
+    amount: amount ? numberBlackHoleDonationPercent : numberBlackHoleDonationRate,
+    cost: limit >= maximum ? 0 : cost,
+    max: amount ? NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT - 1
+      : Math.ceil((NUMBER_BLACK_HOLE_MAX_DONATION_RATE - 1) / NUMBER_BLACK_HOLE_DONATION_RATE_PER_UPGRADE),
+    available: numberBlackHoleAutomationAvailable() && limit < maximum && compareNumberValues(knuthPoints, cost) >= 0,
+    buy: () => {
+      if (!numberBlackHoleAutomationAvailable() || !buyNumberBlackHoleUpgrade(id, false)) return false;
+      render();
+      return true;
+    }
+  };
+}
+
+function nKnuthUpgradeSnapshot(rawUpgrade, node) {
+  const id = normalizeNName(rawUpgrade);
+  const operation = id === 'operation';
+  const upgrade = KNUTH_BASE_UPGRADES.find(item => item.id === id);
+  if (!operation && !upgrade) nLanguageError(`알 수 없는 knuth 업그레이드 '${rawUpgrade}'`, node);
+  const level = operation ? knuthOperationLevel : knuthBaseUpgradeLevel(id);
+  const max = operation ? KNUTH_OPERATION_MAX_LEVEL : knuthBaseUpgradeMax(upgrade);
+  return {
+    upgraded: level,
+    amount: operation ? knuthSlotCapacity() : level,
+    cost: level >= max ? 0 : operation ? knuthOperationUpgradeCost() : knuthBaseUpgradeCost(upgrade),
+    max: max === Number.MAX_SAFE_INTEGER ? 0 : max,
+    available: knuthBaseAutomationAvailable() && (operation ? canBuyKnuthOperationUpgrade() : canBuyKnuthBaseUpgrade(id)),
+    buy: () => knuthBaseAutomationAvailable() && (operation ? buyKnuthOperationUpgrade() : buyKnuthBaseUpgrade(id))
+  };
+}
+
 function nUpgradeSnapshot(rawKind, rawUpgrade, node, rawUpgradeIndex = null) {
   const aliases = {
     base: 'base',
@@ -549,7 +609,9 @@ function nUpgradeSnapshot(rawKind, rawUpgrade, node, rawUpgradeIndex = null) {
     generalization: 'generalization',
     gz: 'generalization',
     theory: 'theory',
-    diverger: 'diverger'
+    diverger: 'diverger',
+    black_hole: 'black_hole',
+    knuth: 'knuth'
   };
   const kind = aliases[normalizeNName(rawKind)];
   if (!kind) nLanguageError(`알 수 없는 업그레이드 종류 '${rawKind}'`, node);
@@ -562,12 +624,14 @@ function nUpgradeSnapshot(rawKind, rawUpgrade, node, rawUpgradeIndex = null) {
   if (kind === 'generalization') return nGeneralizationResearchSnapshot(rawUpgrade, node);
   if (kind === 'theory') return nTheoryPurchaseSnapshot(rawUpgrade, node);
   if (kind === 'diverger') return nDivergerUpgradeSnapshot(rawUpgrade, node);
+  if (kind === 'black_hole') return nBlackHoleUpgradeSnapshot(rawUpgrade, node);
+  if (kind === 'knuth') return nKnuthUpgradeSnapshot(rawUpgrade, node);
   return nConvergenceUpgradeSnapshot(rawUpgrade, node);
 }
 
 const automatiumGameAdapter = {
   click() {
-    const now = Date.now();
+    const now = gameUtcNowMs();
     if (now - automatiumLastNumberClickAt < AUTOMATIUM_CLICK_COOLDOWN_MS) return false;
     if (!performManualNumberClick()) return false;
     automatiumLastNumberClickAt = now;
@@ -580,6 +644,7 @@ const automatiumGameAdapter = {
       if (names[0] === 'number') return getBaseNumber();
       if (names[0] === 'sp') return squarePoints;
       if (names[0] === 'cp') return squareConvergencePoints;
+      if (names[0] === 'kp') return knuthPoints;
       nLanguageError(`알 수 없는 게임 값 'get.${names.join('.')}'`, node);
     }
     if (path.length !== 3) {
@@ -606,6 +671,14 @@ const automatiumGameAdapter = {
     let snapshot = nUpgradeSnapshot(kind, upgrade, node, upgradeIndex);
     if (!snapshot.available) return false;
     if (!bulkEnabled) return snapshot.buy() === true;
+    if (typeof snapshot.buyBulk === 'function') {
+      const result = snapshot.buyBulk(Number.MAX_SAFE_INTEGER, automatiumBulkDeadline);
+      automatiumBulkRemaining -= Math.max(1, result.operations);
+      if (!result.purchased && gameClockNowMs() >= automatiumBulkDeadline) {
+        automatiumBudgetYieldRequested = true;
+      }
+      return result.purchased > 0;
+    }
 
     const reusablePercentPower = normalizeNName(kind) === 'base'
       && normalizeNName(upgrade) === 'percent_power';
@@ -636,6 +709,18 @@ const automatiumGameAdapter = {
     const requested = automatiumBudgetYieldRequested;
     automatiumBudgetYieldRequested = false;
     return requested;
+  },
+
+  blackHoleSetting(kind, value, node) {
+    if (!numberBlackHoleAutomationAvailable()) return false;
+    if (value === null) {
+      const changed = maximizeNumberBlackHoleSettings(kind);
+      if (changed) render();
+      return true;
+    }
+    const numeric = realNumberFromValue(value);
+    if (!Number.isSafeInteger(numeric) || numeric < 1) nLanguageError('블랙홀 설정은 1 이상의 안전한 정수여야 합니다.', node);
+    return setNumberBlackHoleSetting(kind, numeric);
   },
 
   square(statement, requestedSp = null, programId = null) {
@@ -684,6 +769,7 @@ function automatiumGameAdapterFor(programId) {
     click: (...args) => automatiumGameAdapter.click(...args),
     get: (...args) => automatiumGameAdapter.get(...args),
     buy: (...args) => automatiumGameAdapter.buy(...args),
+    blackHoleSetting: (...args) => automatiumGameAdapter.blackHoleSetting(...args),
     consumeBudgetYield: (...args) => automatiumGameAdapter.consumeBudgetYield(...args),
     square: (statement, target) => automatiumGameAdapter.square(statement, target, programId),
     cp: (...args) => automatiumGameAdapter.cp(...args),
@@ -848,6 +934,7 @@ flag = get.cp == 0</code></pre>
         <tr><td><code>get.number</code></td><td>현재 베이스 숫자</td></tr>
         <tr><td><code>get.sp</code></td><td>현재 SP</td></tr>
         <tr><td><code>get.cp</code></td><td>현재 CP</td></tr>
+        <tr><td><code>get.kp</code></td><td>현재 보유 KP (이번 교환의 예상 획득량이 아님)</td></tr>
       </tbody>
     </table>
     <p>업그레이드는 <code>get.&lt;종류&gt;.&lt;ID&gt;.&lt;내용&gt;</code>으로 읽습니다. 정확한 종류와 ID는 <strong>업그레이드 ID</strong> 탭에서 확인할 수 있습니다.</p>
@@ -901,6 +988,24 @@ buy diverger speed s</code></pre>
     <p><code>generalization</code>은 <code>gz</code>로 줄여 쓸 수 있습니다. <code>buy theory sp</code>와 <code>buy theory cp</code>는 지정한 화폐로 이론을 구매합니다. <code>buy</code>는 구매할 수 없으면 다음 줄로 넘어가며, 끝에 <code>s</code>를 붙이면 구매 가능할 때까지 현재 프로그램만 대기합니다. 일반화 연구 3-4가 있으면 자동 구매 가속량만큼 한 틱에 여러 번 구매할 수 있습니다.</p>
     <p>추상화 연구 7-1 이후 <code>buy diverger a/b/c/speed</code>로 발산자를 CP로 강화합니다. 실제 명령에는 하나의 ID만 적습니다. <code>get.diverger.a.cost</code>, <code>get.diverger.b.amount</code> 등 기존 조회 문법도 지원합니다. 속도의 <code>amount</code>는 현재 간격(ms), <code>max</code>는 현재 하한 기준 최대 구매 횟수입니다. a와 b의 <code>max</code>는 제한 없음을 뜻하는 0입니다. 발산자 자동 강화 토글과 N 프로그램은 별도로 작동합니다.</p>
 
+    <h4>숫자 블랙홀 · KC4 보상</h4>
+    <pre><code>buy black_hole amount
+buy black_hole speed s
+black_hole amount max
+black_hole speed max
+black_hole amount 10
+black_hole speed 21</code></pre>
+    <p>KC4 완료 후 KP로 투여량·빠르기 업그레이드를 구매합니다. 설정은 현재 상한 안의 정수로 적용하며, max는 현재 상한입니다. get.black_hole.amount.cost, get.black_hole.speed.available 등으로 조회할 수 있습니다. 자동 최대화는 투여량을 100%까지 올릴 수 있습니다.</p>
+
+    <h4>기본 커누스 업그레이드 · KC5 보상</h4>
+    <pre><code>buy knuth operation
+buy knuth cp_gain
+buy knuth sp_gain s
+if get.knuth.cp_gain.available {
+    buy knuth cp_gain
+}</code></pre>
+    <p>KC5 완료 후 KP로 연산 강화와 기본 커누스 업그레이드를 구매합니다. ID 목록의 knuth 항목을 사용하세요. upgraded는 구매 횟수, amount는 연산 강화의 유효 슬롯 수이며 나머지는 구매 횟수입니다. cost는 다음 KP 가격, max는 연산 강화 300, 그 외 반복 구매 0, 단발 구매 1입니다. KC5 진행 중에는 구매할 수 없습니다. 화면의 개별 자동구매 토글과 N 구매는 독립적으로 작동합니다.</p>
+
     <h4>숫자 클릭</h4>
     <pre><code>click
 
@@ -934,6 +1039,7 @@ sp target s</code></pre>
     <p><code>kp</code>는 추상화 2-2 연구 후 사용할 수 있습니다. 일반화 8-1과 필수 선행 연구 등 기존 수동 KP 교환 조건을 만족하면 커누스 교환을 실행하고 현재 가능한 KP를 모두 얻습니다. <code>kp 5</code>는 이번 교환 보상이 5 KP 이상일 때만 실행하며, <code>kp (5) s</code>는 조건을 만족할 때까지 대기합니다. 숫자 대신 변수나 계산식을 넣거나, 목표 없이 <code>kp s</code>로 대기할 수도 있습니다. 교환 시 진행 초기화와 추상화 초기화 예약은 기존 커누스와 동일하게 적용됩니다.</p>
 
     <h4>조건문</h4>
+    <p>KP 조건은 <code>if get.kp &gt;= 100 { ... }</code>처럼 비교합니다. <code>get.kp</code>는 숫자이므로 단독으로 조건에 넣지 않습니다.</p>
     <pre><code>if get.sp &gt;= 1000 and get.cp == 0 {
     buy square_break dyson_swarm
 }
@@ -1041,6 +1147,14 @@ function automatiumUpgradeIdRows() {
     title: id === 'speed' ? '발산자 속도 강화' : `발산자 ${id} 강화`,
     id, rawId: id, indexed: false, aliases: [],
     indexNote: '추상화 7-1 필요 · CP 구매'
+  })));
+  rows.push(...['amount', 'speed'].map(id => ({
+    kind: 'black_hole', kindLabel: '숫자 블랙홀', title: id === 'amount' ? '투여량 강화' : '투여 빠르기 강화',
+    id, rawId: id, indexed: false, aliases: [], indexNote: 'KC4 완료 필요 · KP 구매'
+  })));
+  rows.push(...[{ id: 'operation', title: '연산 강화' }, ...KNUTH_BASE_UPGRADES].map(upgrade => ({
+    kind: 'knuth', kindLabel: '기본 커누스', title: upgrade.title,
+    id: upgrade.id, rawId: upgrade.id, indexed: false, aliases: [], indexNote: 'KC5 완료 필요 · KP 구매'
   })));
 
   rows.push(
@@ -1171,6 +1285,18 @@ while true {
     buy diverger b
     buy diverger c
     buy diverger speed
+}`
+    },
+    {
+      id: 'number_black_hole',
+      title: '블랙홀 자동 강화와 최대 투여',
+      description: 'KC4 완료 후 KP로 블랙홀을 강화하고 현재 상한으로 투여 설정을 맞춥니다.',
+      source: `while true {
+    buy black_hole amount
+    buy black_hole speed
+    black_hole amount max
+    black_hole speed max
+    wait 100ms
 }`
     },
     {
@@ -1358,7 +1484,17 @@ function nAutocompleteContext() {
     };
   }
 
-  const getMatch = line.match(/get\.(?:generalization|gz)\.(?:\d+(?:-\d*)?(?:\.(?:[A-Za-z_][A-Za-z0-9_]*)?)?)?$/i)
+  const blackHoleMatch = line.match(/^\s*black_hole\s+(?:(amount|speed)\s+)?([A-Za-z_]*)$/);
+  if (blackHoleMatch) {
+    const prefix = blackHoleMatch[2] ?? '';
+    const candidates = blackHoleMatch[1]
+      ? [{ label: 'max', insert: 'max', detail: '현재 상한으로 설정' }]
+      : ['amount', 'speed'].map(id => ({ label: id, insert: `${id} `, detail: id === 'amount' ? '투여량 설정' : '투여 빠르기 설정' }));
+    return { start: cursor - prefix.length, end: cursor, items: nAutocompleteMatches(candidates, prefix) };
+  }
+
+  const getMatch = line.match(/get\.knuth\.(?:[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_]*)?)?$/i)
+    ?? line.match(/get\.(?:generalization|gz)\.(?:\d+(?:-\d*)?(?:\.(?:[A-Za-z_][A-Za-z0-9_]*)?)?)?$/i)
     ?? line.match(/get(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\]?)?){0,3}$/);
   if (getMatch) {
     const expression = getMatch[0];
@@ -1380,13 +1516,16 @@ function nAutocompleteContext() {
         { label: 'number', insert: 'number', detail: '현재 베이스 숫자' },
         { label: 'sp', insert: 'sp', detail: '현재 SP' },
         { label: 'cp', insert: 'cp', detail: '현재 CP' },
+        { label: 'kp', insert: 'kp', detail: '현재 보유 KP' },
         { label: 'base', insert: 'base.', detail: '베이스 업그레이드' },
         { label: 'square', insert: 'square.', detail: '제곱 업그레이드' },
         { label: 'square_break', insert: 'square_break.', detail: '제곱돌파 업그레이드' },
         { label: 'square_convergence', insert: 'square_convergence.', detail: '제곱 수렴 업그레이드' },
         { label: 'generalization', insert: 'generalization.', detail: '일반화 연구' },
         { label: 'gz', insert: 'gz.', detail: '일반화 연구 단축어' },
-        { label: 'diverger', insert: 'diverger.', detail: '발산자 강화 · 추상화 7-1' }
+        { label: 'diverger', insert: 'diverger.', detail: '발산자 강화 · 추상화 7-1' },
+        { label: 'black_hole', insert: 'black_hole.', detail: '블랙홀 강화 · KC4 완료' },
+        { label: 'knuth', insert: 'knuth.', detail: '기본 커누스 · KC5 완료' }
       ];
       return { start: replaceStart, end: cursor, items: nAutocompleteMatches(candidates, prefix) };
     }
@@ -1452,7 +1591,9 @@ function nAutocompleteContext() {
         { label: 'generalization', insert: 'generalization ', detail: '일반화 연구' },
         { label: 'gz', insert: 'gz ', detail: '일반화 연구 단축어' },
         { label: 'theory', insert: 'theory ', detail: '이론 구매 화폐 선택' },
-        { label: 'diverger', insert: 'diverger ', detail: '발산자 강화 · 추상화 7-1' }
+        { label: 'diverger', insert: 'diverger ', detail: '발산자 강화 · 추상화 7-1' },
+        { label: 'black_hole', insert: 'black_hole ', detail: '블랙홀 강화 · KC4 완료' },
+        { label: 'knuth', insert: 'knuth ', detail: '기본 커누스 · KC5 완료' }
       ];
       return { start, end: cursor, items: nAutocompleteMatches(kinds, kindPrefix) };
     }
@@ -1497,6 +1638,7 @@ function nAutocompleteContext() {
     { label: 'get', insert: 'get.', detail: '게임 값 읽기' },
     { label: 'click', insert: 'click', detail: '숫자 추가 · 1초 쿨다운' },
     { label: 'wait', insert: 'wait 1s', detail: '지정한 실제 시간 동안 대기' },
+    { label: 'black_hole', insert: 'black_hole ', detail: '블랙홀 투여 설정 · KC4 완료' },
     { label: 'square', insert: 'square ', detail: '목표 SP 지정 가능' },
     { label: 'sp', insert: 'sp ', detail: '목표 SP 지정 가능' },
     { label: 'cp', insert: 'cp ', detail: '목표 CP 지정 가능' },
@@ -1930,6 +2072,7 @@ function syncAutomatiumEditor() {
 }
 
 function renderAutomatiumUi({ syncEditor = false } = {}) {
+  if (gameSessionPaused()) { automatiumUiDirty = true; return; }
   renderAutomatiumQuickProgramList();
   if (!automatiumWorkspace || automatiumWorkspace.classList.contains('hidden')) {
     automatiumUiDirty = false;
@@ -2076,13 +2219,13 @@ function runAutomatiumTick() {
   const { now: tickAt } = elapsedRealTimeSince(automatiumLastTickAt);
   automatiumLastTickAt = tickAt;
   automatiumBulkRemaining = AUTOMATIUM_BULK_MAX_PER_TICK;
-  automatiumBulkDeadline = tickAt + AUTOMATIUM_BULK_TICK_BUDGET_MS;
+  automatiumBulkDeadline = gameClockNowMs() + AUTOMATIUM_BULK_TICK_BUDGET_MS;
   if (!hasSquareConvergenceUpgrade('automatium')) return;
   const enabledPrograms = automatiumPrograms.filter(program => program.enabled);
   if (enabledPrograms.length === 0) return;
 
   const blockedThisTick = new Set();
-  const now = Date.now();
+  const now = gameUtcNowMs();
   for (const program of enabledPrograms) {
     let execution = automatiumExecutions.get(program.id);
     if (!execution || !execution.iterator) {
@@ -2137,7 +2280,7 @@ function runAutomatiumTick() {
           setAutomatiumRuntimeStatus(program.id, 'waiting', `${event.ticks}틱 대기`);
           blockedThisTick.add(program.id);
         } else if (event.kind === 'wait-time') {
-          execution.waitUntil = Date.now() + event.durationMs;
+          execution.waitUntil = gameUtcNowMs() + event.durationMs;
           setAutomatiumRuntimeStatus(program.id, 'waiting', event.message);
           blockedThisTick.add(program.id);
         } else {
@@ -2238,8 +2381,9 @@ document.addEventListener('keydown', event => {
   }
 });
 
-setInterval(runAutomatiumTick, AUTOMATIUM_TICK_MS);
+setGameInterval(runAutomatiumTick, AUTOMATIUM_TICK_MS);
 setInterval(() => {
+  if (gameSessionPaused()) return;
   if (automatiumUiDirty) renderAutomatiumUi();
 }, 100);
 

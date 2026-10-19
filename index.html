@@ -5,7 +5,7 @@
 <title>숫자의 끝을 보는 타이쿤 - 프로토타입</title>
 <link rel="icon" type="image/png" sizes="768x768" href="./assets/icons/game-icon.png?v=20261017">
 <link rel="apple-touch-icon" href="./assets/icons/game-icon.png?v=20261017">
-  <link rel="stylesheet" href="./styles/number-tycoon.css?v=20261014-n-program-order-v1">
+<link rel="stylesheet" href="./styles/number-tycoon.css?v=20261019-offline-summary-v1">
 </head>
 <body>
 <div class="news-ticker" aria-live="polite">
@@ -32,6 +32,20 @@
     <span>화폐 표시 크기 <output id="currencyStatusScaleValue">1.0배</output></span>
     <input id="currencyStatusScaleInput" type="range" min="1" max="4" step="0.1" value="1" aria-label="화폐 표시 크기">
   </label>
+  <label class="news-settings-row">
+    <span>자동 불러오기</span>
+    <input id="autoLoadSaveToggle" type="checkbox" checked>
+  </label>
+  <div class="news-settings-row">
+    <label for="offlineAccuracyInput">오프라인 계산 정확도</label>
+    <div class="offline-accuracy-controls">
+      <input id="offlineAccuracyRange" type="range" min="1" max="1000" step="1" value="100" aria-label="오프라인 계산 정확도">
+      <input id="offlineAccuracyInput" type="number" min="1" max="1000" step="1" value="100" inputmode="numeric">
+    </div>
+  </div>
+  <div class="news-settings-row">
+    <button id="offlineModeEnterBtn" class="account-action-btn" type="button">오프라인 모드 켜기</button>
+  </div>
   <section class="account-settings" aria-labelledby="accountSettingsTitle">
     <div class="account-settings-title" id="accountSettingsTitle">계정</div>
     <div id="authSignedOutPanel">
@@ -52,6 +66,25 @@
     <div id="authStatus" class="account-settings-status" role="status" aria-live="polite"></div>
   </section>
 </div>
+<main id="offlineModeScreen" class="offline-mode-screen" hidden aria-labelledby="offlineModeTitle">
+  <h1 id="offlineModeTitle">오프라인 모드</h1>
+  <p id="offlineModeStatus" role="status" aria-live="polite"></p>
+  <progress id="offlineModeProgress" max="1" value="0" hidden aria-label="오프라인 틱 계산 진행률"></progress>
+  <button id="offlineModeExitBtn" type="button">오프라인 모드 끄기</button>
+</main>
+<dialog id="offlineSummaryDialog" class="formula-help-dialog offline-summary-dialog" aria-labelledby="offlineSummaryTitle">
+  <div class="formula-help-shell">
+    <header class="formula-help-header">
+      <h2 id="offlineSummaryTitle">오프라인 결과</h2>
+    </header>
+    <p id="offlineSummaryElapsed" class="offline-summary-elapsed"></p>
+    <dl id="offlineSummaryChanges" class="offline-summary-changes"></dl>
+    <p id="offlineSummaryEmpty" hidden>변화 없음</p>
+    <div class="offline-summary-actions">
+      <button id="offlineSummaryCloseBtn" type="button" autofocus>확인</button>
+    </div>
+  </div>
+</dialog>
 <aside class="currency-status" id="currencyStatus" aria-label="보유 화폐">
   <div class="currency-status-row"><span>숫자:</span><strong id="currencyNumberValue">0</strong></div>
   <div class="currency-status-row"><span>sp:</span><strong id="currencySpValue">0</strong></div>
@@ -59,6 +92,7 @@
   <div class="currency-status-row"><span>KP:</span><strong id="currencyKnuthValue">0</strong></div>
   <div class="currency-status-row"><span>이론:</span><strong id="currencyTheoryValue">0</strong></div>
   <div class="currency-status-row"><span>대이론:</span><strong id="currencyGreatTheoryValue">0</strong></div>
+  <div class="currency-status-row"><span>특이점:</span><strong id="currencySingularityValue">0</strong></div>
   <div id="activeChallengeStatus" class="currency-status-challenge hidden" aria-live="polite"></div>
 </aside>
 <div class="app">
@@ -402,11 +436,16 @@
 
     <div id="knuthBaseUpgradePanel">
       <div class="section-title">KP 업그레이드</div>
-      <div class="row">
+      <p class="knuth-base-group-status" id="knuthRepeatablePriceRule">그룹 반복 구매 가격 상승률: 현재 비용이 1e50 KP 이상이면 기존 상승 배율 ×2, 1.8e308 KP 이상이면 추가 ×4 (기존 대비 ×8). 연산 강화는 별도 가격 규칙을 사용합니다.</p>
+      <p class="knuth-base-group-status" id="knuthOperationPriceRule">연산 강화 가격: 1~100번째 구매까지 ×2, 101~200번째 ×4, 201~300번째 ×8 · 최대 300회 구매 · 기본 슬롯 +1개/회.</p>
+      <div class="row knuth-operation-purchase">
         <button id="knuthOperationUpgradeBtn" type="button">
           <span>연산 강화</span>
           <span class="cost" id="knuthOperationUpgradeCost"></span>
         </button>
+        <div id="knuthOperationAutoControl" class="knuth-base-auto-control hidden" title="연산 강화 자동구매">
+          <button id="knuthOperationAutoToggle" class="knuth-base-auto-toggle" type="button" aria-label="연산 강화 자동구매" aria-pressed="false">자동</button>
+        </div>
       </div>
       <div id="knuthBaseUpgradeGroups"></div>
     </div>
@@ -414,31 +453,51 @@
     <div id="knuthProductionPanel" class="hidden">
       <div class="section-title">숫자 블랙홀</div>
       <div id="numberBlackHoleStatus" class="number-black-hole-status" aria-live="polite">비활성</div>
+      <div id="numberBlackHoleResourceControl" class="number-black-hole-resource hidden">
+        <label for="numberBlackHoleResourceSelect">투여 자원</label>
+        <select id="numberBlackHoleResourceSelect">
+          <option value="number">수</option>
+          <option value="sp">SP</option>
+        </select>
+        <div id="numberBlackHoleSpProgress" class="number-black-hole-limit"></div>
+      </div>
+      <div id="numberBlackHoleAutomation" class="number-black-hole-automation hidden">
+        <label><input id="numberBlackHoleAutoUpgradeToggle" type="checkbox"> 자동 업그레이드</label>
+        <label><input id="numberBlackHoleAutoMaxToggle" type="checkbox"> 투여량·빠르기 자동 최대화</label>
+        <div class="number-black-hole-auto-limits">
+          <label>자동 투여량 상한 (%)
+            <input id="numberBlackHoleAutoAmountLimitInput" type="text" value="∞" autocomplete="off" spellcheck="false" aria-label="자동 투여량 상한 (%)">
+          </label>
+          <label>자동 빠르기 상한 (회/초)
+            <input id="numberBlackHoleAutoSpeedLimitInput" type="text" value="∞" autocomplete="off" spellcheck="false" aria-label="자동 빠르기 상한 (회/초)">
+          </label>
+        </div>
+      </div>
 
       <div class="number-black-hole-upgrades">
         <section class="number-black-hole-control">
-          <div class="number-black-hole-control-title">숫자 투여량</div>
+          <div class="number-black-hole-control-title">투여량</div>
           <button id="numberBlackHoleAmountUpgradeBtn" type="button">
             투여량 상한 +1%p
             <span class="cost" id="numberBlackHoleAmountUpgradeCost"></span>
           </button>
           <div class="number-black-hole-setting">
             <button id="numberBlackHoleAmountMinusBtn" type="button" aria-label="투여량 1%p 감소">−</button>
-            <input id="numberBlackHoleAmountInput" type="number" min="1" max="1" step="1" value="1" inputmode="numeric" aria-label="숫자 투여량 퍼센트">
+            <input id="numberBlackHoleAmountInput" type="number" min="1" max="1" step="1" value="1" inputmode="numeric" aria-label="자원 투여량 퍼센트">
             <button id="numberBlackHoleAmountPlusBtn" type="button" aria-label="투여량 1%p 증가">+</button>
           </div>
           <div id="numberBlackHoleAmountLimit" class="number-black-hole-limit"></div>
         </section>
 
         <section class="number-black-hole-control">
-          <div class="number-black-hole-control-title">숫자 투여 빠르기</div>
+          <div class="number-black-hole-control-title">투여 빠르기</div>
           <button id="numberBlackHoleSpeedUpgradeBtn" type="button">
             투여 빠르기 상한 +10회/초
             <span class="cost" id="numberBlackHoleSpeedUpgradeCost"></span>
           </button>
           <div class="number-black-hole-setting">
             <button id="numberBlackHoleSpeedMinusBtn" type="button" aria-label="초당 투여 횟수 1 감소">−</button>
-            <input id="numberBlackHoleSpeedInput" type="number" min="1" max="1" step="1" value="1" inputmode="numeric" aria-label="초당 숫자 투여 횟수">
+            <input id="numberBlackHoleSpeedInput" type="number" min="1" max="1" step="1" value="1" inputmode="numeric" aria-label="초당 자원 투여 횟수">
             <button id="numberBlackHoleSpeedPlusBtn" type="button" aria-label="초당 투여 횟수 1 증가">+</button>
           </div>
           <div id="numberBlackHoleSpeedLimit" class="number-black-hole-limit"></div>
@@ -450,6 +509,35 @@
         <div><dt>현재 시간 가속</dt><dd id="numberBlackHoleTimeMultiplierValue">×1</dd></div>
         <div><dt>누적 가속 시간</dt><dd id="numberBlackHoleAccumulatedTimeValue">0초</dd></div>
       </dl>
+
+      <div class="section-title">특이점</div>
+      <dl class="number-black-hole-summary singularity-summary">
+        <div><dt>보유 특이점</dt><dd id="singularityPointValue">0</dd></div>
+        <div><dt>다음 필요 반지름</dt><dd id="singularityRadiusRequirementValue">20</dd></div>
+      </dl>
+      <button id="singularityPurchaseBtn" class="singularity-purchase" type="button">
+        특이점 +1
+        <span class="cost">숫자 블랙홀 전체 초기화</span>
+      </button>
+      <dl class="number-black-hole-summary singularity-effects">
+        <div><dt>블랙홀 시간 가속</dt><dd id="singularityBlackHoleEffect">×1</dd></div>
+        <div><dt>슈바르츠실트 반지름</dt><dd id="singularityRadiusEffect">×1</dd></div>
+        <div><dt>퍼센트 생산</dt><dd id="singularityPercentEffect">×1</dd></div>
+        <div><dt>퍼센트 소프트캡</dt><dd id="singularitySoftcapEffect">×1</dd></div>
+        <div><dt>KP 획득량</dt><dd id="singularityKpEffect">×1</dd></div>
+      </dl>
+      <div class="knuth-upgrade-list singularity-upgrades">
+        <button id="singularityBlackHoleUpgradeBtn" class="knuth-upgrade" type="button">
+          <span class="knuth-upgrade-title">특이점 블랙홀 강화</span>
+          <span class="knuth-upgrade-description">특이점의 최종 블랙홀 시간 가속 배율이 구매마다 2배 증가합니다.</span>
+          <span class="cost" id="singularityBlackHoleUpgradeCost"></span>
+        </button>
+        <button id="singularityKpUpgradeBtn" class="knuth-upgrade" type="button">
+          <span class="knuth-upgrade-title">특이점 KP 증폭</span>
+          <span class="knuth-upgrade-description">보유 특이점 S에 따라 KP 획득량이 증가합니다.</span>
+          <span class="cost" id="singularityKpUpgradeCost"></span>
+        </button>
+      </div>
     </div>
 
     <div id="knuthEquipUpgradePanel" class="hidden">
@@ -495,6 +583,28 @@
         <div id="knuthChallengeKc3Progress" class="knuth-challenge-progress"></div>
         <button id="knuthChallengeKc3Btn" type="button">도전 시작</button>
       </article>
+      <article id="knuthChallengeKc4" class="knuth-challenge-card">
+        <div class="knuth-challenge-heading">
+          <strong>KC4</strong>
+          <span id="knuthChallengeKc4Status">미완료</span>
+        </div>
+        <p>제한: 현실 시간이 지날수록 게임 시간이 지수함수적으로 느려집니다. 수렴 시 감속 시간이 초기화됩니다.</p>
+        <p>목표: 1e20 CP</p>
+        <p>보상: 블랙홀 자동 업그레이드·투여 설정 자동 최대화와 N 명령을 해금합니다.</p>
+        <div id="knuthChallengeKc4Progress" class="knuth-challenge-progress"></div>
+        <button id="knuthChallengeKc4Btn" type="button">도전 시작</button>
+      </article>
+      <article id="knuthChallengeKc5" class="knuth-challenge-card">
+        <div class="knuth-challenge-heading">
+          <strong>KC5</strong>
+          <span id="knuthChallengeKc5Status">미완료</span>
+        </div>
+        <p>제한: 기본 커누스 업그레이드의 효과와 구매 및 숫자 블랙홀이 비활성화됩니다. 장착 슬롯은 1/3로 감소하며 소수점은 반올림합니다.</p>
+        <p>목표: 1e170 CP</p>
+        <p>보상: 기본 커누스 업그레이드 자동구매 및 N 구매·조회, 4·5·6그룹을 해금합니다.</p>
+        <div id="knuthChallengeKc5Progress" class="knuth-challenge-progress"></div>
+        <button id="knuthChallengeKc5Btn" type="button">도전 시작</button>
+      </article>
     </div>
 
     <div id="abstractionPanel" class="hidden">
@@ -506,7 +616,7 @@
       <div class="section-title">대이론 확보</div>
       <article class="research-node abstraction-theory-node">
         <div class="research-node-title">대이론 구매</div>
-        <div class="research-node-description">해금된 화폐 중 하나를 선택해 구매합니다. 각 재화의 비용은 별도로 상승합니다.</div>
+        <div id="greatTheoryPurchaseDescription" class="research-node-description">해금된 화폐 중 하나를 선택해 구매합니다. 각 재화의 비용은 별도로 상승합니다.</div>
         <div class="theory-resource-label">구매에 사용할 화폐</div>
         <div class="theory-resource-selector abstraction-resource-selector" role="group" aria-label="대이론 구매 화폐 선택">
           <button id="greatTheoryCpResourceBtn" type="button">CP<span class="cost" id="greatTheoryCpResourceCost"></span></button>
@@ -526,6 +636,9 @@
         <span class="cost" id="abstractionResetRefund">반환 예정: 0 대이론</span>
       </button>
       <button id="abstractionSettingsBtn" class="abstraction-settings-button" type="button" aria-haspopup="dialog">분기 설정</button>
+      <div class="section-title">연구 프리셋</div>
+      <div id="abstractionPresetGrid" class="abstraction-preset-grid"></div>
+      <button id="abstractionBuyPresetSlotBtn" class="abstraction-preset-add" type="button"></button>
       <div class="generalization-tree-toolbar abstraction-tree-toolbar" role="group" aria-label="추상화 연구 트리 확대 및 축소">
         <button id="abstractionZoomOutBtn" type="button" title="연구 트리 축소" aria-label="연구 트리 축소">−</button>
         <button id="abstractionZoomResetBtn" type="button" title="연구 트리 배율 초기화" aria-label="연구 트리 배율 초기화">
@@ -558,8 +671,29 @@
     <fieldset>
       <legend>두 번째 분기</legend>
       <label>1순위<select id="abstractionSecondBranchPriority"></select></label>
+      <label>2순위 · 64연산 장착 시<select id="abstractionSecondBranchPriority2"></select></label>
     </fieldset>
   </section>
+</dialog>
+
+<dialog id="abstractionPresetDialog" class="formula-help-dialog abstraction-preset-dialog" aria-labelledby="abstractionPresetDialogTitle">
+  <form id="abstractionPresetForm" class="formula-help-shell">
+    <header class="formula-help-header">
+      <h2 id="abstractionPresetDialogTitle">연구 프리셋 편집</h2>
+      <button id="abstractionPresetCloseBtn" class="formula-help-close" type="button" title="닫기" aria-label="닫기">×</button>
+    </header>
+    <label id="abstractionPresetNameLabel" class="abstraction-preset-field hidden">이름
+      <input id="abstractionPresetNameInput" type="text" autocomplete="off">
+    </label>
+    <label id="abstractionPresetIdsLabel" class="abstraction-preset-field hidden">연구 ID
+      <textarea id="abstractionPresetIdsInput" rows="5" spellcheck="false" placeholder="1-1, 2-1, 3-1"></textarea>
+    </label>
+    <p id="abstractionPresetDialogError" class="abstraction-preset-error hidden" role="alert"></p>
+    <div class="abstraction-preset-dialog-actions">
+      <button id="abstractionPresetCancelBtn" type="button">취소</button>
+      <button id="abstractionPresetConfirmBtn" type="submit">저장</button>
+    </div>
+  </form>
 </dialog>
 
 <div id="manualExchangeDock" class="manual-exchange-dock hidden">
@@ -678,36 +812,37 @@
 </div>
 
 <script src="./scripts/data/chapter-roadmap.js?v=20260919-knuth"></script>
-<script src="./scripts/core/constants.js?v=20261013-black-hole-linear-v2"></script>
-<script src="./scripts/core/number-math.js?v=20261013-percent-performance-v2"></script>
-<script src="./scripts/core/state.js?v=20261015-progression-achievements-v1"></script>
+<script src="./scripts/core/session.js?v=20261019-offline-summary-v1"></script>
+<script src="./scripts/core/constants.js?v=20261019-knuth-groups-4-6-v1"></script>
+<script src="./scripts/core/number-math.js?v=20261015-nested-exponent-parser-v1"></script>
+<script src="./scripts/core/state.js?v=20261019-offline-session-v1"></script>
 <script src="./scripts/systems/formula-help.js?v=20261012-log-overflow-v1"></script>
-<script src="./scripts/core/dom.js?v=20261014-research-path-v1"></script>
+<script src="./scripts/core/dom.js?v=20261019-black-hole-auto-limits-v1"></script>
 <script src="./scripts/core/chapter-ui.js?v=20260922-performance"></script>
 <script src="./scripts/systems/percent-lanes.js?v=20261013-percent-continuous-v1"></script>
 <script src="./scripts/systems/square-upgrades.js?v=20261001-formula-help-v1"></script>
-<script src="./scripts/systems/square-breakthrough.js?v=20261001-formula-help-v1"></script>
-<script src="./scripts/systems/square-convergence.js?v=20261014-research-path-v2"></script>
-<script src="./scripts/systems/abstraction.js?v=20260924-abstraction"></script>
-<script src="./scripts/systems/square-dimensions.js?v=20261012-abstraction-tier11-v1"></script>
-<script src="./scripts/systems/diverger.js?v=20261012-abstraction-second-branch-v1"></script>
-<script src="./scripts/systems/achievements.js?v=20261015-progression-achievements-v1"></script>
-<script src="./scripts/core/render.js?v=20261006-diverger-percent-price-rebase-v1"></script>
-<script src="./scripts/systems/number-black-hole.js?v=20261013-black-hole-balance-v1"></script>
-<script src="./scripts/systems/clickers.js?v=20261003-final-number-effects-v1"></script>
-<script src="./scripts/systems/percent-system.js?v=20261013-percent-continuous-v1"></script>
-<script src="./scripts/systems/auto-upgrades.js?v=20260927-automatium-buy-all-v3"></script>
+<script src="./scripts/systems/square-breakthrough.js?v=20261015-knuth-equipment-v1"></script>
+<script src="./scripts/systems/square-convergence.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/abstraction.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/square-dimensions.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/diverger.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/achievements.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/core/render.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/number-black-hole.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/clickers.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/percent-system.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/auto-upgrades.js?v=20261019-offline-session-v1"></script>
 <script src="./scripts/systems/news-ticker.js?v=20261008-human-messages-v1"></script>
 <script src="./scripts/chapters/square.js?v=20261005-square-prestige-time-v1"></script>
-<script src="./scripts/chapters/knuth.js?v=20261012-log-overflow-v1"></script>
-<script src="./scripts/core/save.js?v=20261015-progression-achievements-v1"></script>
+<script src="./scripts/chapters/knuth.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/core/save.js?v=20261019-offline-session-v1"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/automatium/n-parser.js?v=20261014-n-research-query-v1"></script>
-<script src="./scripts/automatium/n-runtime.js?v=20261014-n-kp-automation-v1"></script>
-<script src="./scripts/systems/automatium.js?v=20261014-n-program-order-v2"></script>
-<script src="./scripts/systems/dev-console.js?v=20261012-abstraction-reset-v1"></script>
-<script src="./scripts/main.js?v=20260905-cache-refresh"></script>
+<script src="./scripts/automatium/n-parser.js?v=20261016-kc4-automation-v1"></script>
+<script src="./scripts/automatium/n-runtime.js?v=20261016-kc4-automation-v1"></script>
+<script src="./scripts/systems/automatium.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/dev-console.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/main.js?v=20261019-offline-session-v1"></script>
 <script src="./scripts/config/firebase-config.js?v=20260918-auth"></script>
-<script type="module" src="./scripts/systems/firebase-auth.js?v=20260918-presence-achievements"></script>
+<script type="module" src="./scripts/systems/firebase-auth.js?v=20261019-offline-session-v1"></script>
 </body>
 </html>

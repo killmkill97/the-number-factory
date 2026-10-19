@@ -68,9 +68,11 @@ function forceUnlockDevUpgrade(kind, id) {
   if (kind === 'abstraction') {
     const research = ABSTRACTION_RESEARCHES.find(item => item.id === id);
     if (!research) return false;
-    if (!hasAbstractionResearch(id)) abstractionResearchPaidCosts[id] = 0;
+    if (!hasPurchasedAbstractionResearch(id)) abstractionResearchPaidCosts[id] = 0;
+    recordAbstractionBranchPurchase(research);
     abstractionResearchState[id] = true;
     if (id === '3-1') automatiumPrestigeRetentionUnlocked = true;
+    if (id === '18-7' && divergerAvailable()) divergerPower = divergerProductionValue();
     return true;
   }
 
@@ -78,6 +80,7 @@ function forceUnlockDevUpgrade(kind, id) {
     const upgrade = KNUTH_SLOT_UPGRADES.find(item => item.id === id);
     if (!upgrade || hasKnuthUpgrade(id)) return false;
     knuthEquippedUpgradeIds.add(id);
+    refreshKnuthEquipmentDerivedState(id);
     return true;
   }
 
@@ -129,9 +132,12 @@ function removeDevUpgrade(kind, id) {
 
   if (kind === 'abstraction') {
     const research = ABSTRACTION_RESEARCHES.find(item => item.id === id);
-    if (!research || !hasAbstractionResearch(id)) return false;
+    if (!research || !hasPurchasedAbstractionResearch(id)) return false;
     abstractionResearchState[id] = false;
     delete abstractionResearchPaidCosts[id];
+    if (id === '18-7' && divergerAvailable()) divergerPower = divergerProductionValue();
+    if (id === '16-2') trimKnuthEquipmentToCapacity();
+    if (research.branchGroup === 2) loadAbstractionSecondBranchOrder(abstractionSecondBranchPurchaseOrder);
     return true;
   }
 
@@ -139,6 +145,7 @@ function removeDevUpgrade(kind, id) {
     const upgrade = KNUTH_SLOT_UPGRADES.find(item => item.id === id);
     if (!upgrade || !hasKnuthUpgrade(id)) return false;
     knuthEquippedUpgradeIds.delete(id);
+    refreshKnuthEquipmentDerivedState(id);
     return true;
   }
 
@@ -499,9 +506,9 @@ function runDevCommand(commandText) {
     return;
   }
 
-  const match = command.match(/^set\s+(number|n|sp|cp|kp|theory|t|grand_theory|grad_theory|grandtheory|gt|diverger|diverger_power|square_power|squarepower)\s+(.+)$/i);
+  const match = command.match(/^set\s+(number|n|sp|cp|kp|theory|t|grand_theory|grad_theory|grandtheory|gt|diverger|diverger_power|square_power|squarepower|knuth_slot)\s+(.+)$/i);
   if (!match) {
-    throw new Error('지원 명령어: stop, system number_black_hole, set number(n)/sp/cp/kp/theory(t)/grand_theory(gt)/diverger/square_power <숫자>, trace number on/off/clear');
+    throw new Error('지원 명령어: stop, system number_black_hole, set number(n)/sp/cp/kp/theory(t)/grand_theory(gt)/diverger/square_power/knuth_slot <숫자>, trace number on/off/clear');
   }
 
   const rawTarget = match[1].toLowerCase();
@@ -525,6 +532,28 @@ function runDevCommand(commandText) {
   }
 
   const value = parseDevNumberValue(match[2]);
+
+  if (target === 'knuth_slot') {
+    const slots = NumberMath.toNumber(value);
+    if (!Number.isSafeInteger(slots) || slots < 0) {
+      throw new Error('커누스 슬롯 수는 0 이상 9007199254740991 이하의 정수로 입력하세요.');
+    }
+    knuthOperationLevel = slots;
+    let removed = 0;
+    for (const id of [...knuthEquippedUpgradeIds].reverse()) {
+      if (knuthSlotsUsed() <= knuthSlotCapacity()) break;
+      if (removeDevUpgrade('knuth', id)) removed += 1;
+    }
+    if (slots > 0) {
+      knuthUnlocked = true;
+      hasClaimedKnuthPoint = true;
+      pendingKnuthPointClaim = false;
+      setChapter('knuth');
+    }
+    render();
+    log(`[DEV] 커누스 슬롯 = ${knuthSlotCapacity()} · 구매 횟수 ${slots} · 다음 비용: ${formatDevValue(knuthOperationUpgradeCost())} KP${removed ? ` · 초과 장착 ${removed}개 해제` : ''}`, true);
+    return;
+  }
 
   if (target === 'sp') {
     squarePoints = value;
@@ -674,7 +703,7 @@ function toggleDevConsole() {
     devConsole.input.focus();
     renderDevDebugBoard();
     renderNumberTrace();
-    log('[DEV] 콘솔 열림: stop, system number_black_hole, set n/sp/cp/kp/t/gt <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 추상화 연구 Shift+좌/우클릭=강제 구매/취소', true);
+    log('[DEV] 콘솔 열림: stop, system number_black_hole, set n/sp/cp/kp/t/gt/knuth_slot <숫자>, trace number on/off/clear · 업그레이드 좌클릭=강제 해금 · Shift+우클릭=해제 · 추상화 연구 Shift+좌/우클릭=강제 구매/취소', true);
   }
 }
 
@@ -689,6 +718,7 @@ function handleGameTitleDebugToggle() {
 gameTitle?.addEventListener('click', handleGameTitleDebugToggle);
 
 setInterval(() => {
+  if (gameSessionPaused()) return;
   if (devConsole.visible) renderDevDebugBoard();
 }, 250);
 

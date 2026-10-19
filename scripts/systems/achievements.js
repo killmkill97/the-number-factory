@@ -282,7 +282,7 @@ const ACHIEVEMENTS = [
   {
     id: 'ultramassive_black_hole', title: '극대질량 블랙홀',
     description: '숫자 블랙홀의 슈바르츠실트 반지름을 120b 이상으로 만드세요.',
-    condition: () => isPositiveNumberValue(numberBlackHoleTotalInvested)
+    condition: () => (isPositiveNumberValue(numberBlackHoleTotalInvested) || isPositiveNumberValue(numberBlackHoleTotalSpInvested))
       && typeof numberBlackHoleSchwarzschildRadius === 'function'
       && compareNumberValues(numberBlackHoleSchwarzschildRadius(), 120000000000) >= 0
   },
@@ -499,7 +499,7 @@ for (const achievement of ACHIEVEMENTS) {
 }
 
 function achievementClockNow() {
-  return typeof performance === 'undefined' ? Date.now() : performance.now();
+  return gameTimelineNowMs();
 }
 
 function currentAuthEmail() {
@@ -586,7 +586,7 @@ function baseNumberIsInNoUnit() {
 
 function allCompatibleAbstractionResearchComplete() {
   if (!knuthUnlocked || knuthBaseUpgradeLevel('extra_branch') < 1 || ABSTRACTION_RESEARCHES.length === 0) return false;
-  return ABSTRACTION_RESEARCHES.every(research => hasAbstractionResearch(research.id)
+  return ABSTRACTION_RESEARCHES.every(research => hasPurchasedAbstractionResearch(research.id)
     || abstractionResearchBranchLocked(research));
 }
 
@@ -746,7 +746,7 @@ divergerGraphScreen?.addEventListener('pointercancel', () => {
 });
 window.addEventListener('pointerup', finishDivergerGraphDrag);
 
-setInterval(() => {
+setGameInterval(() => {
   if (achievementState.lottery || Math.random() >= 0.000000123) return;
   unlockAchievementAndRender('lottery');
 }, 1000);
@@ -977,7 +977,7 @@ achievementsViewBtn.addEventListener('click', () => setMultiplicationView('achie
 setAchievementCategory('general');
 setMultiplicationView('number');
 
-setInterval(() => {
+setGameInterval(() => {
   const now = achievementClockNow();
   const elapsedMs = Math.max(0, now - lastAchievementTimerAt);
   lastAchievementTimerAt = now;
@@ -985,6 +985,7 @@ setInterval(() => {
 }, 100);
 
 setInterval(() => {
+  if (gameSessionPaused()) return;
   const hasHiddenSecret = ACHIEVEMENTS.some(
     achievement => achievement.category === 'secret' && !achievementState[achievement.id]
   );

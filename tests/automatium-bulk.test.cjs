@@ -14,6 +14,7 @@ function makeContext() {
     localStorage: { getItem: () => '[]' },
     clock: 0,
     gameClockNowMs: () => context.clock,
+    gameTimelineNowMs: () => context.clock,
     hasGeneralizationResearch: () => true,
     compareNumberValues: (left, right) => left === right ? 0 : left > right ? 1 : -1,
     getBaseNumber: () => 1000000,

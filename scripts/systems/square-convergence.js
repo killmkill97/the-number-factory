@@ -1,6 +1,8 @@
 const squareConvergenceUi = {};
 const generalizationResearchUi = {};
 const abstractionResearchUi = {};
+const abstractionPresetUi = [];
+let abstractionPresetDialogState = null;
 let activeConvergenceView = 'convergence';
 const RESEARCH_NODE_WIDTH = 220;
 const RESEARCH_NODE_HEIGHT = 190;
@@ -16,8 +18,9 @@ let researchTreeZoom = 1;
 let researchTreePanState = null;
 let focusedGeneralizationResearchId = null;
 let generalizationTreeLayoutInitialized = false;
+const ABSTRACTION_TREE_ROW_OFFSET = Math.max(0, 1 - Math.min(...ABSTRACTION_RESEARCHES.map(research => research.row ?? 1)));
 let abstractionTreePanX = 0;
-let abstractionTreePanY = 0;
+let abstractionTreePanY = -ABSTRACTION_TREE_ROW_OFFSET * (RESEARCH_NODE_HEIGHT + RESEARCH_ROW_GAP);
 let abstractionTreeZoom = 1;
 let abstractionTreePanState = null;
 let focusedAbstractionResearchId = null;
@@ -62,7 +65,8 @@ function setGeneralizationResearchFocus(researchId) {
 function updateGeneralizationTreeViewportExtent() {
   if (!generalizationTree || generalizationPanel?.classList.contains('hidden')) return;
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-  const treeTop = Math.max(0, Math.min(viewportHeight, generalizationTree.getBoundingClientRect().top));
+  // A negative top must add height so the background and pointer area still reach the screen bottom.
+  const treeTop = Math.min(viewportHeight, generalizationTree.getBoundingClientRect().top);
   generalizationTree.style.setProperty('--generalization-tree-top', `${treeTop}px`);
 }
 
@@ -451,6 +455,9 @@ function renderGeneralizationBoard() {
 }
 
 function renderGreatTheoryResourceSelector() {
+  greatTheoryPurchaseDescription.textContent = abstractionCostResourceIndex === 2
+    ? 'SP 비용은 구매마다 ×1e1000 증가하며, 1e1m 이상부터 ×1e500k 증가합니다. 비용 1e100m 이상에서는 SP로 구매할 수 없습니다.'
+    : '해금된 화폐 중 하나를 선택해 구매합니다. 각 재화의 비용은 별도로 상승합니다.';
   const resources = [
     [greatTheoryCpResourceBtn, greatTheoryCpResourceCost, 0],
     [greatTheoryKpResourceBtn, greatTheoryKpResourceCost, 1],
@@ -459,7 +466,7 @@ function renderGreatTheoryResourceSelector() {
   ];
 
   for (const [button, costElement, resourceIndex] of resources) {
-    const locked = resourceIndex === 3 && !knuthBaseUpgradeLevel('theory_exchange');
+    const locked = resourceIndex === 3 && !knuthBaseUpgradeEffectLevel('theory_exchange');
     button.classList.toggle('hidden', locked);
     button.classList.toggle('active', abstractionCostResourceIndex === resourceIndex);
     button.disabled = locked || !canOpenAbstraction();
@@ -467,13 +474,13 @@ function renderGreatTheoryResourceSelector() {
   }
 
   const selectedCost = greatTheoryCostForResource(abstractionCostResourceIndex);
-  buyGreatTheoryCost.textContent = `비용: ${fmt(selectedCost)} ${greatTheoryResourceLabel(abstractionCostResourceIndex)}`;
+  const atSpLimit = abstractionCostResourceIndex === 2 && compareNumberValues(selectedCost, ABSTRACTION_SP_PURCHASE_COST_LIMIT) >= 0;
+  buyGreatTheoryCost.textContent = `비용: ${fmt(selectedCost)} ${greatTheoryResourceLabel(abstractionCostResourceIndex)}${atSpLimit ? ' · SP 구매 한도 도달' : ''}`;
   const maximumPurchases = greatTheoryMaximumPurchases();
   buyGreatTheoryBtn.disabled = maximumPurchases < 1;
   buyGreatTheoryMaxBtn.disabled = maximumPurchases < 1;
-  buyGreatTheoryMaxBtn.title = maximumPurchases > 0
-    ? `대이론 ${maximumPurchases}개를 한 번에 구매`
-    : '구매 가능한 대이론이 없습니다';
+  buyGreatTheoryMaxBtn.title = atSpLimit ? 'SP 대이론 구매는 비용 1e100m 미만까지만 가능합니다'
+    : maximumPurchases > 0 ? `대이론 ${maximumPurchases}개를 한 번에 구매` : '구매 가능한 대이론이 없습니다';
 }
 
 function abstractionResearchAncestry(researchId) {
@@ -515,7 +522,7 @@ function setAbstractionResearchFocus(researchId) {
 function updateAbstractionTreeViewportExtent() {
   if (!abstractionTree || abstractionPanel?.classList.contains('hidden') || knuthPanel?.classList.contains('hidden')) return;
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-  const treeTop = Math.max(0, Math.min(viewportHeight, abstractionTree.getBoundingClientRect().top));
+  const treeTop = Math.min(viewportHeight, abstractionTree.getBoundingClientRect().top);
   abstractionTree.style.setProperty('--abstraction-tree-top', `${treeTop}px`);
 }
 
@@ -570,15 +577,18 @@ function abstractionTimeResearchInfo(id) {
   }
   if (id === '12-1' || id === '14-1') {
     const U = knuthRunRealSeconds();
-    const parameterBonus = id === '14-1';
-    const multiplier = abstractionActiveTimeBonus(U,
-      parameterBonus ? tuning.activeParameterStrength : tuning.activeResourceStrength);
-    return `U ${show(U)}초 (커누스 현실 시간)\n${parameterBonus ? 'a·b·c' : 'SP·CP'} ×${show(multiplier)}`
-      + (parameterBonus ? `\n속도 구매 감소량 ×${show(tuning.activeSpeedReduction)}` : '');
+    const prefix = `U ${show(U)}초 (커누스 현실 시간)\n`;
+    if (id === '14-1') {
+      return prefix + `a·b·c ×${show(abstractionActiveTimeBonus(U, tuning.activeParameterStrength))}`
+        + `\n속도 구매 감소량 ×${show(tuning.activeSpeedReduction)}`;
+    }
+    return prefix + `SP ×${show(abstractionActiveTimeBonus(U, tuning.activeSpStrength))}`
+      + ` · CP ×${show(abstractionActiveTimeBonus(U, tuning.activeCpStrength))}`;
   }
   if (id === '12-3') {
     const T = knuthRunRealSeconds();
-    return `T ${show(T)}초 (커누스 현실 시간)\nSP·CP ×${show(abstractionIdleTimeBonus(T, tuning.idleResourceStrength))}`;
+    return `T ${show(T)}초 (커누스 현실 시간)\nSP ×${show(abstractionIdleTimeBonus(T, tuning.idleSpStrength))}`
+      + ` · CP ×${show(abstractionIdleTimeBonus(T, tuning.idleCpStrength))}`;
   }
   if (id === '13-1' || id === '13-3') {
     const active = id === '13-1';
@@ -602,6 +612,7 @@ function updateAbstractionTimeResearchUi(id, ui) {
 }
 
 setInterval(() => {
+  if (gameSessionPaused()) return;
   if (activeChapter !== 'knuth' || typeof activeKnuthView === 'undefined' || activeKnuthView !== 'abstraction') return;
   for (const [id, ui] of Object.entries(abstractionResearchUi)) updateAbstractionTimeResearchUi(id, ui);
 }, 1000);
@@ -612,6 +623,7 @@ function ensureAbstractionResearchUi(research) {
   const node = document.createElement('article');
   node.className = 'research-node';
   node.classList.toggle('abstraction-branch-research', Boolean(research.branch));
+  node.classList.toggle('abstraction-mini-research', (research.branchGroup ?? 1) > 2);
   node.addEventListener('mouseenter', () => setAbstractionResearchFocus(research.id));
   node.addEventListener('mouseleave', () => setAbstractionResearchFocus(null));
 
@@ -643,15 +655,35 @@ function ensureAbstractionResearchUi(research) {
   return abstractionResearchUi[research.id];
 }
 
+function abstractionResearchNodePosition(research) {
+  // Keep upper branches inside the SVG while the initial camera preserves the early tree's position.
+  return researchNodePosition({ ...research, row: (research.row ?? 1) + ABSTRACTION_TREE_ROW_OFFSET });
+}
+
 function renderAbstractionTreeLayout() {
   if (!abstractionTreeCanvas || !abstractionConnections) return;
   updateAbstractionTreeViewportExtent();
 
   for (const research of ABSTRACTION_RESEARCHES) {
     const ui = ensureAbstractionResearchUi(research);
-    const position = researchNodePosition(research);
+    const position = abstractionResearchNodePosition(research);
     ui.node.style.left = `${position.left}px`;
     ui.node.style.top = `${position.top}px`;
+    if (research.branch && !ABSTRACTION_RESEARCHES.some(item => item.branch === research.branch
+      && item.branchGroup === research.branchGroup && item.column < research.column)) {
+      let label = abstractionTreeCanvas.querySelector(`[data-abstraction-branch-label="${research.branch}"]`);
+      if (!label) {
+        label = document.createElement('div');
+        label.className = 'abstraction-branch-label';
+        label.dataset.abstractionBranchLabel = research.branch;
+        label.textContent = (research.branchGroup ?? 1) > 2 ? '미니 분기 · 둘 중 하나 선택'
+          : ABSTRACTION_BRANCH_OPTIONS[research.branchGroup ?? 1]
+            .find(option => option.id === research.branch)?.label ?? research.branch;
+        abstractionTreeCanvas.appendChild(label);
+      }
+      label.style.left = `${position.left}px`;
+      label.style.top = `${position.top - 21}px`;
+    }
   }
 
   if (abstractionTreeLayoutInitialized) {
@@ -666,7 +698,7 @@ function renderAbstractionTreeLayout() {
   }
 
   const maxColumn = Math.max(...ABSTRACTION_RESEARCHES.map(research => research.column ?? 1), 1);
-  const maxRow = Math.max(...ABSTRACTION_RESEARCHES.map(research => research.row ?? 1), 1);
+  const maxRow = Math.max(...ABSTRACTION_RESEARCHES.map(research => (research.row ?? 1) + ABSTRACTION_TREE_ROW_OFFSET), 1);
   const canvasWidth = RESEARCH_TREE_PADDING * 2
     + maxColumn * RESEARCH_NODE_WIDTH
     + (maxColumn - 1) * RESEARCH_COLUMN_GAP;
@@ -684,11 +716,11 @@ function renderAbstractionTreeLayout() {
 
   const researchById = new Map(ABSTRACTION_RESEARCHES.map(research => [research.id, research]));
   for (const research of ABSTRACTION_RESEARCHES) {
-    const childPosition = researchNodePosition(research);
+    const childPosition = abstractionResearchNodePosition(research);
     for (const parentId of research.parents ?? []) {
       const parent = researchById.get(parentId);
       if (!parent) continue;
-      const parentPosition = researchNodePosition(parent);
+      const parentPosition = abstractionResearchNodePosition(parent);
       const isHorizontal = parent.column !== research.column;
       const startX = isHorizontal
         ? parentPosition.left + (parent.column < research.column ? RESEARCH_NODE_WIDTH : 0)
@@ -795,13 +827,15 @@ function renderAbstractionBoard() {
 
   for (const research of ABSTRACTION_RESEARCHES) {
     const ui = ensureAbstractionResearchUi(research);
-    const bought = hasAbstractionResearch(research.id);
+    const bought = hasPurchasedAbstractionResearch(research.id);
+    const inactive = bought && !hasAbstractionResearch(research.id);
     const parentsReady = abstractionResearchParentsReady(research);
     const branchLocked = abstractionResearchBranchLocked(research);
+    const tierLocked = !abstractionResearchTierUnlocked(research);
     const plan = researchPurchasePlan('abstraction', research.id);
     const available = plan !== null && compareNumberValues(greatTheory, plan.cost) >= 0;
     ui.node.classList.toggle('bought', bought);
-    ui.node.classList.toggle('locked', !bought && (!parentsReady || branchLocked));
+    ui.node.classList.toggle('locked', inactive || (!bought && (!parentsReady || branchLocked || tierLocked)));
     updateAbstractionTimeResearchUi(research.id, ui);
     ui.parents.textContent = research.parents.length > 0
       ? `선행 연구: ${research.parents.join(', ')}`
@@ -809,19 +843,135 @@ function renderAbstractionBoard() {
     const devMode = typeof devConsoleIsOpen === 'function' && devConsoleIsOpen();
     ui.button.disabled = devMode ? false : bought || !available;
     ui.button.textContent = bought
-      ? '연구 완료'
+      ? inactive ? '연구 완료 · 64연산 미장착' : '연구 완료'
+      : tierLocked ? '추상화 심화 필요'
       : branchLocked ? '다른 분기 선택됨'
       : `연구 · ${fmt(plan?.cost ?? research.greatTheoryCost)} 대이론`;
     ui.button.title = plan && plan.ids.length > 1 ? `선행 포함 ${plan.ids.length}개 연구` : '';
   }
   renderAbstractionTreeLayout();
+  renderAbstractionPresetBoard();
+}
+
+function closeAbstractionPresetMenus() {
+  for (const ui of abstractionPresetUi) {
+    ui.menu.hidden = true;
+    ui.menuButton.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function openAbstractionPresetDialog(index, mode) {
+  const preset = abstractionResearchPresets[index];
+  if (!preset) return;
+  closeAbstractionPresetMenus();
+  abstractionPresetDialogState = { index, mode };
+  abstractionPresetDialogTitle.textContent = `${index + 1}번 프리셋 ${mode === 'name' ? '이름 변경' : '편집'}`;
+  abstractionPresetNameLabel.classList.toggle('hidden', mode !== 'name');
+  abstractionPresetIdsLabel.classList.toggle('hidden', mode !== 'ids');
+  abstractionPresetNameInput.value = preset.name;
+  abstractionPresetIdsInput.value = preset.ids.join(', ');
+  abstractionPresetDialogError.classList.add('hidden');
+  abstractionPresetDialog.showModal();
+  (mode === 'name' ? abstractionPresetNameInput : abstractionPresetIdsInput).focus();
+}
+
+function createAbstractionPresetCard(index) {
+  const card = document.createElement('article');
+  card.className = 'abstraction-preset-card';
+  const header = document.createElement('div');
+  header.className = 'abstraction-preset-header';
+  const name = document.createElement('strong');
+  const menuButton = document.createElement('button');
+  menuButton.type = 'button';
+  menuButton.className = 'abstraction-preset-menu-button';
+  menuButton.textContent = '⋮';
+  menuButton.title = '프리셋 메뉴';
+  menuButton.setAttribute('aria-label', `${index + 1}번 프리셋 메뉴`);
+  menuButton.setAttribute('aria-haspopup', 'menu');
+  menuButton.setAttribute('aria-expanded', 'false');
+  header.append(name, menuButton);
+  const summary = document.createElement('div');
+  summary.className = 'abstraction-preset-summary';
+  const loadButton = document.createElement('button');
+  loadButton.type = 'button';
+  loadButton.className = 'abstraction-preset-load';
+  loadButton.textContent = '불러오기';
+  loadButton.addEventListener('click', () => loadAbstractionResearchPreset(index));
+  const cost = document.createElement('div');
+  cost.className = 'abstraction-preset-cost';
+  const menu = document.createElement('div');
+  menu.className = 'abstraction-preset-menu';
+  menu.setAttribute('role', 'menu');
+  menu.hidden = true;
+  for (const [label, action] of [
+    ['저장', 'save'], ['편집', 'edit'], ['제거', 'remove'], ['복사', 'copy'], ['이름 변경', 'name']
+  ]) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('role', 'menuitem');
+    button.textContent = label;
+    button.addEventListener('click', async () => {
+      closeAbstractionPresetMenus();
+      if (action === 'save') saveAbstractionResearchPreset(index);
+      if (action === 'edit') openAbstractionPresetDialog(index, 'ids');
+      if (action === 'name') openAbstractionPresetDialog(index, 'name');
+      if (action === 'remove' && window.confirm(`${index + 1}번 프리셋을 제거할까요?`)) {
+        clearAbstractionResearchPreset(index);
+      }
+      if (action === 'copy') {
+        try {
+          await navigator.clipboard.writeText(abstractionResearchPresets[index].ids.join(', '));
+          cost.textContent = '클립보드에 복사됨';
+        } catch {
+          window.alert('클립보드에 복사하지 못했습니다.');
+        }
+      }
+    });
+    menu.appendChild(button);
+  }
+  menuButton.addEventListener('click', () => {
+    const nextOpen = menu.hidden;
+    closeAbstractionPresetMenus();
+    menu.hidden = !nextOpen;
+    menuButton.setAttribute('aria-expanded', String(nextOpen));
+  });
+  card.append(header, summary, loadButton, cost, menu);
+  abstractionPresetGrid.appendChild(card);
+  abstractionPresetUi[index] = { card, name, summary, loadButton, cost, menu, menuButton };
+}
+
+function renderAbstractionPresetBoard() {
+  while (abstractionPresetUi.length > abstractionResearchPresets.length) {
+    abstractionPresetUi.pop().card.remove();
+  }
+  for (let index = 0; index < abstractionResearchPresets.length; index += 1) {
+    if (!abstractionPresetUi[index]) createAbstractionPresetCard(index);
+    const preset = abstractionResearchPresets[index];
+    const ui = abstractionPresetUi[index];
+    const name = preset.name || `프리셋 ${index + 1}`;
+    const chars = Array.from(name);
+    ui.name.textContent = chars.length >= 15 ? `${chars.slice(0, 14).join('')}…` : name;
+    ui.name.title = chars.length >= 15 ? name : '';
+    ui.summary.textContent = preset.ids.length > 0
+      ? `${preset.ids.length}개 연구 · ${preset.ids.slice(0, 3).join(', ')}${preset.ids.length > 3 ? '…' : ''}`
+      : '비어 있음';
+    const plan = abstractionPresetPurchasePlan(index);
+    const affordable = !plan.error && compareNumberValues(greatTheory, plan.cost) >= 0;
+    ui.loadButton.disabled = !affordable;
+    ui.loadButton.title = plan.error || (!affordable ? '대이론이 부족합니다.' : '');
+    ui.cost.textContent = plan.error ? '' : `필요: ${fmt(plan.cost)} 대이론`;
+  }
+  const slotCost = abstractionPresetSlotCost();
+  abstractionBuyPresetSlotBtn.textContent = `프리셋 슬롯 +1 · 비용: ${fmt(slotCost)} KP`;
+  abstractionBuyPresetSlotBtn.disabled = !canOpenAbstraction() || compareNumberValues(knuthPoints, slotCost) < 0;
 }
 
 function renderAbstractionBranchSettings() {
   for (const [select, group, rank] of [
     [abstractionBranchPriority1, 1, 0],
     [abstractionBranchPriority2, 1, 1],
-    [abstractionSecondBranchPriority, 2, 0]
+    [abstractionSecondBranchPriority, 2, 0],
+    [abstractionSecondBranchPriority2, 2, 1]
   ]) {
     if (select.options.length === 0) {
       for (const branch of ABSTRACTION_BRANCH_OPTIONS[group]) {
@@ -873,6 +1023,41 @@ researchTheoryMaxBtn.addEventListener('click', researchTheoryMaximum);
 generalizationResetBtn.addEventListener('click', resetGeneralizationResearch);
 abstractionResetToggle.addEventListener('click', toggleAbstractionReset);
 abstractionSettingsBtn.addEventListener('click', openAbstractionBranchSettings);
+abstractionBuyPresetSlotBtn.addEventListener('click', buyAbstractionPresetSlot);
+abstractionPresetCloseBtn.addEventListener('click', () => abstractionPresetDialog.close());
+abstractionPresetCancelBtn.addEventListener('click', () => abstractionPresetDialog.close());
+abstractionPresetDialog.addEventListener('click', event => {
+  if (event.target === abstractionPresetDialog) abstractionPresetDialog.close();
+});
+abstractionPresetDialog.addEventListener('close', () => { abstractionPresetDialogState = null; });
+abstractionPresetForm.addEventListener('submit', event => {
+  event.preventDefault();
+  if (!abstractionPresetDialogState) return;
+  const { index, mode } = abstractionPresetDialogState;
+  const accepted = mode === 'name'
+    ? renameAbstractionResearchPreset(index, abstractionPresetNameInput.value)
+    : editAbstractionResearchPreset(index, abstractionPresetIdsInput.value);
+  if (!accepted) {
+    abstractionPresetDialogError.textContent = mode === 'name'
+      ? '이름은 300자 이하로 입력해 주세요.'
+      : '연구 ID를 쉼표로 구분해 입력해 주세요. 알 수 없는 ID가 포함되어 있습니다.';
+    abstractionPresetDialogError.classList.remove('hidden');
+    return;
+  }
+  abstractionPresetDialog.close();
+});
+abstractionPresetIdsInput.addEventListener('keydown', event => {
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    abstractionPresetForm.requestSubmit();
+  }
+});
+document.addEventListener('pointerdown', event => {
+  if (!abstractionPresetGrid.contains(event.target)) closeAbstractionPresetMenus();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeAbstractionPresetMenus();
+});
 abstractionSettingsCloseBtn.addEventListener('click', () => abstractionSettingsDialog.close());
 abstractionSettingsDialog.addEventListener('click', event => {
   if (event.target === abstractionSettingsDialog) abstractionSettingsDialog.close();
@@ -880,7 +1065,8 @@ abstractionSettingsDialog.addEventListener('click', event => {
 for (const [select, group, rank] of [
   [abstractionBranchPriority1, 1, 0],
   [abstractionBranchPriority2, 1, 1],
-  [abstractionSecondBranchPriority, 2, 0]
+  [abstractionSecondBranchPriority, 2, 0],
+  [abstractionSecondBranchPriority2, 2, 1]
 ]) {
   select.addEventListener('change', () => {
     setAbstractionBranchPriority(group, rank, select.value);

@@ -146,6 +146,22 @@
     display: grid;
     gap: 6px;
   }
+  .offline-accuracy-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 72px;
+    align-items: center;
+    gap: 8px;
+  }
+  .offline-accuracy-controls input[type="number"] {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: 6px;
+    background: #0c1117;
+    color: #e3e7eb;
+    border: 1px solid #343a43;
+    font: inherit;
+  }
   .news-settings-row output {
     float: right;
     color: var(--text);
@@ -895,8 +911,53 @@
     opacity: 1;
     cursor: default;
   }
-  .abstraction-tree-theme {
-    height: max(620px, calc(100dvh - var(--abstraction-tree-top, 0px)));
+  .knuth-base-purchase {
+    display: flex;
+    gap: 6px;
+    min-width: 0;
+  }
+  .knuth-base-purchase > .knuth-upgrade,
+  .knuth-operation-purchase > button {
+    flex: 1;
+    min-width: 0;
+  }
+  .knuth-base-auto-control {
+    display: flex;
+    flex: 0 0 44px;
+    align-items: center;
+    justify-content: center;
+  }
+  button.knuth-base-auto-toggle {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    background: #161b22;
+    color: #8b949e;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  button.knuth-base-auto-toggle:hover:not(:disabled) {
+    border-color: #7ee787;
+  }
+  button.knuth-base-auto-toggle.on {
+    border-color: #3fb950;
+    background: #10271a;
+    color: #7ee787;
+    box-shadow: 0 0 0 1px #3fb95066;
+  }
+  button.knuth-base-auto-toggle:focus-visible {
+    outline: 2px solid #7ee787;
+    outline-offset: 3px;
+  }
+  button.knuth-base-auto-toggle:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .generalization-tree.abstraction-tree-theme {
+    height: max(620px, calc(200dvh - var(--abstraction-tree-top, 0px)));
   }
   .generalization-tree-toolbar.abstraction-tree-toolbar button {
     border-color: #2ea043;
@@ -917,6 +978,30 @@
   .abstraction-tree-theme .research-node.abstraction-branch-research {
     outline: 2px solid #e0b83f;
     outline-offset: 2px;
+  }
+  .abstraction-tree-theme .research-node.abstraction-mini-research {
+    display: flex;
+    flex-direction: column;
+  }
+  .abstraction-mini-research > :not(.research-node-description) {
+    flex-shrink: 0;
+    margin-bottom: 4px;
+  }
+  .abstraction-mini-research .research-node-description {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-bottom: 6px;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+  }
+  .abstraction-tree-theme .abstraction-branch-label {
+    position: absolute;
+    z-index: 3;
+    width: 220px;
+    color: #e0b83f;
+    font-size: 11px;
+    line-height: 16px;
+    pointer-events: none;
   }
   .abstraction-tree-theme .research-node-title {
     color: #7ee787;
@@ -957,7 +1042,7 @@
     position: relative;
     left: 50%;
     width: 100vw;
-    height: max(620px, calc(100dvh - var(--generalization-tree-top, 0px)));
+    height: max(620px, calc(200dvh - var(--generalization-tree-top, 0px)));
     margin-left: 0;
     overflow: visible;
     clip-path: inset(0 -100vw -200vh -100vw);
@@ -2027,10 +2112,10 @@
   }
   @media (max-width: 520px) {
     .generalization-tree {
-      height: max(560px, calc(100dvh - var(--generalization-tree-top, 0px)));
+      height: max(560px, calc(200dvh - var(--generalization-tree-top, 0px)));
     }
-    .abstraction-tree-theme {
-      height: max(560px, calc(100dvh - var(--abstraction-tree-top, 0px)));
+    .generalization-tree.abstraction-tree-theme {
+      height: max(560px, calc(200dvh - var(--abstraction-tree-top, 0px)));
     }
     .generalization-tree-toolbar {
       width: calc(100vw - 12px);
@@ -2056,6 +2141,19 @@
     margin-top: 10px;
     min-height: 24px;
   }
+  .number-black-hole-summary.singularity-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .singularity-purchase {
+    width: 100%;
+    border-color: #3fb950;
+  }
+  .number-black-hole-summary.singularity-effects {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .singularity-upgrades {
+    margin-top: 12px;
+  }
   .knuth-slot-label {
     color: #9aa4b2;
     font-size: 0.84rem;
@@ -2074,6 +2172,20 @@
   .knuth-slot-arrow.active {
     color: #56d364;
     text-shadow: 0 0 8px rgba(86, 211, 100, 0.6);
+  }
+  .knuth-slot-bar {
+    display: inline-block;
+    flex: 0 0 120px;
+    height: 6px;
+    overflow: hidden;
+    border: 1px solid #3b5543;
+    border-radius: 2px;
+    background: #23332a;
+  }
+  .knuth-slot-bar-fill {
+    display: block;
+    height: 100%;
+    background: #56d364;
   }
   .knuth-upgrade-groups {
     display: grid;
@@ -2131,6 +2243,147 @@
     color: #e6edf3;
     font: inherit;
   }
+  .abstraction-preset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 185px), 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .abstraction-preset-card {
+    position: relative;
+    min-width: 0;
+    min-height: 120px;
+    padding: 9px;
+    border: 1px solid #315f3c;
+    border-radius: 4px;
+    background: #151d1a;
+  }
+  .abstraction-preset-card:focus-within {
+    z-index: 5;
+  }
+  .abstraction-preset-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    color: #7ee787;
+    font-size: 13px;
+  }
+  .abstraction-preset-header strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .abstraction-preset-menu-button {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+    border-color: #315f3c;
+    font-size: 20px;
+    line-height: 1;
+  }
+  .abstraction-preset-summary {
+    min-height: 28px;
+    margin: 5px 0;
+    overflow: hidden;
+    color: #9aa4b2;
+    font-size: 11px;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .abstraction-preset-load {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 8px;
+    border-color: #315f3c;
+    color: #7ee787;
+  }
+  .abstraction-preset-cost {
+    min-height: 14px;
+    margin-top: 5px;
+    color: #8b949e;
+    font-size: 10px;
+  }
+  .abstraction-preset-menu {
+    position: absolute;
+    top: 38px;
+    right: 9px;
+    z-index: 10;
+    display: grid;
+    min-width: 120px;
+    padding: 4px;
+    border: 1px solid #3fb950;
+    border-radius: 4px;
+    background: #101820;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .abstraction-preset-menu[hidden] {
+    display: none;
+  }
+  .abstraction-preset-menu button {
+    min-height: 32px;
+    padding: 5px 8px;
+    border: 0;
+    text-align: left;
+  }
+  .abstraction-preset-menu button:hover,
+  .abstraction-preset-menu button:focus-visible {
+    background: #21402b;
+  }
+  .abstraction-preset-add {
+    width: 100%;
+    min-height: 38px;
+    margin-bottom: 14px;
+    border-color: #315f3c;
+    color: #7ee787;
+  }
+  .formula-help-dialog.abstraction-preset-dialog {
+    width: min(500px, calc(100vw - 28px));
+    border-color: #3fb950;
+  }
+  .abstraction-preset-dialog h2 {
+    color: #7ee787;
+  }
+  .abstraction-preset-field {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
+    color: #aab6c2;
+    font-size: 12px;
+  }
+  .abstraction-preset-field input,
+  .abstraction-preset-field textarea {
+    width: 100%;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid #315f3c;
+    border-radius: 2px;
+    background: #171d23;
+    color: #e6edf3;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  .abstraction-preset-field textarea {
+    resize: vertical;
+  }
+  .abstraction-preset-error {
+    margin: 10px 0 0;
+    color: #ff7b72;
+    font-size: 12px;
+  }
+  .abstraction-preset-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .abstraction-preset-dialog-actions button {
+    min-width: 74px;
+    border-color: #315f3c;
+  }
   .number-black-hole-status {
     margin-bottom: 12px;
     padding: 8px 10px;
@@ -2143,6 +2396,63 @@
     border-color: #2ea043;
     color: #7ee787;
   }
+  .number-black-hole-automation {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    padding: 12px 0;
+    color: var(--text);
+  }
+  .number-black-hole-resource {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-bottom: 12px;
+  }
+  .number-black-hole-resource select {
+    min-width: 100px;
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid #315f3c;
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+  }
+  .number-black-hole-automation label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+  }
+  .number-black-hole-automation input {
+    accent-color: #5cdb76;
+  }
+  .number-black-hole-auto-limits {
+    flex-basis: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .number-black-hole-automation .number-black-hole-auto-limits label {
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    font-size: 12px;
+  }
+  .number-black-hole-auto-limits input {
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid #315f3c;
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+  }
+
   .number-black-hole-upgrades {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2426,6 +2736,47 @@
   .formula-help-dialog::backdrop {
     background: rgba(4, 8, 12, 0.78);
   }
+  .formula-help-dialog.offline-summary-dialog {
+    width: min(600px, calc(100vw - 28px));
+    box-sizing: border-box;
+  }
+  .offline-summary-elapsed {
+    margin: 14px 0;
+    color: #aab5c0;
+    font-size: 12px;
+  }
+  .offline-summary-changes {
+    margin: 0;
+  }
+  .offline-summary-row {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #303a44;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .offline-summary-row dt {
+    color: #aab5c0;
+  }
+  .offline-summary-row dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .offline-summary-row .increased { color: #84e89a; }
+  .offline-summary-row .decreased { color: #efbd69; }
+  .offline-summary-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 18px;
+  }
+  .offline-summary-actions button {
+    flex: none;
+    min-width: 80px;
+    min-height: 40px;
+    padding: 8px 16px;
+  }
   .formula-help-shell {
     padding: 18px;
   }
@@ -2522,3 +2873,52 @@
       max-height: 92vh;
     }
   }
+body.session-offline > :not(#offlineModeScreen) {
+  display: none !important;
+}
+
+.offline-mode-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px;
+  background: #0b1015;
+  color: #e3e7eb;
+  text-align: center;
+  letter-spacing: 0;
+  overflow: auto;
+}
+
+.offline-mode-screen[hidden] {
+  display: none !important;
+}
+
+.offline-mode-screen h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.offline-mode-screen p {
+  max-width: 520px;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #a7b1ba;
+}
+
+.offline-mode-screen progress {
+  width: min(320px, 100%);
+  accent-color: #70e681;
+}
+
+.offline-mode-screen button {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 12px 24px;
+}

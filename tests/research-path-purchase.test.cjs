@@ -172,7 +172,7 @@ test('priority validation swaps duplicates, restores old defaults, and survives 
     const preserved=JSON.stringify(saved)===JSON.stringify(abstractionBranchPriorities);
     loadAbstractionBranchPriorities({1:['bad','percent','percent'],2:'active'});
     return {defaults,preserved,restored:abstractionBranchPriorities,
-      invalid:setAbstractionBranchPriority(2,1,'idle'),invalidBranch:setAbstractionBranchPriority(1,0,'bad')};
+      invalid:setAbstractionBranchPriority(2,2,'idle'),invalidBranch:setAbstractionBranchPriority(1,0,'bad')};
   `), {defaults:{1:['time','expansion','percent'],2:['active','passive','idle']},preserved:true,
     restored:{1:['percent','time','expansion'],2:['active','passive','idle']},invalid:false,invalidBranch:false});
   const save = fs.readFileSync(path.join(__dirname, '../scripts/core/save.js'), 'utf8');

@@ -246,6 +246,12 @@ const NRuntime = (() => {
       return null;
     }
 
+    if (statement.type === 'BlackHoleSetting') {
+      const value = statement.value === null ? null : requireNumber(evaluate(statement.value, context), statement);
+      context.adapter.blackHoleSetting(statement.kind, value, statement);
+      return null;
+    }
+
     if (statement.type === 'Buy') {
       const upgradeIndex = statement.upgradeIndex === null
         ? null

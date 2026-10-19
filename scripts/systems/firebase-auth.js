@@ -129,10 +129,12 @@ async function writeCloudSave(user = authState.user) {
 
 async function applyCloudSave(cloudSave, user = authState.user, options = {}) {
   if (!cloudSave || typeof window.loadGame !== 'function') return false;
+  if (window.numberTycoonSession?.isPaused()) return false;
 
-  window.loadGame(JSON.stringify(cloudSave.data), {
+  const loaded = window.loadGame(JSON.stringify(cloudSave.data), {
     countAsLoad: options.countAsLoad !== false
   });
+  if (loaded === false) return false;
   rememberCloudSync(user, cloudSave.updatedAt);
   return true;
 }
@@ -142,6 +144,11 @@ async function synchronizeSignedInUser(user) {
   try {
     const cloudSave = await readCloudSave(user);
     if (generation !== cloudSyncGeneration || authState.user?.uid !== user.uid) return;
+
+    if (window.numberTycoonSession?.autoLoadEnabled === false || window.numberTycoonSession?.isPaused()) {
+      setAuthMessage('계정이 연결되었습니다. 불러오기 버튼으로 클라우드 저장을 적용할 수 있습니다.');
+      return;
+    }
 
     const localData = localSaveData();
     if (!cloudSave) {
@@ -202,7 +209,10 @@ async function loadCurrentFromCloud() {
       setAuthMessage('클라우드 저장 데이터가 없어 브라우저 저장 데이터를 불러왔습니다.');
       return false;
     }
-    await applyCloudSave(cloudSave, authState.user);
+    if (!await applyCloudSave(cloudSave, authState.user)) {
+      setAuthMessage('현재는 클라우드 불러오기를 적용할 수 없습니다. 오프라인 모드를 종료한 뒤 다시 시도하세요.');
+      return false;
+    }
     setAuthMessage('클라우드 저장 데이터를 불러왔습니다.');
     return true;
   } catch (error) {

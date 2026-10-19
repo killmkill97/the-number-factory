@@ -29,10 +29,10 @@ test('groups require all earlier upgrades, not repetitions or operation slots', 
     afterFirst: [true,true,false], second: Array(5).fill(true), afterSecond: [true,true,true], repeat: true, single: false, slots: 0 });
 });
 
-test('all repeatable basic upgrades use their specified independent KP cost progression', () => {
+test('original group 1-3 repeatable upgrades retain their independent KP cost progression', () => {
   const rows = run(`
     knuthPoints = NumberMath.fromString('1e100');
-    return KNUTH_BASE_UPGRADES.filter(u => u.growth).map(u => {
+    return KNUTH_BASE_UPGRADES.filter(u => u.growth && u.group <= 3).map(u => {
       loadKnuthBaseUpgradeLevels(Object.fromEntries(KNUTH_BASE_UPGRADES.map(item => [item.id,1])));
       knuthBaseUpgradeLevels[u.id] = 0;
       const first = NumberMath.toNumber(knuthBaseUpgradeCost(u));

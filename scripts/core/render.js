@@ -24,11 +24,16 @@ function invalidateSquareControlRender() {
 }
 
 function render() {
+  if (gameSessionPaused()) {
+    window.numberTycoonSession?.requestMaintenance();
+    return;
+  }
   if (renderFramePending || renderInProgress) return;
   renderFramePending = true;
 
   const flush = () => {
     renderFramePending = false;
+    if (gameSessionPaused()) return;
     renderInProgress = true;
     try {
       renderNow();
@@ -44,12 +49,16 @@ function render() {
   }
 }
 
-function renderNow() {
+function updateGameRenderState() {
   rebasePercentPowerPricesForDiverger();
   repairPercentPowerCostState();
   repairExtraPercentLanePowerCosts();
-  if (typeof refreshChapterTabs === 'function') refreshChapterTabs();
   updateAchievements();
+}
+
+function renderNow() {
+  updateGameRenderState();
+  if (typeof refreshChapterTabs === 'function') refreshChapterTabs();
 
   const currentNumberText = fmtPowerBase(getBaseNumber());
   if (currencyNumberValue) currencyNumberValue.textContent = currentNumberText;
@@ -58,6 +67,7 @@ function renderNow() {
   if (currencyKnuthValue) currencyKnuthValue.textContent = fmtPowerBase(knuthPoints);
   if (currencyTheoryValue) currencyTheoryValue.textContent = fmtPowerBase(theory);
   if (currencyGreatTheoryValue) currencyGreatTheoryValue.textContent = fmtPowerBase(greatTheory);
+  if (currencySingularityValue) currencySingularityValue.textContent = fmtPowerBase(singularityPoints);
   if (activeChallengeStatus) {
     const activeChallenge = activeKnuthChallengeId ? knuthChallenge(activeKnuthChallengeId) : null;
     activeChallengeStatus.textContent = activeChallenge ? `현재 ${activeChallenge.title}중` : '';

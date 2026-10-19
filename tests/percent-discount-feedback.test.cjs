@@ -35,7 +35,11 @@ const fixture = `
   for (const id of Object.keys(squareConvergenceUpgradeState)) squareConvergenceUpgradeState[id] = true;
   for (const id of Object.keys(generalizationResearchState)) generalizationResearchState[id] = id !== '8-1';
   for (const item of SQUARE_BREAKTHROUGH_UPGRADES) squareBreakthroughLevels[item.id] = squareBreakthroughMax(item);
-  for (const id of KNUTH_SLOT_UPGRADES.map(item => item.id)) knuthEquippedUpgradeIds.add(id);
+  // Keep the original price-regression loadout independent of future equipment.
+  for (const id of ['diverger_percent_price_delay','permanent_production','knuth_time_gain',
+    'percent_purchase_bonus','percent_cap_200','percent_count_discount','percent_overflow','percent_time_discount']) {
+    knuthEquippedUpgradeIds.add(id);
+  }
   squareUnlocked = true;
   squareBreakthroughEntered = true;
   squareConvergenceUnlocked = true;

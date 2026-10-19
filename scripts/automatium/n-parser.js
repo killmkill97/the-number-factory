@@ -59,6 +59,7 @@ const NParser = (() => {
       if (this.isWord('buy')) return this.parseBuy();
       if (this.isWord('click')) return this.parseClick();
       if (this.isWord('wait')) return this.parseWait();
+      if (this.isWord('black_hole')) return this.parseBlackHoleSetting();
       if (this.isWord('square') || this.isWord('sp') || this.isWord('cp') || this.isWord('kp')) return this.parsePointExchange();
       if (this.isWord('if')) return this.parseIf();
       if (this.isWord('while')) return this.parseWhile();
@@ -112,6 +113,19 @@ const NParser = (() => {
       }
       this.finishStatement();
       return { type: 'Buy', kind: kind.value, upgrade: upgrade.value, upgradeIndex, wait, line: start.line };
+    }
+
+    parseBlackHoleSetting() {
+      const start = this.consume('identifier', 'black_hole');
+      const kind = this.consumeWord('투여 설정 amount 또는 speed가 필요합니다.');
+      if (!['amount', 'speed'].includes(kind.value)) {
+        throw new NLanguageError('블랙홀 설정은 amount 또는 speed여야 합니다.', kind);
+      }
+      let value = null;
+      if (this.isWord('max')) this.index++;
+      else value = this.parseExpression();
+      this.finishStatement();
+      return { type: 'BlackHoleSetting', kind: kind.value, value, line: start.line };
     }
 
     parseOptionalIndex() {

@@ -136,3 +136,93 @@ test('percent path increases percent gain and softcap while lowering power price
 
   assert.deepEqual(result, { gainRaised: true, capRaised: true, priceLowered: true });
 });
+
+test('percent branch softcap power saturates without growing beyond the rebalanced limit', () => {
+  const context = gameContext();
+  const result = JSON.parse(JSON.stringify(vm.runInContext(`(() => {
+    percentUnlocked = true;
+    squareUpgradeState.percent_power_8 = true;
+    generalizationResearchState['3-1'] = true;
+    generalizationResearchState['5-2'] = true;
+    generalizationResearchState['5-4'] = true;
+    abstractionResearchState['8-2'] = true;
+    knuthEquippedUpgradeIds.add('percent_softcap_square');
+    squareDimensionStates[0].x = NumberMath.fromString('1e4000');
+    const number = NumberMath.powerOfTen(10.2e9);
+    const baseCapLog = numberLog10(percentPowerSoftcap(320000));
+    const baseGain = percentFinalUseGain(number, 320000);
+    const baseRewardLog = numberLog10(squarePointGainForValue(baseGain));
+    const cases = [0, '1e100', '1e4260000', '1e1e20'].map(sp => {
+      squarePoints = NumberMath.fromString(String(sp));
+      abstractionResearchState['5-3'] = true;
+      return {
+        capStrength: numberLog10(percentPowerSoftcap(320000)) / baseCapLog,
+        rewardLogBonus: numberLog10(squarePointGainForValue(percentFinalUseGain(number, 320000))) - baseRewardLog
+      };
+    });
+    return cases;
+  })()`, context)));
+
+  assert.equal(result[0].capStrength, 1);
+  assert.equal(result[0].rewardLogBonus, 0);
+  for (let index = 1; index < result.length; index++) {
+    assert.ok(result[index].capStrength > result[index - 1].capStrength);
+    assert.ok(result[index].capStrength <= 1.500001);
+    assert.ok(result[index].rewardLogBonus > 0);
+  }
+  assert.ok(result[2].capStrength > 1.49);
+});
+
+test('standalone percent output falls between time and expansion on the observed high-progress fixture', () => {
+  const context = gameContext();
+  const result = JSON.parse(JSON.stringify(vm.runInContext(`(() => {
+    squareUnlocked = true;
+    percentUnlocked = true;
+    for (const id of Object.keys(squareUpgradeState)) squareUpgradeState[id] = true;
+    for (const id of Object.keys(squareConvergenceUpgradeState)) squareConvergenceUpgradeState[id] = true;
+    for (const id of Object.keys(generalizationResearchState)) generalizationResearchState[id] = true;
+    for (const id of ['1-1', '2-1', '3-1', '8-2', '9-2', '14-1']) {
+      abstractionResearchState[id] = true;
+    }
+    for (const id of ['knuth_time_gain', 'percent_softcap_square', 'percent_time_discount',
+      'percent_count_discount', 'percent_purchase_bonus', 'percent_cap_200']) {
+      knuthEquippedUpgradeIds.add(id);
+    }
+    squareBreakthroughLevels.black_hole = 1;
+    squareBreakthroughLevels.dyson_swarm = 8;
+    squarePoints = NumberMath.powerOfTen(4260000);
+    knuthPoints = 1.42e9;
+    knuthRunStartedAtMs = Date.now() - 1920000;
+    divergerA = 1;
+    divergerB = 1;
+    divergerC = 0;
+    divergerN = NumberMath.fromString('2.8e20');
+    for (const [index, sides] of [[0, ['1.04e31', '2.91e27', '2.91e27']],
+      [1, ['2.56e24', '2.56e24', '1.52e24']]]) {
+      for (const [sideIndex, side] of ['x', 'y', 'z'].entries()) {
+        squareDimensionStates[index][side] = NumberMath.fromString(sides[sideIndex]);
+      }
+    }
+    squareRunGameSeconds = 4.65e19;
+    const number = NumberMath.powerOfTen(10.2e9);
+    function sample(path) {
+      for (const id of ['4-1', '5-1', '6-1', '4-2', '5-2', '6-2', '4-3', '5-3', '6-3']) {
+        abstractionResearchState[id] = false;
+      }
+      for (const id of path) abstractionResearchState[id] = true;
+      divergerPower = divergerProductionValue();
+      const gameMs = gameTick(1000);
+      const production = multiplyNumberValue(percentFinalUseGain(number, 320000, 19.938), gameMs / 10);
+      const sp = multiplyNumberValue(squarePointGainForValue(production), gameMs / 100000);
+      return { numberLog: numberLog10(production), spLog: numberLog10(sp) };
+    }
+    return { base: sample([]), time: sample(['4-1', '5-1', '6-1']),
+      expansion: sample(['4-2', '5-2', '6-2']), percent: sample(['4-3', '5-3', '6-3']) };
+  })()`, context)));
+
+  assert.ok(result.percent.numberLog > result.time.numberLog, JSON.stringify(result));
+  assert.ok(result.percent.numberLog < result.expansion.numberLog, JSON.stringify(result));
+  const position = (result.percent.numberLog - result.time.numberLog)
+    / (result.expansion.numberLog - result.time.numberLog);
+  assert.ok(position > 0.25 && position < 0.45, JSON.stringify(result));
+});

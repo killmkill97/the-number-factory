@@ -1,7 +1,7 @@
 const ABSTRACTION_TICK_MS = 10;
-let abstractionLastTick = gameClockNowMs();
+let abstractionLastTick = gameTimelineNowMs();
 
-setInterval(() => {
+setGameInterval(() => {
   const { now, elapsedMs } = elapsedRealTimeSince(abstractionLastTick);
   abstractionLastTick = now;
   if (advanceAbstraction(elapsedMs)) render();

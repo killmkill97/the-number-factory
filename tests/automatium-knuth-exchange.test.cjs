@@ -92,6 +92,16 @@ test('bare kp uses the real exchange, awards the existing integer reward and res
   `), {done:true,kp:'6',sp:0,cp:0,number:0,ready:false,retained:true});
 });
 
+test('N kp preserves the current chapter on repeat Knuth exchange', () => {
+  assert.deepEqual(run(game(), `
+    readyKnuth();squareUnlocked=true;squareConvergencePoints=NumberMath.fromString('1e60');
+    const chapterCalls=[];setChapter=id=>{chapterCalls.push(id);activeChapter=id;};activeChapter='knuth';
+    const execution=NRuntime.createExecution(NRuntime.compile('kp'),automatiumGameAdapterFor('test'));
+    const result=executeUntilPause(execution);
+    return {done:result.done,chapter:activeChapter,chapterCalls,kp:NumberMath.serialize(knuthPoints)};
+  `), {done:true,chapter:'knuth',chapterCalls:[],kp:'6'});
+});
+
 test('a target uses reward rather than owned KP, and no-s failures skip to the next statement', () => {
   assert.deepEqual(run(game(), String.raw`
     readyKnuth();knuthPoints=1000;squareConvergencePoints=NumberMath.fromString('1e60');
