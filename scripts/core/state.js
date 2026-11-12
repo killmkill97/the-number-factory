@@ -30,6 +30,9 @@ let squareUnlocked = false;
 let squareBreakthroughEntered = false;
 let knuthUnlocked = false;
 let knuthPoints = 0;
+let definitionFragments = 0;
+let definitionStoryStep = 0;
+let definitionStoryCompleted = false;
 let numberBlackHoleSystemEnabled = false;
 let numberBlackHoleDonationPercent = NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT;
 let numberBlackHoleDonationRate = NUMBER_BLACK_HOLE_BASE_DONATION_RATE;
@@ -65,6 +68,13 @@ let knuthBaseAutoTimerMs = 0;
 let knuthBaseAutoCursor = 0;
 let knuthResetEquipmentOnNextPrestige = false;
 const knuthEquippedUpgradeIds = new Set();
+const knuthAdvancedOwned = {};
+const knuthAdvancedEquipped = {};
+let knuthEquipmentOrder = [];
+for (const upgrade of KNUTH_ADVANCED_UPGRADES) {
+  knuthAdvancedOwned[upgrade.id] = 0;
+  knuthAdvancedEquipped[upgrade.id] = 0;
+}
 let squareRunGameSeconds = 0;
 let knuthRunStartedAtMs = Date.now();
 let shortestKnuthRealSeconds = null;
@@ -87,12 +97,20 @@ let pendingAchievementKnuthRun = null;
 let squareSincePrestigeGameSeconds = 0;
 let knuthPercentOverflow = 0;
 let activeKnuthChallengeId = null;
+let spaceExpansionActive = false;
+let higgsParticles = 0;
+let stagnantMassMg = 0;
+let stagnantSingularities = 0;
+const spaceExpansionUpgradeLevels = { higgs_gain: 0, mass_gain: 0, mass_effect: 0 };
+const spaceExpansionOneTimeUpgradeState = Object.fromEntries(SPACE_EXPANSION_ONE_TIME_UPGRADES.map(u => [u.id, false]));
 let knuthChallengeDysonSwarmMaxAtEntry = 8;
 let kc4ElapsedRealSeconds = 0;
 let kc4LastRealClockAt = null;
 const completedKnuthChallengeIds = new Set();
 let activeChapter = 'multiplication';
 let squarePoints = 0;
+let abstractionPermanentSp = 0;
+let abstractionPermanentSingularities = 0;
 let squareConvergenceUnlocked = false;
 let squareConvergencePoints = 0;
 let hasEverEarnedSquareConvergencePoint = false;
@@ -143,18 +161,87 @@ let divergerAutoUpgradeTimer = 0;
 let divergerAutoUpgradeCursor = 0;
 const DIVERGER_AUTO_UPGRADE_INTERVAL = 250;
 const DIVERGER_AUTO_UPGRADE_BATCH_LIMIT = 256;
+
+class DivergerUpgradeHistory {
+  constructor() {
+    this.runs = [];
+    this.count = 0;
+  }
+
+  get length() { return this.count; }
+
+  set length(value) {
+    if (!Number.isSafeInteger(value) || value < 0) throw new RangeError('Invalid history length');
+    if (value > this.count) {
+      this.append(false, value - this.count);
+      return;
+    }
+    while (this.count > value) {
+      const last = this.runs[this.runs.length - 1];
+      const removed = Math.min(last.count, this.count - value);
+      last.count -= removed;
+      this.count -= removed;
+      if (last.count === 0) this.runs.pop();
+    }
+  }
+
+  append(value, count = 1) {
+    if (!Number.isSafeInteger(count) || count <= 0) return this.count;
+    count = Math.min(count, Number.MAX_SAFE_INTEGER - this.count);
+    if (count === 0) return this.count;
+    value = value === 'legacy-theory' ? value : value === true;
+    const last = this.runs[this.runs.length - 1];
+    if (last && last.value === value) last.count += count;
+    else this.runs.push({ value, count });
+    this.count += count;
+    return this.count;
+  }
+
+  push(...values) {
+    for (const value of values) this.append(value);
+    return this.count;
+  }
+
+  pop() {
+    const last = this.runs[this.runs.length - 1];
+    if (!last) return undefined;
+    const value = last.value;
+    if (--last.count === 0) this.runs.pop();
+    this.count--;
+    return value;
+  }
+
+  toJSON() {
+    const encoded = { format: 'runs-v1', length: this.count, runs: this.runs.map(run => ({ ...run })) };
+    const plainLength = 2 + Math.max(0, this.count - 1) + this.runs.reduce((size, run) =>
+      size + run.count * (run.value === 'legacy-theory' ? 15 : run.value ? 4 : 5), 0);
+    // Alternating paid/free entries can be smaller in the legacy flat format.
+    if (JSON.stringify(encoded).length < plainLength) return encoded;
+    const values = [];
+    for (const run of this.runs) for (let index = 0; index < run.count; index++) values.push(run.value);
+    return values;
+  }
+}
+
 const divergerUpgradeHistory = {
-  a: [],
-  b: [],
-  c: [],
-  speed: []
+  a: new DivergerUpgradeHistory(),
+  b: new DivergerUpgradeHistory(),
+  c: new DivergerUpgradeHistory(),
+  speed: new DivergerUpgradeHistory()
 };
 const divergerGraphSamples = [];
 let divergerGraphScaleMinimum = null;
 let divergerGraphScaleMaximum = null;
+let randomPower = 0;
+let probabilizerTimerMs = 0;
+let probabilizerLastRoll = null;
+let probabilizerUpgradeLevels = { a: 0, b: 0, speed: 0, shift: 0 };
+let probabilizerPowerUpgradeLevels = { gain: 0, diverger: 0, interval_floor: 0 };
+let probabilizerRangeProgress = null;
 let theory = 0;
 let totalTheoryPurchased = 0;
 let greatTheory = 0;
+let totalGreatTheoryPurchased = 0;
 let greatTheoryCpCost = ABSTRACTION_CP_BASE_COST;
 let greatTheoryKpCost = ABSTRACTION_KP_BASE_COST;
 let greatTheorySpCost = ABSTRACTION_SP_BASE_COST;
@@ -372,7 +459,8 @@ function addToBaseNumber(
   softcapPower = percentPower,
   purchaseBonus = percentPowerPurchaseBonus,
   finalMultiplier = 1,
-  finalExponent = 1
+  finalExponent = 1,
+  finalGainExponent = 1
 ) {
   if (compareNumberValues(value, 0) <= 0) return;
   const before = getBaseNumber();
@@ -382,7 +470,8 @@ function addToBaseNumber(
     before,
     softcapPower,
     purchaseBonus,
-    finalExponent
+    finalExponent,
+    finalGainExponent
   );
   if (compareNumberValues(finalGain, 0) <= 0) return;
   const after = addBaseNumbers(before, finalGain);
@@ -480,24 +569,485 @@ function divergerLog10(value) {
   return NumberMath.log10Abs(value);
 }
 
-function divergerProductionValue(n = divergerN) {
+let divergerProductionInputCache = null;
+
+function withDivergerProductionInputs(operation) {
+  if (divergerProductionInputCache !== null) return operation();
+  divergerProductionInputCache = {};
+  try {
+    return operation();
+  } finally {
+    divergerProductionInputCache = null;
+  }
+}
+
+function divergerProductionInputs() {
+  if (divergerProductionInputCache?.parameters) return divergerProductionInputCache.parameters;
   const a = abstractionEffectiveDivergerA();
-  const aPower = hasGeneralizationResearch('5-3')
-    ? NumberMath.power(a, 2)
-    : a;
-  const nPower = NumberMath.power(
-    n,
-    hasGeneralizationResearch('5-3')
+  const improved = hasGeneralizationResearch('5-3');
+  const parameters = {
+    aPower: improved ? NumberMath.power(a, 2) : a,
+    exponent: improved
       ? abstractionEffectiveDivergerB() + (abstractionEffectiveDivergerC() / 2)
-      : abstractionEffectiveDivergerB()
+      : abstractionEffectiveDivergerB(),
+    denominator: divergerDenominator()
+  };
+  if (divergerProductionInputCache) divergerProductionInputCache.parameters = parameters;
+  return parameters;
+}
+
+function divergerProductionBeforeDyson(n = divergerN, includeMultiplier = true) {
+  const parameters = divergerProductionInputs();
+  const nPower = NumberMath.power(n, parameters.exponent);
+  const production = NumberMath.divideApproximate(
+    multiplyNumberValue(parameters.aPower, nPower),
+    parameters.denominator
   );
-  const basePower = multiplyNumberValue(NumberMath.divideApproximate(
-    multiplyNumberValue(aPower, nPower),
-    divergerDenominator()
-  ), knuthBaseMultiplier('diverger_gain', 2));
-  return hasKnuthUpgrade('dyson_diverger')
+  return includeMultiplier ? multiplyNumberValue(production, knuthBaseMultiplier('diverger_gain', 2)) : production;
+}
+
+function probabilizerAvailable() {
+  return knuthUnlocked && hasClaimedKnuthPoint && knuthBaseUpgradeEffectLevel('probabilizer') > 0;
+}
+
+function probabilizerGrowth() {
+  return probabilizerAvailable() ? NumberMath.divideApproximate(
+    NumberMath.log10(addBaseNumbers(1, NumberMath.divideApproximate(randomPower, PROBABILIZER_BALANCE.referencePower))),
+    Math.log10(2)
+  ) : 0;
+}
+
+function abstractionProbabilizerMultiplier() {
+  if (!hasAbstractionResearch('20-1') || !probabilizerAvailable() || !isPositiveNumberValue(randomPower)) return 1;
+  const growth = NumberMath.divideApproximate(NumberMath.log10(addBaseNumbers(1,
+    NumberMath.divideApproximate(randomPower, ABSTRACTION_TIER20_BALANCE.requiredRandomPower))), Math.log10(2));
+  return addBaseNumbers(1, multiplyNumberValue(ABSTRACTION_TIER20_BALANCE.boostLogStrength, growth));
+}
+
+function probabilizerDivergerParameterMultiplier() {
+  if (!probabilizerAvailable() || !isPositiveNumberValue(randomPower)) return 1;
+  const growth = NumberMath.log10(addBaseNumbers(1,
+    NumberMath.divideApproximate(randomPower, PROBABILIZER_BALANCE.referencePower)));
+  const multiplier = addBaseNumbers(1, multiplyNumberValue(PROBABILIZER_BALANCE.divergerParameterLogStrength, growth));
+  return multiplyNumberValue(multiplyNumberValue(multiplier, PROBABILIZER_BALANCE.divergerParameterScale),
+    multiplyNumberValue(abstractionProbabilizerMultiplier(), NumberMath.power(1.5, probabilizerPowerUpgradeLevels.diverger)));
+}
+
+function numberBlackHoleTimeLimit() {
+  const lift = !probabilizerAvailable() || !isPositiveNumberValue(randomPower) ? 1 : addBaseNumbers(1, multiplyNumberValue(
+    multiplyNumberValue(PROBABILIZER_BALANCE.timeLimitStrength, probabilizerGrowth()),
+    multiplyNumberValue(NumberMath.power(abstractionProbabilizerMultiplier(), ABSTRACTION_TIER20_BALANCE.timeLimitPower),
+      abstractionMassTimeLimitMultiplier())));
+  // Timers still use finite native milliseconds; leave arithmetic headroom, not a gameplay threshold.
+  return NumberMath.toNumber(NumberMath.min(Number.MAX_VALUE / 1e12,
+    multiplyNumberValue(multiplyNumberValue(NUMBER_BLACK_HOLE_MAX_TIME_MULTIPLIER, lift),
+      hasAbstractionResearch('27-2') ? ABSTRACTION_PRODUCTION_BRANCH_BALANCE.blackHoleLimitMultiplier : 1)));
+}
+
+function abstractionProbabilizerCpMultiplier() {
+  if (!hasAbstractionResearch('25-1') || !probabilizerAvailable() || !isPositiveNumberValue(randomPower)) return 1;
+  const tuning = ABSTRACTION_PRODUCTION_BRANCH_BALANCE;
+  const scaledLog = NumberMath.divideApproximate(NumberMath.log10(addBaseNumbers(1, randomPower)), tuning.cpLogScale);
+  return NumberMath.powerOfTen(multiplyNumberValue(tuning.cpLogStrength, NumberMath.power(scaledLog, tuning.cpCurve)));
+}
+
+function abstractionBlackHoleCpMultiplier() {
+  if (!hasAbstractionResearch('27-2') || typeof numberBlackHoleAvailable !== 'function'
+    || !numberBlackHoleAvailable()) return 1;
+  const radius = numberBlackHoleSchwarzschildRadius();
+  if (!isPositiveNumberValue(radius)) return 1;
+  const tuning = ABSTRACTION_PRODUCTION_BRANCH_BALANCE;
+  const scaledLog = NumberMath.divideApproximate(NumberMath.log10(addBaseNumbers(1, radius)), tuning.blackHoleCpLogScale);
+  return NumberMath.powerOfTen(multiplyNumberValue(tuning.blackHoleCpLogStrength,
+    NumberMath.power(scaledLog, tuning.blackHoleCpCurve)));
+}
+
+function abstractionProbabilizerModeFraction() {
+  if (!hasAbstractionResearch('26-1') || !isPositiveNumberValue(randomPower)) return 0;
+  const log = NumberMath.log10(addBaseNumbers(1, randomPower));
+  return NumberMath.toNumber(NumberMath.divideApproximate(log,
+    addBaseNumbers(log, ABSTRACTION_PRODUCTION_BRANCH_BALANCE.distributionLogScale)));
+}
+
+function abstractionProbabilizerTimeMultiplier() {
+  if (!hasAbstractionResearch('27-1') || typeof numberBlackHoleTimeMultiplier !== 'function') return 1;
+  return Math.pow(Math.max(1, numberBlackHoleTimeMultiplier()), ABSTRACTION_PRODUCTION_BRANCH_BALANCE.probabilizerTimePower);
+}
+
+function abstractionProbabilizerRangeMultiplier() {
+  if (!hasAbstractionResearch('26-1') || !isPositiveNumberValue(randomPower)) return 1;
+  const tuning = ABSTRACTION_PRODUCTION_BRANCH_BALANCE;
+  const scaledLog = NumberMath.divideApproximate(NumberMath.log10(addBaseNumbers(1, randomPower)), tuning.rangeLogScale);
+  return NumberMath.powerOfTen(multiplyNumberValue(tuning.rangeLogStrength,
+    NumberMath.power(scaledLog, tuning.rangeCurve)));
+}
+
+function probabilizerMinimumInterval() {
+  return Math.max(Number.MIN_VALUE, Math.pow(0.5, probabilizerPowerUpgradeLevels.interval_floor));
+}
+
+function probabilizerPowerMultiplier() {
+  return probabilizerAvailable() ? spaceExpansionMultiplier(multiplyNumberValue(
+    multiplyNumberValue(NumberMath.power(3, probabilizerPowerUpgradeLevels.gain), knuthAdvancedEffect('random_gain')),
+    stagnantMassRandomMultiplier())) : 1;
+}
+
+function probabilizerPowerUpgradeCost(id) {
+  const upgrade = PROBABILIZER_POWER_UPGRADES.find(item => item.id === id);
+  if (!upgrade) return null;
+  const level = probabilizerPowerUpgradeLevels[id];
+  if (id === 'diverger') {
+    const thresholdLevel = Math.ceil((Math.log10(PROBABILIZER_COST_BALANCE.divergerPowerThreshold)
+      - Math.log10(upgrade.baseCost)) / Math.log10(upgrade.growth));
+    if (level > thresholdLevel) {
+      return multiplyNumberValue(multiplyNumberValue(upgrade.baseCost, NumberMath.power(upgrade.growth, thresholdLevel)),
+        NumberMath.power(PROBABILIZER_COST_BALANCE.divergerPowerGrowth, level - thresholdLevel));
+    }
+  }
+  return multiplyNumberValue(upgrade.baseCost, NumberMath.power(upgrade.growth, level));
+}
+
+function probabilizerPowerUpgradeAtMaximum(id) {
+  return id === 'interval_floor' ? probabilizerMinimumInterval() <= Number.MIN_VALUE
+    : probabilizerPowerUpgradeLevels[id] >= Number.MAX_SAFE_INTEGER;
+}
+
+function buyProbabilizerPowerUpgrade(id) {
+  const cost = probabilizerPowerUpgradeCost(id);
+  if (cost === null || !probabilizerAvailable() || probabilizerPowerUpgradeAtMaximum(id)
+    || compareNumberValues(randomPower, cost) < 0) return false;
+  const previousInterval = probabilizerParameters().intervalMs;
+  randomPower = subtractNumberValues(randomPower, cost);
+  probabilizerPowerUpgradeLevels[id]++;
+  probabilizerTimerMs *= probabilizerParameters().intervalMs / previousInterval;
+  if (divergerAvailable()) divergerPower = divergerProductionValue();
+  render();
+  return true;
+}
+
+function probabilizerRangeMaximum() {
+  return hasAbstractionResearch('21-1') ? ABSTRACTION_TIER21_BALANCE.rangeMaximum : Number.MAX_SAFE_INTEGER;
+}
+
+function probabilizerRangeGrowth() {
+  return hasAbstractionResearch('21-1') ? ABSTRACTION_TIER21_BALANCE.rangeGrowth : PROBABILIZER_BALANCE.rangeGrowth;
+}
+
+function initializeProbabilizerRangeProgress() {
+  if (probabilizerRangeProgress !== null) return;
+  const { a, b } = probabilizerBaseParameters();
+  probabilizerRangeProgress = { a, b, aLevel: probabilizerUpgradeLevels.a, bLevel: probabilizerUpgradeLevels.b };
+}
+
+function probabilizerRangeValue(id, level) {
+  if (probabilizerRangeProgress && level >= probabilizerRangeProgress[`${id}Level`]) {
+    return Math.min(probabilizerRangeMaximum(), probabilizerRangeProgress[id]
+      * Math.pow(probabilizerRangeGrowth(), level - probabilizerRangeProgress[`${id}Level`]));
+  }
+  // Checkpoint existing values before enabling the extension; never reprice old range levels.
+  return Math.min(Number.MAX_SAFE_INTEGER,
+    PROBABILIZER_BALANCE[id] * Math.pow(PROBABILIZER_BALANCE.rangeGrowth, level));
+}
+
+function probabilizerBaseParameters(levels = probabilizerUpgradeLevels) {
+  const b = probabilizerRangeValue('b', levels.b);
+  const a = Math.min(b, probabilizerRangeValue('a', levels.a));
+  const baseMode = Math.min(b, a + (b - a) / 2 + levels.shift);
+  return {
+    a, b,
+    mode: baseMode,
+    intervalMs: Math.max(probabilizerMinimumInterval(), PROBABILIZER_BALANCE.intervalMs * Math.pow(0.8, levels.speed))
+  };
+}
+
+function probabilizerParameters(levels = probabilizerUpgradeLevels) {
+  const base = probabilizerBaseParameters(levels);
+  if (!hasAbstractionResearch('26-1') || !isPositiveNumberValue(randomPower)) return base;
+  const multiplier = abstractionProbabilizerRangeMultiplier();
+  const maximum = probabilizerRangeMaximum();
+  const scale = value => NumberMath.toNumber(NumberMath.min(maximum, multiplyNumberValue(value, multiplier)));
+  const a = scale(base.a), b = scale(base.b), baseMode = scale(base.mode);
+  return { a, b, mode: Math.min(b, baseMode + (b - baseMode) * abstractionProbabilizerModeFraction()),
+    intervalMs: base.intervalMs };
+}
+
+const probabilizerCostCache = new Map();
+
+function independentUpgradePriceReferenceActive() {
+  return hasAbstractionResearch('29-1');
+}
+
+function probabilizerPriceLayers(value) {
+  let layers = 0;
+  while (NumberMath.isScientific(value)) { layers++; value = value.exponent; }
+  return layers;
+}
+
+function upgradeReferenceBoundaryIndex(referenceCost, growthExponent, threshold, purchases) {
+  const parts = NumberMath.isScientific(referenceCost) ? referenceCost : NumberMath.toScientific(referenceCost);
+  // Subtract whole exponents first, retaining a mantissa just below an inclusive threshold.
+  const distance = (threshold - parts.exponent) - Math.log10(parts.mantissa);
+  return Math.min(purchases, Math.max(0, Math.ceil(distance / growthExponent)));
+}
+
+function referenceBandedGrowthExponent(referenceCost, referenceGrowth, actualGrowth, purchases, balance) {
+  if (purchases <= 0) return 0;
+  const parts = NumberMath.isScientific(referenceCost) ? referenceCost : NumberMath.toScientific(referenceCost);
+  if (typeof parts.exponent !== 'number' || !(referenceGrowth > 0) || !(actualGrowth > 0)) return null;
+  const { kpBandStartExponent: start, kpBandWidth: width, kpBandGrowth: growth } = balance;
+  const offset = parts.exponent - start + referenceGrowth * (purchases - 1);
+  const wholeBand = Math.floor(offset / width);
+  const remainder = offset - wholeBand * width;
+  const lastBand = Math.max(0, wholeBand + 1 + (Math.log10(parts.mantissa) >= width - remainder ? 1 : 0));
+  if (lastBand === 0) return multiplyNumberValue(actualGrowth, purchases);
+  // Older bands beyond this geometric tail are below NumberMath precision, even at MAX_SAFE_INTEGER purchases.
+  const firstBand = Math.max(1, lastBand - 95);
+  let weightedCount = 0;
+  let previousBand = null;
+  for (let index = 0; index <= lastBand - firstBand && index < 96; index++) {
+    const band = lastBand - index;
+    if (band === previousBand) continue;
+    previousBand = band;
+    const from = upgradeReferenceBoundaryIndex(referenceCost, referenceGrowth, start + (band - 1) * width, purchases);
+    const to = band === lastBand ? purchases
+      : upgradeReferenceBoundaryIndex(referenceCost, referenceGrowth, start + band * width, purchases);
+    weightedCount += Math.max(0, to - from) * Math.pow(growth, band - lastBand);
+  }
+  const normalCount = firstBand === 1
+    ? upgradeReferenceBoundaryIndex(referenceCost, referenceGrowth, start, purchases) : 0;
+  return addBaseNumbers(multiplyNumberValue(actualGrowth, normalCount), multiplyNumberValue(
+    actualGrowth * weightedCount, NumberMath.power(growth, lastBand)));
+}
+
+function bandedUpgradePriceExponent(exponent, growthExponent, purchases, balance, referenceExponent = exponent) {
+  const increment = referenceBandedGrowthExponent(NumberMath.powerOfTen(referenceExponent),
+    growthExponent, growthExponent, purchases, balance);
+  return increment === null ? null : addBaseNumbers(exponent, increment);
+}
+
+function upgradePriceFromExponent(exponent) {
+  return exponent === null ? null : NumberMath.isScientific(exponent.exponent)
+    ? { approximate: true, mantissa: 1, exponent } : NumberMath.powerOfTen(exponent);
+}
+
+function feedbackBandedUpgradePriceExponent(exponent, growthExponent, purchases, balance) {
+  const rate = Math.log10(balance.kpBandGrowth) / balance.kpBandWidth;
+  while (purchases > 0) {
+    if (NumberMath.isScientific(exponent.exponent)) {
+      const layers = probabilizerPriceLayers(exponent);
+      if (layers + purchases + 1 > 49) return null;
+      for (let index = 0; index < purchases; index++) {
+        const scaledMantissa = NumberMath.normalize(exponent.mantissa * rate, 0).mantissa;
+        exponent = { approximate: true, mantissa: 1,
+          exponent: { approximate: true, mantissa: scaledMantissa, exponent: exponent.exponent } };
+      }
+      return exponent;
+    }
+    const band = addBaseNumbers(1, NumberMath.floor(NumberMath.divideApproximate(
+      subtractNumberValues(exponent, balance.kpBandStartExponent), balance.kpBandWidth)));
+    const increment = typeof band === 'number' && band <= 50
+      ? growthExponent * Math.pow(balance.kpBandGrowth, band)
+      : NumberMath.powerOfTen(addBaseNumbers(Math.log10(growthExponent),
+        multiplyNumberValue(Math.log10(balance.kpBandGrowth), band)));
+    exponent = addBaseNumbers(exponent, increment);
+    purchases--;
+  }
+  return exponent;
+}
+
+function compareUpgradeCost(funds, cost) {
+  if (cost === null) return -1;
+  if (funds === cost) return 0;
+  let tieBreak = 0;
+  // Compare enormous exponent fields first, retaining mantissas only to break exact exponent ties.
+  if (NumberMath.isScientific(cost.exponent) && NumberMath.isScientific(cost.exponent.exponent)) {
+    if (!NumberMath.isScientific(funds)) funds = NumberMath.toScientific(funds);
+    while (NumberMath.isScientific(cost.exponent) && NumberMath.isScientific(cost.exponent.exponent)) {
+      if (!funds || !NumberMath.isScientific(funds.exponent)) return -1;
+      const mantissaOrder = Math.sign(funds.mantissa - cost.mantissa);
+      if (mantissaOrder !== 0) tieBreak = mantissaOrder;
+      funds = funds.exponent;
+      cost = cost.exponent;
+    }
+  }
+  return compareNumberValues(funds, cost) || tieBreak;
+}
+
+function probabilizerCanAffordCost(funds, cost) {
+  return compareUpgradeCost(funds, cost) >= 0;
+}
+
+function probabilizerUpgradeCost(id) {
+  const upgrade = PROBABILIZER_UPGRADES.find(item => item.id === id);
+  if (!upgrade) return null;
+  const level = probabilizerUpgradeLevels[id];
+  const separated = independentUpgradePriceReferenceActive();
+  const key = `${level}:${upgrade.priceExponent}:${JSON.stringify(PROBABILIZER_COST_BALANCE)}:${separated}`;
+  const cached = probabilizerCostCache.get(id);
+  if (cached?.key === key) return cached.cost;
+  const thresholdLevel = Math.ceil((PROBABILIZER_COST_BALANCE.kpThresholdExponent - 300) / upgrade.priceExponent);
+  const growthExponent = upgrade.priceExponent * PROBABILIZER_COST_BALANCE.kpGrowthExponentMultiplier;
+  const normalPurchases = Math.min(level, thresholdLevel);
+  const initialExponent = 300 + normalPurchases * upgrade.priceExponent;
+  let exponent;
+  if (separated) {
+    const increment = referenceBandedGrowthExponent(NumberMath.powerOfTen(initialExponent), upgrade.priceExponent,
+      growthExponent, level - normalPurchases, PROBABILIZER_COST_BALANCE);
+    exponent = increment === null ? null : addBaseNumbers(initialExponent, increment);
+  } else {
+    const thresholdExponent = 300 + thresholdLevel * upgrade.priceExponent;
+    const highLevel = thresholdLevel + Math.ceil(
+      (PROBABILIZER_COST_BALANCE.kpBandStartExponent - thresholdExponent) / growthExponent);
+    exponent = level <= highLevel
+      ? addBaseNumbers(300, addBaseNumbers(multiplyNumberValue(upgrade.priceExponent, Math.min(level, thresholdLevel)),
+        multiplyNumberValue(growthExponent, Math.max(0, level - thresholdLevel))))
+      : feedbackBandedUpgradePriceExponent(thresholdExponent + (highLevel - thresholdLevel) * growthExponent,
+        growthExponent, level - highLevel, PROBABILIZER_COST_BALANCE);
+  }
+  const cost = upgradePriceFromExponent(exponent);
+  probabilizerCostCache.set(id, { key, cost });
+  return cost;
+}
+
+function probabilizerUpgradeReferenceCost(id) {
+  if (!independentUpgradePriceReferenceActive()) return probabilizerUpgradeCost(id);
+  const upgrade = PROBABILIZER_UPGRADES.find(item => item.id === id);
+  return upgrade ? NumberMath.powerOfTen(addBaseNumbers(300,
+    multiplyNumberValue(upgrade.priceExponent, probabilizerUpgradeLevels[id]))) : null;
+}
+
+function probabilizerUpgradeAtMaximum(id) {
+  const { a, b, mode, intervalMs } = probabilizerBaseParameters();
+  if (probabilizerUpgradeCost(id) === null) return true;
+  if (id === 'speed') return intervalMs <= probabilizerMinimumInterval();
+  if (id === 'shift') return mode >= b;
+  if (id === 'a') return a >= b || a >= probabilizerRangeMaximum();
+  return id === 'b' && b >= probabilizerRangeMaximum();
+}
+
+function buyProbabilizerUpgrade(id) {
+  const cost = probabilizerUpgradeCost(id);
+  if (cost === null || !probabilizerAvailable() || probabilizerUpgradeAtMaximum(id)
+    || !probabilizerCanAffordCost(knuthPoints, cost)) return false;
+  if (hasAbstractionResearch('21-1')) initializeProbabilizerRangeProgress();
+  const previousInterval = probabilizerParameters().intervalMs;
+  knuthPoints = subtractNumberValues(knuthPoints, cost);
+  probabilizerUpgradeLevels[id]++;
+  if (probabilizerRangeProgress && (id === 'a' || id === 'b')) {
+    probabilizerRangeProgress[id] = probabilizerBaseParameters()[id];
+    probabilizerRangeProgress[`${id}Level`] = probabilizerUpgradeLevels[id];
+  }
+  // Preserve progress toward the next roll, without granting a backlog at the new speed.
+  probabilizerTimerMs *= probabilizerParameters().intervalMs / previousInterval;
+  render();
+  return true;
+}
+
+function rollProbabilizer(random = Math.random, parameters = probabilizerParameters()) {
+  const { a, b, mode } = parameters;
+  if (a === b) return a;
+  let value;
+  if (probabilizerUpgradeLevels.shift === 0 && mode === a + (b - a) / 2) {
+    value = b > 1e150 ? a + (b - a) * ((random() + random()) / 2)
+      : a + (b - a) * (random() + random()) / 2;
+  } else {
+    // Inverse triangular CDF moves the peak while keeping both endpoints fixed.
+    const u = random();
+    if (b > 1e150) {
+      const peakRatio = (mode - a) / (b - a);
+      value = u < peakRatio ? a + (b - a) * Math.sqrt(u * peakRatio)
+        : b - (b - a) * Math.sqrt((1 - u) * (1 - peakRatio));
+    } else {
+      value = u < (mode - a) / (b - a)
+        ? a + Math.sqrt(u * (b - a) * (mode - a))
+        : b - Math.sqrt((1 - u) * (b - a) * (b - mode));
+    }
+  }
+  return Math.max(a, Math.min(b, Math.round(value)));
+}
+
+function advanceProbabilizer(elapsedMs, random = Math.random) {
+  if (!probabilizerAvailable() || !Number.isFinite(elapsedMs) || elapsedMs <= 0) return 0;
+  const parameters = probabilizerParameters();
+  const { a, b, mode, intervalMs } = parameters;
+  const acceleratedMs = Math.min(Number.MAX_VALUE, elapsedMs * abstractionProbabilizerTimeMultiplier());
+  probabilizerTimerMs = Math.min(Number.MAX_VALUE, probabilizerTimerMs + acceleratedMs);
+  const nativeCount = Math.floor(probabilizerTimerMs / intervalMs);
+  const count = Number.isSafeInteger(nativeCount) ? nativeCount
+    : NumberMath.floor(NumberMath.divideApproximate(probabilizerTimerMs,
+      NumberMath.fromString(intervalMs.toExponential())));
+  if (!isPositiveNumberValue(count)) return 0;
+  probabilizerTimerMs %= intervalMs;
+  let gain = 0;
+  if (compareNumberValues(count, 256) <= 0) {
+    for (let index = 0; index < count; index++) {
+      probabilizerLastRoll = rollProbabilizer(random, parameters);
+      if (b > 1e150) gain = addBaseNumbers(gain, probabilizerLastRoll);
+      else gain += probabilizerLastRoll;
+    }
+  } else {
+    // Offline/coarse ticks approximate a sum, not one repeated roll: variance grows with sqrt(count).
+    probabilizerLastRoll = rollProbabilizer(random, parameters);
+    let normal = -6;
+    for (let index = 0; index < 12; index++) normal += random();
+    const trials = subtractNumberValues(count, 1);
+    const range = b - a, peak = mode - a;
+    const meanValue = b > 1e150 ? a + range / 3 + peak / 3 : (a + b + mode) / 3;
+    const mean = multiplyNumberValue(trials, meanValue);
+    const peakRatio = range > 0 ? peak / range : 0;
+    const deviation = b > 1e150 ? range * Math.sqrt((1 + peakRatio * peakRatio - peakRatio) / 18)
+      : Math.sqrt((range * range + peak * peak - range * peak) / 18);
+    const offset = multiplyNumberValue(Math.abs(deviation * normal), NumberMath.power(trials, 0.5));
+    const subtotal = normal >= 0 ? addBaseNumbers(mean, offset) : subtractNumberValues(mean, offset);
+    gain = addBaseNumbers(probabilizerLastRoll, NumberMath.min(
+      multiplyNumberValue(trials, b), NumberMath.max(multiplyNumberValue(trials, a), NumberMath.floor(subtotal))));
+  }
+  randomPower = addBaseNumbers(randomPower, multiplyNumberValue(gain, probabilizerPowerMultiplier()));
+  if (divergerAvailable()) divergerPower = divergerProductionValue();
+  return count;
+}
+
+function loadProbabilizerState(saved) {
+  probabilizerRangeProgress = null;
+  probabilizerPowerUpgradeLevels = { gain: 0, diverger: 0, interval_floor: 0 };
+  for (const { id } of PROBABILIZER_POWER_UPGRADES) {
+    const level = saved.probabilizerPowerUpgradeLevels?.[id];
+    // Below the smallest positive native millisecond, timers cannot distinguish another halving.
+    const limit = id === 'interval_floor' ? 1074 : Number.MAX_SAFE_INTEGER;
+    probabilizerPowerUpgradeLevels[id] = Number.isFinite(level) && level >= 0 ? Math.min(limit, Math.floor(level)) : 0;
+  }
+  probabilizerUpgradeLevels = { a: 0, b: 0, speed: 0, shift: 0 };
+  for (const { id } of PROBABILIZER_UPGRADES) {
+    const level = saved.probabilizerUpgradeLevels?.[id];
+    const limit = id === 'speed' ? Math.ceil((Math.log(probabilizerMinimumInterval()) - Math.log(PROBABILIZER_BALANCE.intervalMs)) / Math.log(0.8))
+      : Number.MAX_SAFE_INTEGER - PROBABILIZER_BALANCE.b;
+    probabilizerUpgradeLevels[id] = Number.isFinite(level) && level >= 0 ? Math.min(limit, Math.floor(level)) : 0;
+  }
+  const range = saved.probabilizerRangeProgress;
+  if (range && ['a', 'b'].every(id => Number.isFinite(range[id]) && range[id] >= PROBABILIZER_BALANCE[id]
+    && range[id] <= ABSTRACTION_TIER21_BALANCE.rangeMaximum && Number.isSafeInteger(range[`${id}Level`])
+    && range[`${id}Level`] >= 0 && range[`${id}Level`] <= probabilizerUpgradeLevels[id]) && range.a <= range.b) {
+    probabilizerRangeProgress = { a: range.a, b: range.b, aLevel: range.aLevel, bLevel: range.bLevel };
+  }
+  if (hasAbstractionResearch('21-1')) initializeProbabilizerRangeProgress();
+  randomPower = numberValueFromSave(saved.randomPower);
+  const { a, b, intervalMs } = probabilizerParameters();
+  const timer = Number(saved.probabilizerTimerMs);
+  probabilizerTimerMs = Number.isFinite(timer) && timer >= 0 ? timer % intervalMs : 0;
+  const roll = saved.probabilizerLastRoll;
+  probabilizerLastRoll = Number.isFinite(roll) && roll >= a && roll <= b ? roll : null;
+  if (typeof resetProbabilizerRuntime === 'function') resetProbabilizerRuntime();
+}
+
+function divergerProductionValue(n = divergerN) {
+  const basePower = divergerProductionBeforeDyson(n);
+  if (!spaceExpansionActive) return hasKnuthUpgrade('dyson_diverger')
     ? multiplyNumberValue(basePower, knuthDysonDivergerMultiplier(basePower))
     : basePower;
+  const multiplier = knuthBaseMultiplier('diverger_gain', 2);
+  const totalMultiplier = hasKnuthUpgrade('dyson_diverger')
+    ? multiplyNumberValue(multiplier, knuthDysonDivergerMultiplier(basePower)) : multiplier;
+  return multiplyNumberValue(divergerProductionBeforeDyson(n, false), spaceExpansionMultiplier(totalMultiplier));
 }
 
 function divergerNumberValueFromSave(rawValue, fallback = 0) {
@@ -522,8 +1072,7 @@ function divergerSquareDimensionMultiplier() {
   return NumberMath.power(4, exponent);
 }
 
-function divergerProductionForGraph(n = divergerN) {
-  const production = divergerProductionValue(n);
+function divergerProductionForGraph(n = divergerN, production = divergerProductionValue(n)) {
   const logarithm = NumberMath.compare(production, 1) < 0
     ? -NumberMath.toNumber(NumberMath.log10Abs(production))
     : NumberMath.toNumber(NumberMath.log10(production));
@@ -561,8 +1110,11 @@ function divergerBUpgradeGain() {
 }
 
 function divergerBAtLevel(level) {
-  return 1 + ((Math.max(0, Math.floor(Number(level) || 0))
-    + knuthBaseUpgradeEffectLevel('diverger_b_bonus')) * divergerBUpgradeGain());
+  const base = 1 + Math.max(0, Math.floor(Number(level) || 0)) * divergerBUpgradeGain();
+  const bonusLevel = knuthBaseUpgradeEffectLevel('diverger_b_bonus');
+  if (bonusLevel === 0) return base;
+  return realNumberFromValue(multiplyNumberValue(base,
+    NumberMath.power(1.25, bonusLevel)));
 }
 
 function applyDivergerCUpgrade(paid = true) {
@@ -670,8 +1222,8 @@ function advanceDivergerAutoUpgrade(elapsedMs) {
     divergerAutoUpgradeTimer = 0;
     return false;
   }
-  const accelerated = gameTick(elapsedMs) * autoUpgradeSpeedMultiplier();
   const maximumTime = DIVERGER_AUTO_UPGRADE_INTERVAL * DIVERGER_AUTO_UPGRADE_BATCH_LIMIT;
+  const accelerated = autoUpgradeElapsedTime(gameTick(elapsedMs), maximumTime);
   divergerAutoUpgradeTimer = Math.min(maximumTime,
     divergerAutoUpgradeTimer + (Number.isFinite(accelerated) ? accelerated : maximumTime));
   const attempts = Math.min(
@@ -699,29 +1251,43 @@ function advanceDivergerAutoUpgrade(elapsedMs) {
   return changed;
 }
 
-function divergerACpCostAtLevel(level) {
-  let cost = 20;
-  for (let index = 0; index < level; index++) cost = scaleDivergerCpCost(cost, 3, 2);
+const divergerCpCostModels = Object.fromEntries([
+  ['a', 20, 3, 2], ['b', 32, 5, 2], ['c', 48, 2, 1], ['speed', 10000, 3, 2]
+].map(([kind, base, numerator, denominator]) => [kind, {
+  numerator, denominator, prefix: [base], cache: new Map()
+}]));
+
+function divergerCpCostAtLevel(kind, level) {
+  const model = divergerCpCostModels[kind];
+  level = Math.max(0, Math.floor(Number(level) || 0));
+  if (model.cache.has(level)) return model.cache.get(level);
+  // Preserve every integer-floor step before entering approximate arithmetic.
+  while (model.prefix.length <= level && !NumberMath.isScientific(model.prefix[model.prefix.length - 1])) {
+    model.prefix.push(scaleDivergerCpCost(model.prefix[model.prefix.length - 1], model.numerator, model.denominator));
+  }
+  const anchor = model.prefix.length - 1;
+  const cost = level <= anchor ? model.prefix[level] : multiplyNumberValue(model.prefix[anchor],
+    NumberMath.power(model.numerator / model.denominator, level - anchor));
+  model.cache.set(level, cost);
+  if (model.cache.size > 128) model.cache.delete(model.cache.keys().next().value);
   return cost;
 }
 
-function divergerBCpCostAtLevel(level) {
-  let cost = 32;
-  for (let index = 0; index < level; index++) cost = scaleDivergerCpCost(cost, 5, 2);
-  return cost;
+function restoredDivergerCpCost(kind, level, rawCost) {
+  const expected = divergerCpCostAtLevel(kind, level);
+  const saved = numberValueFromSave(rawCost);
+  if (!NumberMath.isScientific(expected) || !isPositiveNumberValue(saved)) return expected;
+  const expectedLog = NumberMath.toNumber(NumberMath.log10(expected));
+  const savedLog = NumberMath.toNumber(NumberMath.log10(saved));
+  const tolerance = Math.max(1e-12, Math.abs(expectedLog) * Number.EPSILON * 8);
+  // Keep the saved mantissa when only accumulated floating-point rounding differs.
+  return Number.isFinite(savedLog) && Math.abs(savedLog - expectedLog) <= tolerance ? saved : expected;
 }
 
-function divergerCCpCostAtLevel(level) {
-  let cost = 48;
-  for (let index = 0; index < level; index++) cost = multiplyNumberValue(cost, 2);
-  return cost;
-}
-
-function divergerSpeedCpCostAtLevel(level) {
-  let cost = 10000;
-  for (let index = 0; index < level; index++) cost = scaleDivergerCpCost(cost, 3, 2);
-  return cost;
-}
+function divergerACpCostAtLevel(level) { return divergerCpCostAtLevel('a', level); }
+function divergerBCpCostAtLevel(level) { return divergerCpCostAtLevel('b', level); }
+function divergerCCpCostAtLevel(level) { return divergerCpCostAtLevel('c', level); }
+function divergerSpeedCpCostAtLevel(level) { return divergerCpCostAtLevel('speed', level); }
 
 function divergerUpgradeRefunds(kind, level) {
   const history = divergerUpgradeHistory[kind];
@@ -799,19 +1365,34 @@ function loadDivergerUpgradeHistory(savedHistory, levels = {}, legacyTheoryPaid 
     const target = divergerUpgradeHistory[key];
     target.length = 0;
     const level = Math.max(0, Math.floor(Number(levels[key] ?? 0)));
-    const saved = Array.isArray(savedHistory?.[key]) ? savedHistory[key] : [];
-    for (let index = 0; index < level; index++) {
-      if (saved[index] === undefined) {
-        target.push(defaults[key]);
-      } else if (legacyTheoryPaid && saved[index] === true) {
-        target.push('legacy-theory');
-      } else if (saved[index] === 'legacy-theory') {
-        target.push('legacy-theory');
-      } else {
-        target.push(saved[index] === true);
+    const saved = savedHistory?.[key];
+    const normalize = value => value === 'legacy-theory' || (legacyTheoryPaid && value === true)
+      ? 'legacy-theory' : value === true;
+    if (Array.isArray(saved)) {
+      let value, count = 0;
+      for (let index = 0; index < Math.min(level, saved.length); index++) {
+        const next = saved[index] === undefined ? defaults[key] : normalize(saved[index]);
+        if (count > 0 && next !== value) {
+          target.append(value, count);
+          count = 0;
+        }
+        value = next;
+        count++;
+      }
+      target.append(value, count);
+    } else if (saved?.format === 'runs-v1' && Array.isArray(saved.runs)) {
+      for (const run of saved.runs) {
+        if (target.length >= level) break;
+        if (!Number.isSafeInteger(run?.count) || run.count <= 0) continue;
+        target.append(normalize(run.value), Math.min(run.count, level - target.length));
       }
     }
+    target.append(defaults[key], level - target.length);
   }
+}
+
+function captureDivergerUpgradeHistory() {
+  return Object.fromEntries(Object.entries(divergerUpgradeHistory).map(([key, history]) => [key, history.toJSON()]));
 }
 
 function advanceDiverger(elapsedMs) {
@@ -822,12 +1403,16 @@ function advanceDiverger(elapsedMs) {
   const cycles = Math.floor(divergerTimer / interval);
   if (cycles <= 0) return false;
   divergerTimer = Math.max(0, divergerTimer - cycles * interval);
+  return withDivergerProductionInputs(() => advanceDivergerCycles(cycles));
+}
+
+function advanceDivergerCycles(cycles) {
   const nStep = abstractionDivergerNSpeedMultiplier();
   const acceleratedN = compareNumberValues(nStep, 1) > 0;
 
   const sampleProduction = n => {
     const production = divergerProductionValue(n);
-    const productionLogarithm = divergerProductionForGraph(n);
+    const productionLogarithm = divergerProductionForGraph(n, production);
     if (Number.isFinite(productionLogarithm)) {
       divergerGraphSamples.push(productionLogarithm);
       divergerGraphScaleMinimum = divergerGraphScaleMinimum === null
@@ -1039,7 +1624,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 5,
     row: 2,
     title: '제곱 포인트 획득 공식 개선',
-    description: 'SP 획득량을 [수^(1/2400) / 종료수] 공식으로 계산합니다. 최소 획득량은 1 SP입니다.',
+    description: '보유한 수에 따라 얻는 SP가 더 빠르게 늘어납니다. 최소 1 SP를 얻습니다.',
     parents: ['4-2'],
     theoryCost: 6
   },
@@ -1048,7 +1633,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 5,
     row: 3,
     title: '발산자 공식 개선',
-    description: '발산력 생산 공식이 D(n) = a^2 × n^(b+c/2) / (100 - c)로 변경됩니다.',
+    description: '발산력 공식이 개선됩니다. a는 제곱해서 계산하고, c도 n의 지수를 높여줍니다.',
     parents: ['4-3', '4-2'],
     theoryCost: 6
   },
@@ -1057,7 +1642,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 5,
     row: 4,
     title: '소프트캡 공식 개선',
-    description: '소프트캡 공식이 1e12 × 10^(P^1.5 - 1 + O)로 변경됩니다.',
+    description: '퍼센트 파워에 따라 퍼센트 소프트캡이 더 빠르게 늘어납니다.',
     parents: ['4-4'],
     theoryCost: 8
   },
@@ -1075,7 +1660,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 6,
     row: 2,
     title: '제곱력 생산 강화',
-    description: '제곱력 생산 공식을 (xyz)^1까지 강화합니다.',
+    description: '제곱 차원의 세 변을 곱한 만큼 제곱력을 생산합니다.',
     parents: ['5-1'],
     theoryCost: 4
   },
@@ -1084,7 +1669,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 7,
     row: 1,
     title: '제곱력 생산 공식 개선',
-    description: '제곱력 생산 공식이 (xyz)^3이 됩니다.',
+    description: '제곱 차원의 세 변을 곱한 값을 세제곱해서 제곱력을 생산합니다.',
     parents: ['6-2'],
     theoryCost: 4
   },
@@ -1102,7 +1687,7 @@ const GENERALIZATION_RESEARCHES = [
     column: 8,
     row: 1,
     title: '커누스 해금',
-    description: '커누스를 해금합니다. 첫 커누스는 1 KP를 얻고, 이후에는 이 연구를 구매한 뒤 수동 교환으로 log10(CP) / 15 KP를 얻으며 업적을 제외한 모든 게임 진행을 초기화합니다.',
+    description: '커누스를 해금합니다. 처음에는 1 KP를 얻고, 이후에는 보유 CP에 따라 KP를 얻습니다. 커누스에 도달하면 현재 진행을 초기화합니다.',
     parents: ['7-1', '7-2', '5-3', '5-4'],
     theoryCost: 160
   }
@@ -1119,7 +1704,7 @@ const ABSTRACTION_RESEARCHES = [
     column: 1,
     row: 1,
     title: 'SP 추상화',
-    description: '현재 수에서 획득 가능한 SP의 초당 1%를 지속적으로 생산합니다. 게임 시간 가속의 영향을 받습니다.',
+    description: '현재 수에서 얻을 수 있는 SP의 1%를 매초 얻습니다. 시간 가속의 영향을 받습니다.',
     parents: [],
     greatTheoryCost: 1
   },
@@ -1137,7 +1722,7 @@ const ABSTRACTION_RESEARCHES = [
     column: 2,
     row: 2,
     title: 'KP 자동 교환',
-    description: 'N 언어의 kp 명령을 해금합니다. 현재 획득 가능한 KP와 기존 커누스 교환 조건에 따라 자동 교환할 수 있습니다.',
+    description: 'N 언어의 kp 명령어를 해금합니다. 조건을 만족하면 자동으로 KP를 교환합니다.',
     parents: ['1-1'],
     greatTheoryCost: 1
   },
@@ -1146,53 +1731,53 @@ const ABSTRACTION_RESEARCHES = [
     column: 3,
     row: 1,
     title: 'automatium 영구 보존',
-    description: 'automatium을 보유한 채 프레스티지를 하면 이후 진행에서도 구매 상태를 유지합니다. 한 번 연구하면 이 효과는 연구가 초기화되어도 남습니다.',
+    description: '한 번 연구하면 automatium을 프레스티지해도 잃지 않습니다. 연구 초기화 후에도 유지됩니다.',
     parents: ['2-1'],
     greatTheoryCost: 1
   },
   {
     id: '4-1', column: 4, row: 1, branch: 'time', title: '시간의 거듭제곱',
-    description: '시간 효과에 쓰는 T를 T^1.5로 계산합니다.',
+    description: '시간 효과에 사용하는 T의 값을 항상 1.5제곱해서 계산합니다.',
     parents: ['3-1'], greatTheoryCost: 3
   },
   {
     id: '5-1', column: 5, row: 1, branch: 'time', title: '블랙홀 공명',
-    description: '제곱력의 로그 L에 따라 블랙홀 시간 배율이 1+99L/(L+50)배 됩니다.',
+    description: '보유한 제곱력에 따라 제곱돌파 블랙홀의 시간 가속을 배율합니다.',
     parents: ['4-1'], greatTheoryCost: 5
   },
   {
     id: '6-1', column: 6, row: 1, branch: 'time', title: '시간 회수',
-    description: '경과 시간 U에 반비례해 매초 48/(1+U/300)초의 T를 추가로 얻습니다. U는 T^1.5 적용 전 제곱 게임 시간입니다.',
+    description: '제곱에 머문 시간이 짧을수록 T를 더 빠르게 얻습니다. 시간이 지날수록 추가로 얻는 양이 줄어듭니다.',
     parents: ['5-1'], greatTheoryCost: 8
   },
   {
     id: '4-2', column: 4, row: 2, branch: 'expansion', title: '지수 확장',
-    description: '보유 KP의 로그 L에 따라 발산자의 b가 1+50L/(L+50)배 됩니다.',
+    description: '보유한 KP에 따라 발산자의 b값을 배율합니다.',
     parents: ['3-1'], greatTheoryCost: 3
   },
   {
     id: '5-2', column: 5, row: 2, branch: 'expansion', title: '발산 수렴',
-    description: '발산력 D에 따라 CP 획득량이 10^((log10(1+D))^(1/4)/2)배 됩니다.',
+    description: '보유한 발산력에 따라 CP 획득량을 배율합니다.',
     parents: ['4-2'], greatTheoryCost: 5
   },
   {
     id: '6-2', column: 6, row: 2, branch: 'expansion', title: '차원 경계 확장',
-    description: '제곱력의 로그 L에 따라 퍼센트 소프트캡을 ^[1+1.5L/(L+100)] 강화합니다.',
+    description: '보유한 제곱력에 따라 퍼센트 소프트캡을 늘립니다.',
     parents: ['5-2'], greatTheoryCost: 8
   },
   {
     id: '4-3', column: 4, row: 3, branch: 'percent', title: '퍼센트 공진',
-    description: '발산력과 제곱력의 로그 Ld, Lp에 따라 퍼센트 획득량이 10^(√(LdLp)/2)배 됩니다.',
+    description: '보유한 발산력과 제곱력에 따라 퍼센트로 얻는 수를 배율합니다.',
     parents: ['3-1'], greatTheoryCost: 3
   },
   {
     id: '5-3', column: 5, row: 3, branch: 'percent', title: 'SP 경계 확장',
-    description: '보유 SP의 로그 L=log10(1+SP)에 따라 퍼센트 소프트캡을 ^[1+0.5L/(L+500)] 강화합니다. 강화 지수는 최대 1.5입니다.',
+    description: '보유한 SP에 따라 퍼센트 소프트캡을 늘립니다. 늘어나는 폭은 점점 완만해집니다.',
     parents: ['4-3'], greatTheoryCost: 5
   },
   {
     id: '6-3', column: 6, row: 3, branch: 'percent', title: '화폐 압축',
-    description: 'SP·CP·KP·이론·대이론의 로그 합 L에 따라 퍼센트 파워 로그 가격을 최대 95% 할인합니다.',
+    description: '보유한 SP, CP, KP, 이론, 대이론에 따라 퍼센트 파워의 구매 가격을 낮춥니다.',
     parents: ['5-3'], greatTheoryCost: 8
   },
   {
@@ -1202,7 +1787,7 @@ const ABSTRACTION_RESEARCHES = [
   },
   {
     id: '8-1', column: 8, row: 1, title: '커누스 포인트 공식 개선',
-    description: '첫 커누스 이후 기본 KP 획득량을 floor(max(1, 10^((log10(CP)-15)/15)))로 개선합니다. 기존 KP 획득 배율은 유지됩니다.',
+    description: 'KP 획득 공식이 개선됩니다. 첫 커누스 이후 CP에 따라 더 많은 KP를 얻습니다.',
     parents: ['7-1'], greatTheoryCost: 4
   },
   {
@@ -1212,12 +1797,12 @@ const ABSTRACTION_RESEARCHES = [
   },
   {
     id: '9-1', column: 9, row: 1, title: '커누스 수렴 공명',
-    description: `보유 KP에 따라 최종 CP 획득량이 1+A×log2(1+(KP/B)^C)배 됩니다. A=${ABSTRACTION_TIER9_BALANCE.cpFromKp.strength}, B=${ABSTRACTION_TIER9_BALANCE.cpFromKp.scale}, C=${ABSTRACTION_TIER9_BALANCE.cpFromKp.curve}.`,
+    description: '보유한 KP에 따라 CP 획득량을 배율합니다.',
     parents: ['8-1'], greatTheoryCost: 4
   },
   {
     id: '9-2', column: 9, row: 3, title: '숫자 퍼센트 공명',
-    description: `L=log10(1+수)에 따라 최종 퍼센트 숫자 획득량이 1+A×log2(1+(L/B)^C)배 됩니다. A=${ABSTRACTION_TIER9_BALANCE.percentFromNumber.strength}, B=${ABSTRACTION_TIER9_BALANCE.percentFromNumber.scale}, C=${ABSTRACTION_TIER9_BALANCE.percentFromNumber.curve}. 4제곱 적용 후의 배율입니다.`,
+    description: '보유한 수에 따라 퍼센트로 얻는 수를 배율합니다.',
     parents: ['8-2'], greatTheoryCost: 4
   },
   {
@@ -1227,22 +1812,22 @@ const ABSTRACTION_RESEARCHES = [
   },
   {
     id: '11-1', column: 11, row: 2, title: '커누스 기본 증폭 강화',
-    description: '기본 커누스 1그룹의 구매당 효과 배율이 1.25배 됩니다. CP 31.25배, SP 12500배, KP 6.25배, 발산력 2.5배, 제곱력 5배. 기존 구매분에도 적용됩니다.',
+    description: '기본 커누스 1그룹의 구매당 효과를 1.25배 강화합니다. 기존 구매에도 적용됩니다.',
     parents: ['10-1'], greatTheoryCost: 4
   },
   {
     id: '12-1', column: 12, row: 1, branch: 'active', branchGroup: 2, title: '신속한 수렴',
-    description: `커누스 현실 초 U, r=1/√(1+U/${ABSTRACTION_SECOND_BRANCH_BALANCE.timeScale}). SP ×(1+${ABSTRACTION_SECOND_BRANCH_BALANCE.activeSpStrength}r), CP ×(1+${ABSTRACTION_SECOND_BRANCH_BALANCE.activeCpStrength}r). U는 T^1.5의 영향을 받지 않습니다.`,
+    description: '이번 커누스에 머문 현실 시간이 짧을수록 SP와 CP를 더 많이 얻습니다. 시간이 지날수록 배율이 줄어듭니다.',
     parents: ['11-1'], greatTheoryCost: 5
   },
   {
     id: '13-1', column: 13, row: 1, branch: 'active', branchGroup: 2, title: '최단 기록 공명',
-    description: `최단 커누스 현실 초 U에 따라 KP ×[1+${ABSTRACTION_SECOND_BRANCH_BALANCE.activeKpStrength}/√(1+U/${ABSTRACTION_SECOND_BRANCH_BALANCE.timeScale})]. 현재 교환 기록도 포함.`,
+    description: '가장 짧게 끝낸 커누스의 현실 시간에 따라 KP 획득량을 배율합니다. 기록이 짧을수록 더 강해집니다.',
     parents: ['12-1'], greatTheoryCost: 6
   },
   {
     id: '14-1', column: 14, row: 1, branch: 'active', branchGroup: 2, title: '순간 발산',
-    description: `속도 구매 감소량 ×${ABSTRACTION_SECOND_BRANCH_BALANCE.activeSpeedReduction}. a·b·c ×[1+${ABSTRACTION_SECOND_BRANCH_BALANCE.activeParameterStrength}/√(1+U/${ABSTRACTION_SECOND_BRANCH_BALANCE.timeScale})]. U=커누스 현실 초. 분모≥1.`,
+    description: '발산자의 속도 강화를 더 강하게 만듭니다. 이번 커누스에 머문 현실 시간이 짧을수록 a, b, c값도 더 많이 배율합니다.',
     parents: ['13-1'], greatTheoryCost: 8
   },
   {
@@ -1262,12 +1847,12 @@ const ABSTRACTION_RESEARCHES = [
   },
   {
     id: '12-3', column: 12, row: 3, branch: 'idle', branchGroup: 2, title: '기다림의 수렴',
-    description: `커누스 현실 초 T, H=log2(1+T/${ABSTRACTION_SECOND_BRANCH_BALANCE.timeScale}), r=H/(1+H). SP ×(1+${ABSTRACTION_SECOND_BRANCH_BALANCE.idleSpStrength}r), CP ×(1+${ABSTRACTION_SECOND_BRANCH_BALANCE.idleCpStrength}r).`,
+    description: '이번 커누스에 머문 현실 시간에 따라 SP와 CP를 배율합니다. 오래 머물수록 강해집니다.',
     parents: ['11-1'], greatTheoryCost: 5
   },
   {
     id: '13-3', column: 13, row: 3, branch: 'idle', branchGroup: 2, title: '최장 기록 공명',
-    description: `최장 커누스 현실 초 T, H=log2(1+T/${ABSTRACTION_SECOND_BRANCH_BALANCE.timeScale})에 따라 KP ×[1+${ABSTRACTION_SECOND_BRANCH_BALANCE.idleKpStrength}H/(1+H)]. 현재 교환 기록도 포함.`,
+    description: '가장 오래 머문 커누스의 현실 시간에 따라 KP 획득량을 배율합니다.',
     parents: ['12-3'], greatTheoryCost: 6
   },
   {
@@ -1277,78 +1862,181 @@ const ABSTRACTION_RESEARCHES = [
   },
   {
     id: '15-1', column: 15, row: 2, title: '제곱 블랙홀',
-    description: 'SP 투여를 해금합니다. 반지름 기여 ×4, 횟수에 따라 완만히 강화. SP 투여 중 빠르기·반지름에 따라 특이점 요구량이 최대 ÷10으로 감소합니다.',
+    description: '숫자 블랙홀에 SP를 투여합니다. 반지름에 4배 기여하고 특이점 요구량을 줄입니다.',
     parents: ['14-1', '14-2', '14-3'], greatTheoryCost: 900
   },
   {
     id: '16-1', column: 16, row: 0, title: '차원의 다이슨 공명',
-    description: `제곱력에 따라 다이슨 스웜의 효과가 강화됩니다. L=log10(총 제곱력), 효과 ×[1+${ABSTRACTION_TIER16_BALANCE.dysonStrength}L/(L+${ABSTRACTION_TIER16_BALANCE.squarePowerLogScale})].`,
+    description: '보유한 제곱력에 따라 다이슨 스웜의 효과를 배율합니다.',
     parents: ['15-1'], greatTheoryCost: 10
   },
   {
     id: '16-2', column: 16, row: 4, title: '연산 슬롯 확장',
-    description: '전체 연산 슬롯을 반올림(연산 강화 구매 횟수 ×1.25)로 계산합니다. 기존 구매에도 적용되며 구매 가격은 그대로입니다.',
+    description: '연산 강화를 구매한 횟수의 1.25배만큼 슬롯을 받습니다. 소수는 반올림합니다.',
     parents: ['15-1'], greatTheoryCost: 10
   },
   {
     id: '17-1', column: 17, row: -1, title: '특이점 수렴 가속',
-    description: `보유 특이점 S에 따라 CP ×10^[${ABSTRACTION_TIER17_BALANCE.singularityCpLogStrength}×(S/${ABSTRACTION_TIER17_BALANCE.singularityReference})^${ABSTRACTION_TIER17_BALANCE.singularityCpCurve}]. 특이점을 소모하면 배율도 줄어듭니다.`,
+    description: '보유한 특이점의 개수에 따라 CP 획득량을 배율합니다. 특이점을 소모하면 배율도 줄어듭니다.',
     parents: ['16-1'], greatTheoryCost: 100
   },
   {
     id: '17-2', column: 17, row: 1, title: '수렴 차수 개선',
-    description: `기본 CP 획득식을 max(1, log10(SP/요구량))^${ABSTRACTION_TIER17_BALANCE.cpBasePower}으로 개선합니다. 기존 CP 배율은 이후에 적용합니다.`,
+    description: 'CP 획득 공식이 개선됩니다. 교환할 수 있는 SP가 많을수록 더 많은 CP를 얻습니다.',
     parents: ['16-1'], greatTheoryCost: 100
   },
   {
     id: '17-3', column: 17, row: 3, title: '다이슨 확장 배가',
-    description: '2그룹 다이슨 스웜 확장의 구매당 추가 한도를 +1에서 +2로 늘립니다. 기존 구매에도 적용되며 구매 가격은 그대로입니다.',
+    description: '다이슨 스웜 확장의 추가 한도를 구매당 2개로 늘립니다. 기존 구매에도 적용됩니다.',
     parents: ['16-2'], greatTheoryCost: 100
   },
   {
     id: '17-4', column: 17, row: 5, title: '발산 반복 가속',
-    description: `L=log10(max(1,a효과)). n 증가 속도 ×[1+${ABSTRACTION_TIER17_BALANCE.divergerNSpeedStrength}log2(1+L/${ABSTRACTION_TIER17_BALANCE.divergerALogScale})]. 증가폭은 줄지만 상한 없이 성장합니다.`,
+    description: '발산자의 a값에 따라 n이 오르는 속도를 배율합니다. 증가폭은 점점 완만해집니다.',
     parents: ['16-2'], greatTheoryCost: 100
   },
   {
     id: '18-1', column: 18, row: -1.5, branch: 'singularity_discount', branchGroup: 3, title: '특이점 압축',
-    description: `보유 특이점 S와 현재 요구 증가폭 G에 따라 다음 요구 반지름 ÷G^(${ABSTRACTION_MINI_BRANCH_BALANCE.requirementLogDiscountPerSingularity}S). 기본 G=10이며 특이점 소모 시 할인도 감소합니다.`,
+    description: '보유한 특이점의 개수에 따라 다음 특이점까지 필요한 반지름을 줄입니다. 특이점을 소모하면 할인도 줄어듭니다.',
     parents: ['17-1'], greatTheoryCost: 400
   },
   {
     id: '18-2', column: 18, row: -0.5, branch: 'singularity_resonance', branchGroup: 3, title: '반지름 공명',
-    description: `강화 전 반지름에 따라 특이점의 기본 네 효과를 최대 ^${1 + ABSTRACTION_MINI_BRANCH_BALANCE.radiusEffectStrength}로 강화합니다. KP 제외.`,
+    description: '슈바르츠실트 반지름 R에 따라 특이점의 기본 효과를 강화합니다. KP 획득 효과에는 적용되지 않습니다.',
     parents: ['17-1'], greatTheoryCost: 400
   },
   {
     id: '18-3', column: 18, row: 0.5, branch: 'cp_sp_link', branchGroup: 4, title: '수렴의 제곱 공명',
-    description: `CP 추가 배율 C에 따라 SP ×max(1,C)^${ABSTRACTION_MINI_BRANCH_BALANCE.spFromCpPower}. 기본 CP 획득식은 제외합니다.`,
+    description: 'CP 획득 배율에 따라 SP 획득량도 배율합니다. 기본 CP 획득 공식은 포함하지 않습니다.',
     parents: ['17-2'], greatTheoryCost: 400
   },
   {
     id: '18-4', column: 18, row: 1.5, branch: 'radius_cp', branchGroup: 4, title: '지평선 수렴',
-    description: `반지름 R에 따라 CP ×10^[${ABSTRACTION_MINI_BRANCH_BALANCE.cpRadiusLogStrength}log2(1+R/${ABSTRACTION_MINI_BRANCH_BALANCE.radiusReference})].`,
+    description: '슈바르츠실트 반지름 R에 따라 CP 획득량을 배율합니다.',
     parents: ['17-2'], greatTheoryCost: 400
   },
   {
     id: '18-5', column: 18, row: 2.5, branch: 'dyson_singularity', branchGroup: 5, title: '다이슨 특이점',
-    description: `다이슨 Y: 특이점의 블랙홀 시간 배율 ^[1+${ABSTRACTION_MINI_BRANCH_BALANCE.dysonSingularityStrength}log2(1+Y/${ABSTRACTION_MINI_BRANCH_BALANCE.dysonReference})].`,
+    description: '보유한 다이슨 스웜의 개수에 따라 특이점이 블랙홀의 시간 가속을 강화하는 효과를 높입니다.',
     parents: ['17-3'], greatTheoryCost: 400
   },
   {
     id: '18-6', column: 18, row: 3.5, branch: 'dyson_power', branchGroup: 5, title: '다이슨 차수 강화',
-    description: `다이슨 스웜의 최종 효과를 ^${ABSTRACTION_MINI_BRANCH_BALANCE.dysonEffectPower}으로 강화합니다.`,
+    description: '다이슨 스웜의 효과를 거듭제곱해서 더 강하게 만듭니다.',
     parents: ['17-3'], greatTheoryCost: 400
   },
   {
     id: '18-7', column: 18, row: 4.5, branch: 'b_to_a', branchGroup: 6, title: '발산 계수 공명',
-    description: `발산자 b 효과값에 따라 a 효과값을 ^[1+${ABSTRACTION_MINI_BRANCH_BALANCE.aFromBStrength}log2(1+b/${ABSTRACTION_MINI_BRANCH_BALANCE.bReference})]로 강화합니다.`,
+    description: '발산자의 b값에 따라 a값을 강화합니다.',
     parents: ['17-4'], greatTheoryCost: 400
   },
   {
     id: '18-8', column: 18, row: 5.5, branch: 'n_singularity', branchGroup: 6, title: '반복의 사건 지평선',
-    description: `L=log10(max(1,n)). 특이점의 블랙홀 시간 배율 ^[1+${ABSTRACTION_MINI_BRANCH_BALANCE.nSingularityStrength}log2(1+L/${ABSTRACTION_MINI_BRANCH_BALANCE.nLogReference})].`,
+    description: '발산자의 n값에 따라 특이점이 블랙홀의 시간 가속을 강화하는 효과를 높입니다.',
     parents: ['17-4'], greatTheoryCost: 400
+  },
+  {
+    id: '19-1', column: 19, row: 0, branch: 'singularity_softcap', branchGroup: 7,
+    branchLabel: '특수 분기 · 둘 중 하나 선택', title: '특이점 소프트캡 완화',
+    description: '보유한 특이점의 개수에 따라 퍼센트 소프트캡을 늘립니다. 특이점이 많아질수록 늘어나는 폭은 점점 완만해집니다.',
+    parents: ['18-1', '18-2', '18-3', '18-4'], greatTheoryCost: 500
+  },
+  {
+    id: '19-2', column: 19, row: 3.5, branch: 'diverger_dyson', branchGroup: 7,
+    branchLabel: '특수 분기 · 둘 중 하나 선택', title: '발산하는 다이슨 스웜',
+    description: '보유한 발산력에 따라 다이슨 스웜을 추가로 얻습니다. 추가 개수는 다이슨 강화 전 발산력으로 계산하며, 구매 비용과 횟수는 바뀌지 않습니다.',
+    parents: ['18-4', '18-5', '18-6', '18-7', '18-8'], greatTheoryCost: 500
+  },
+  {
+    id: '20-1', column: 20, row: 1.75, title: '무작위 공명',
+    description: '무작위력이 발산자의 a·b와 블랙홀 시간 가속 상한을 강화하는 효과를 증폭합니다.',
+    parents: ['19-1', '19-2'], greatTheoryCost: 1200,
+    randomPowerRequirement: ABSTRACTION_TIER20_BALANCE.requiredRandomPower
+  },
+  {
+    id: '21-1', column: 21, row: 1.75, title: '확률 범위 확장',
+    description: '확률자의 a·b 상한을 1e308로 늘립니다. 기존 값은 유지하며 이후 구매부터 1.1배씩 증가합니다.',
+    parents: ['20-1'], greatTheoryCost: 2400
+  },
+  {
+    id: '22-1', column: 22, row: 0, title: '첫 분기 완성',
+    description: '첫 번째 분기에서 길을 하나 더 고를 수 있습니다. 기존 분기 확장과 함께 적용되며 최대 세 길까지 선택합니다.',
+    parents: ['21-1'], greatTheoryCost: 1200
+  },
+  {
+    id: '22-2', column: 22, row: 1.75, title: '기초 연산 이중화',
+    description: '기본 커누스 업그레이드 1그룹의 효과를 구매 횟수의 두 배로 계산합니다. 실제 구매 횟수와 가격은 바뀌지 않습니다.',
+    parents: ['21-1'], greatTheoryCost: 1200
+  },
+  {
+    id: '22-3', column: 22, row: 3.5, title: '생산의 연속성',
+    description: 'KP를 얻는 커누스 도달 시 제곱 차원과 발산자의 보유량·강화·진행 상태를 보존합니다. 도전 시작·포기·완료에는 적용하지 않습니다.',
+    parents: ['21-1'], greatTheoryCost: 1200
+  },
+  {
+    id: '23-1', column: 23, row: 0, title: '지속적인 수렴',
+    description: '현실 시간 1초마다 현재 획득 가능한 CP의 1%를 계속 얻습니다. 시간 가속에 영향을 받지 않으며 수렴 초기화는 일어나지 않습니다.',
+    parents: ['22-1'], greatTheoryCost: 1200
+  },
+  {
+    id: '23-2', column: 23, row: 1.75, title: '무작위 커누스 증폭',
+    description: '보유한 무작위력에 따라 KP 획득량을 배율합니다. 무작위력이 많아질수록 배율이 계속 증가합니다.',
+    parents: ['22-2'], greatTheoryCost: 1200
+  },
+  {
+    id: '23-3', column: 23, row: 3.5, title: '영구 제곱 비축',
+    description: 'KP를 얻는 커누스 도달 시 보유 SP의 1%를 최고 기록으로 저장합니다. 연구 활성 중 이 기록은 소비되지 않는 최소 보유 SP가 됩니다. 연구를 잃어도 기록은 남으며 재연구하면 복구합니다. 공간 팽창 중에는 기록 갱신·최소 보유량 보호·복구가 중단되며 기존 기록은 보존됩니다.',
+    parents: ['22-3'], greatTheoryCost: 1200
+  },
+  {
+    id: '24-1', column: 24, row: 1.75, title: '무작위 퍼센트 증폭',
+    description: '보유한 무작위력에 따라 퍼센트로 얻는 수를 증폭합니다. 무작위력을 소비하지 않으며 최종 퍼센트 획득량에 적용됩니다.',
+    parents: ['23-1', '23-2', '23-3'], greatTheoryCost: 2500
+  },
+  {
+    id: '25-1', column: 25, row: 0, branch: 'probabilizer', branchGroup: 8, branchLabel: '확률자',
+    title: '무작위 수렴 증폭', description: '보유한 무작위력에 따라 CP 획득량을 증폭합니다. 확률자가 활성화되어 있을 때 적용됩니다.',
+    parents: ['24-1'], greatTheoryCost: 400
+  },
+  {
+    id: '26-1', column: 26, row: 0, branch: 'probabilizer', branchGroup: 8,
+    title: '기울어진 확률', description: '무작위력이 많아질수록 확률 분포가 b 쪽으로 이동하고 실제 추첨에 쓰는 a와 b도 함께 강화됩니다. 구매 원본과 가격은 그대로 유지합니다.',
+    parents: ['25-1'], greatTheoryCost: 1200
+  },
+  {
+    id: '27-1', column: 27, row: 0, branch: 'probabilizer', branchGroup: 8,
+    title: '확률의 시간', description: '무작위력 생산 시간이 숫자 블랙홀의 시간 가속 영향을 아주 조금 받습니다. 다른 시간 가속은 적용되지 않습니다.',
+    parents: ['26-1'], greatTheoryCost: 2500
+  },
+  {
+    id: '25-2', column: 25, row: 3.5, branch: 'black_hole', branchGroup: 8, branchLabel: '숫자 블랙홀',
+    title: '사라지지 않는 투입', description: '숫자 블랙홀에 수와 SP를 투입해도 보유 자원을 소모하지 않습니다. 투입량과 투입 횟수는 그대로 누적됩니다.',
+    parents: ['24-1'], greatTheoryCost: 400
+  },
+  {
+    id: '26-2', column: 26, row: 3.5, branch: 'black_hole', branchGroup: 8,
+    title: '영구 특이점', description: '슈바르츠실트 반지름에 따라 특이점을 구매할 때 더 많이 얻으며, 보유 특이점 일부를 영구 저장합니다. 연구 활성 중 저장량을 보호하고 재연구하면 복구합니다. 추가 획득은 보유 한도까지 적용됩니다. 공간 팽창 중에는 추가 획득을 포함한 모든 효과가 비활성화되며 기존 영구 기록은 보존됩니다.',
+    parents: ['25-2'], greatTheoryCost: 1200
+  },
+  {
+    id: '27-2', column: 27, row: 3.5, branch: 'black_hole', branchGroup: 8,
+    title: '사건의 지평선 너머', description: `숫자 블랙홀의 최종 시간 가속 상한이 ${ABSTRACTION_PRODUCTION_BRANCH_BALANCE.blackHoleLimitMultiplier}배 늘어나고, 슈바르츠실트 반지름에 따라 CP 획득량을 배율합니다. 현재 가속 자체를 강제로 올리지는 않습니다.`,
+    parents: ['26-2'], greatTheoryCost: 2500
+  },
+  {
+    id: '28-1', column: 28, row: 1.75, title: '정체된 지평선 확장',
+    description: '정체된 특이점의 개수에 따라 블랙홀 특이점 최대 보유량과 확률자가 블랙홀 시간 가속 상한을 추가로 늘리는 양을 증폭합니다. 특이점을 바로 지급하거나 현재 시간 가속을 강제로 올리지는 않습니다.',
+    parents: ['27-1', '27-2'], greatTheoryCost: 50000
+  },
+  {
+    id: '29-1', column: 29, row: 1.75, title: '가격 기준 분리',
+    description: '기본 커누스 반복 업그레이드·KC6 이후 연산 강화·확률자 KP 업그레이드의 결제 가격과 상승 기준 가격을 분리합니다. 상승 기준은 기본 가격으로만 증가해 가격 급증이 다음 구간을 앞당기지 않습니다. 현재 가격에도 즉시 적용됩니다.',
+    parents: ['28-1'], greatTheoryCost: 20000
+  },
+  {
+    id: '30-1', column: 30, row: 1.75, title: '공간 팽창 심화',
+    description: 'SM으로 구매하는 공간 팽창의 일회성 추가 업그레이드를 해금합니다. 구매 기록과 효과는 연구를 초기화해도 유지됩니다.',
+    parents: ['29-1'], greatTheoryCost: 1000000
   }
 ];
 
@@ -1363,25 +2051,24 @@ const KNUTH_BASE_UPGRADES = [
   { id: 'kp_gain', group: 1, title: '커누스 증폭', description: 'KP 획득량이 구매마다 5배 증가합니다.', baseCost: 500, growth: 25 },
   { id: 'diverger_gain', group: 1, title: '발산 증폭', description: '발산력이 구매마다 2배 증가합니다.', baseCost: 1500, growth: 50 },
   { id: 'dimension_gain', group: 1, title: '차원 증폭', description: '각 제곱 차원의 제곱력이 구매마다 4배 증가합니다.', baseCost: 10, growth: 10 },
-  { id: 'dyson_limit', group: 2, title: '다이슨 스웜 확장', description: '다이슨 스웜 구매 한도 +1. 추가 구매분의 다음 가격은 (직전 가격 ×20)^1.01로 증가합니다.', baseCost: 50, growth: 100 },
+  { id: 'dyson_limit', group: 2, title: '다이슨 스웜 확장', description: '다이슨 스웜의 구매 한도를 1개 늘립니다. 추가로 구매하는 다이슨 스웜의 가격은 더 빠르게 증가합니다.', baseCost: 50, growth: 100 },
   { id: 'number_black_hole', group: 2, title: '숫자 블랙홀', description: '숫자 블랙홀을 해금합니다.', baseCost: 20000 },
   { id: 'extra_branch', group: 2, title: '분기 확장', description: '추상화의 첫 번째 분기에서 두 가지 길을 선택할 수 있습니다.', baseCost: 5000000 },
   { id: 'diverger_b_strength', group: 2, title: '발산자 b 강화', description: 'b 강화의 증가량을 +0.2에서 +0.4로 늘립니다. 기존 구매분에도 적용됩니다.', baseCost: 10000000 },
   { id: 'starting_resources', group: 2, title: '커누스 출발 지원', description: '새 커누스 시작 시 수 100t, SP 10b, CP 1k를 지급합니다.', baseCost: 1000 },
-  { id: 'overclock_limit', group: 3, title: '오버클럭 확장', description: '오버클럭 구매 한도 +4. 추가 구매분의 다음 가격은 (직전 가격 ×기존 상승률)^1.005로 증가합니다.', baseCost: 100, growth: 4 },
+  { id: 'overclock_limit', group: 3, title: '오버클럭 확장', description: '오버클럭의 구매 한도를 4개 늘립니다. 추가로 구매하는 오버클럭의 가격은 더 빠르게 증가합니다.', baseCost: 100, growth: 4 },
   { id: 'theory_exchange', group: 3, title: '대이론 교환', description: '이론으로 대이론을 구매합니다. 4이론부터 시작하며 구매마다 비용이 4배 증가합니다.', baseCost: 20000 },
-  { id: 'late_abstraction', group: 4, title: '추상화 심화', description: '19행 이후의 추상화 연구를 해금합니다. 해당 연구는 추후 추가됩니다.', baseCost: '1e200' },
-  { id: 'diverger_b_bonus', group: 4, title: '발산자 b 추가 강화', description: '구매마다 현재 b 강화 1회분을 추가로 얻습니다. CP 강화 횟수와 가격은 바뀌지 않습니다.', baseCost: '1e200', growth: 1e100 },
+  { id: 'late_abstraction', group: 4, title: '추상화 심화', description: '19행 이후의 추상화 연구를 해금합니다.', baseCost: '1e200' },
+  { id: 'diverger_b_bonus', group: 4, title: '발산자 b 추가 강화', description: '구매마다 b가 1.25배 증가합니다. CP 강화 횟수와 가격은 바뀌지 않습니다.', baseCost: '1e200', growth: 1e100 },
   { id: 'starting_upgrades', group: 4, title: '커누스 완성 출발', description: '새 커누스 시작 시 모든 일반화 연구·제곱 업그레이드와 제곱 돌파 최대 강화를 지급합니다. 도전 제한은 우선 적용됩니다.', baseCost: '1e30' },
   { id: 'dyson_effect', group: 4, title: '다이슨 스웜 증폭', description: '다이슨 스웜의 최종 효과가 구매마다 1.25배 증가합니다.', baseCost: '1e350', growth: 1e50 },
-  { id: 'advanced_equipment', group: 4, title: '고급 장착 업그레이드', description: '고급 장착 업그레이드를 해금합니다. 현재는 해금 기록만 저장합니다.', baseCost: '1e400' },
+  { id: 'probabilizer', group: 4, title: '확률자', description: '무작위력을 생산해 발산자의 a·b와 블랙홀 시간 가속 상한을 강화합니다.', baseCost: '1e308' },
   { id: 'passive_radius', group: 5, title: '지속하는 사건의 지평선', description: `블랙홀 활성 중 현실 초당 기본 반지름이 ${KNUTH_LATE_BASE_BALANCE.passiveRadiusPerRealSecond} 증가합니다. 특이점 획득 시 누적 성장도 초기화됩니다.`, baseCost: '1e500' },
-  { id: 'black_hole_upgrades', group: 5, title: '블랙홀 추가 업그레이드', description: '블랙홀 추가 업그레이드를 해금합니다. 현재는 해금 기록만 저장합니다.', baseCost: '1e420' },
   { id: 'singularity_limit', group: 5, title: '특이점 보유 확장', description: '특이점 최대 보유량이 기본 16개에서 구매마다 1개 증가합니다.', baseCost: '1e400', growth: 1e50 },
-  { id: 'probabilizer', group: 5, title: '확률자', description: '확률자를 해금합니다. 현재는 해금 기록만 저장합니다.', baseCost: '1e500' },
+  { id: 'advanced_equipment', group: 5, title: '고급 장착 업그레이드', description: 'KP로 구매한 뒤 여러 개를 장착할 수 있는 고급 장착 업그레이드를 해금합니다.', baseCost: '1e400' },
   { id: 'singularity_growth', group: 5, title: '특이점 요구 완화', description: '보유 특이점당 요구 반지름 증가폭을 10배에서 구매마다 1씩 줄입니다. 최소 4배, 최대 6회 구매.', baseCost: '1e500', growth: 1e100, max: 6 },
-  { id: 'space_expansion', group: 6, title: '공간 팽창', description: '공간 팽창을 해금합니다. 현재는 해금 기록만 저장합니다.', baseCost: '1e1000' },
-  { id: 'stagnant_mass_gain', group: 6, title: '정체된 질량 증폭', description: '정체된 질량의 블랙홀 기여 배율을 구매마다 4배 강화합니다. 질량 시스템 추가 전까지 구매 기록만 저장합니다.', baseCost: '1e1200', growth: 1e200 }
+  { id: 'space_expansion', group: 6, title: '공간 팽창', description: '공간 팽창을 해금합니다. 생산·교환 배율을 약화한 상태에서 CP를 모아 힉스입자 최고기록을 갱신합니다.', baseCost: '1e2600' },
+  { id: 'stagnant_mass_gain', group: 6, title: '정체된 질량 증폭', description: '정체된 특이점이 블랙홀 반지름에 기여하는 배율을 구매마다 4배 강화합니다.', baseCost: '1e1200', growth: 1e200 }
 ];
 
 function knuthBaseUpgradeLevel(id) {
@@ -1400,6 +2087,260 @@ function stagnantMassBlackHoleMultiplier() {
   return knuthBaseMultiplier('stagnant_mass_gain', 4);
 }
 
+function spaceExpansionUnlocked() {
+  return knuthUnlocked && hasClaimedKnuthPoint && knuthBaseUpgradeLevel('space_expansion') > 0;
+}
+
+function hasSpaceExpansionOneTimeUpgrade(id) {
+  return spaceExpansionOneTimeUpgradeState[id] === true;
+}
+
+function spaceExpansionExtraUpgradesUnlocked() {
+  return spaceExpansionUnlocked() && hasAbstractionResearch('30-1');
+}
+
+function buySpaceExpansionOneTimeUpgrade(id) {
+  const upgrade = SPACE_EXPANSION_ONE_TIME_UPGRADES.find(item => item.id === id);
+  if (!upgrade || !spaceExpansionExtraUpgradesUnlocked() || gameSessionPaused() || hasSpaceExpansionOneTimeUpgrade(id)) return false;
+  if (typeof tickSpaceExpansion === 'function') tickSpaceExpansion();
+  if (compareNumberValues(stagnantMassMg, upgrade.costMg) < 0) return false;
+  recordStagnantSingularities();
+  stagnantMassMg = subtractNumberValues(stagnantMassMg, upgrade.costMg);
+  spaceExpansionOneTimeUpgradeState[id] = true;
+  if (id === 'definition_space' && !definitionStoryCompleted) definitionStoryStep = 1;
+  render();
+  return true;
+}
+
+function spaceExpansionPenaltyPower() {
+  return hasSpaceExpansionOneTimeUpgrade('penalty_relief')
+    ? SPACE_EXPANSION_EXTRA_BALANCE.multiplierPower : SPACE_EXPANSION_BALANCE.multiplierPower;
+}
+
+function stagnantSingularityRequirement(owned = stagnantSingularities) {
+  const t = STAGNANT_SINGULARITY_BALANCE;
+  // At counts beyond unit precision, use an upper estimate rather than display an already passed next milestone.
+  if (isPositiveNumberValue(owned) && compareNumberValues(addBaseNumbers(owned, 1), owned) === 0) {
+    owned = multiplyNumberValue(owned, 1 + 1e-12);
+  }
+  return NumberMath.powerOfTen(multiplyNumberValue(Math.log10(t.firstMassMg), NumberMath.power(t.requirementPower, owned)));
+}
+
+function stagnantSingularityCountForMass(mass) {
+  const t = STAGNANT_SINGULARITY_BALANCE;
+  if (compareNumberValues(mass, t.firstMassMg) < 0) return 0;
+  const ratio = NumberMath.divideApproximate(NumberMath.log10(mass), Math.log10(t.firstMassMg));
+  let count = addBaseNumbers(NumberMath.floor(NumberMath.divideApproximate(NumberMath.log10(ratio), Math.log10(t.requirementPower))), 1);
+  // Check the actual boundary to correct logarithmic rounding without a per-milestone loop.
+  if (compareNumberValues(mass, stagnantSingularityRequirement(subtractNumberValues(count, 1))) < 0) count = subtractNumberValues(count, 1);
+  else if (compareNumberValues(mass, stagnantSingularityRequirement(count)) >= 0) count = addBaseNumbers(count, 1);
+  return count;
+}
+
+function recordStagnantSingularities() {
+  stagnantSingularities = NumberMath.max(stagnantSingularities, stagnantSingularityCountForMass(stagnantMassMg));
+}
+
+function stagnantSingularityEffectLog() {
+  if (!isPositiveNumberValue(stagnantSingularities)) return 0;
+  const t = STAGNANT_SINGULARITY_BALANCE;
+  return multiplyNumberValue(Math.log10(t.firstMassMg), NumberMath.power(t.requirementPower, subtractNumberValues(stagnantSingularities, 1)));
+}
+
+function spaceExpansionMassCurve(referenceMg) {
+  return NumberMath.power(NumberMath.divideApproximate(stagnantSingularityEffectLog(),
+    Math.log10(1 + referenceMg)), SPACE_EXPANSION_EXTRA_BALANCE.massCurve);
+}
+
+function spaceExpansionMassPercentMultiplier() {
+  if (!hasSpaceExpansionOneTimeUpgrade('mass_percent') || !isPositiveNumberValue(stagnantSingularities)) return 1;
+  const t = SPACE_EXPANSION_EXTRA_BALANCE;
+  return multiplyNumberValue(NumberMath.powerOfTen(multiplyNumberValue(t.percentLogStrength,
+    spaceExpansionMassCurve(t.percentMassMg))), stagnantMassEffectMultiplier());
+}
+
+function percentFinalExtraMultiplier() {
+  const random = abstractionRandomPowerPercentMultiplier();
+  return hasSpaceExpansionOneTimeUpgrade('mass_percent')
+    ? multiplyNumberValue(random, spaceExpansionMassPercentMultiplier()) : random;
+}
+
+function spaceExpansionHiggsSlotBonus() {
+  if (!hasSpaceExpansionOneTimeUpgrade('higgs_slots') || !isPositiveNumberValue(higgsParticles)) return 0;
+  const t = SPACE_EXPANSION_EXTRA_BALANCE;
+  const scaled = NumberMath.divideApproximate(NumberMath.log10(addBaseNumbers(1, higgsParticles)), t.slotHiggsLogScale);
+  return NumberMath.toNumber(NumberMath.min(Number.MAX_SAFE_INTEGER,
+    NumberMath.floor(multiplyNumberValue(t.slotStrength, NumberMath.power(scaled, t.slotCurve)))));
+}
+
+function spaceExpansionOverfeedMultiplier() {
+  if (!hasSpaceExpansionOneTimeUpgrade('overfeed') || !hasAbstractionResearch('25-2')) return 1;
+  const t = SPACE_EXPANSION_EXTRA_BALANCE;
+  return multiplyNumberValue(addBaseNumbers(1, multiplyNumberValue(t.overfeedStrength,
+    spaceExpansionMassCurve(t.overfeedMassMg))), stagnantMassEffectMultiplier());
+}
+
+function numberBlackHoleBaseDonationPercentLimit() {
+  return Math.min(NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT,
+    NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT + numberBlackHoleDonationAmountLevel);
+}
+
+function numberBlackHoleDonationPercentLimit() {
+  return NumberMath.toNumber(NumberMath.min(Number.MAX_SAFE_INTEGER, NumberMath.floor(multiplyNumberValue(
+    numberBlackHoleBaseDonationPercentLimit(), spaceExpansionOverfeedMultiplier()))));
+}
+
+function spaceExpansionGroupMultiplier() {
+  if (!hasSpaceExpansionOneTimeUpgrade('group_boost')) return 1;
+  const t = SPACE_EXPANSION_EXTRA_BALANCE;
+  return multiplyNumberValue(addBaseNumbers(1, multiplyNumberValue(t.groupStrength,
+    spaceExpansionMassCurve(t.groupMassMg))), stagnantMassEffectMultiplier());
+}
+
+function spaceExpansionNUnlocked() {
+  return hasSpaceExpansionOneTimeUpgrade('n_automation');
+}
+
+function spaceExpansionHiggsAfterExit(reward = spaceExpansionHiggsReward()) {
+  return NumberMath.max(higgsParticles, reward);
+}
+
+function spaceExpansionHiggsGainOnExit() {
+  return spaceExpansionActive ? NumberMath.max(0, subtractNumberValues(spaceExpansionHiggsAfterExit(), higgsParticles)) : 0;
+}
+
+function spaceExpansionMultiplier(multiplier) {
+  if (!spaceExpansionActive || compareNumberValues(multiplier, 10) <= 0) return multiplier;
+  return NumberMath.powerOfTen(NumberMath.power(NumberMath.log10(multiplier), spaceExpansionPenaltyPower()));
+}
+
+function spaceExpansionFinalSpGain(gain) {
+  if (!spaceExpansionActive || compareNumberValues(gain, 1) <= 0) return gain;
+  const logarithm = NumberMath.log10(gain);
+  return NumberMath.max(1, hasSpaceExpansionOneTimeUpgrade('penalty_relief')
+    ? NumberMath.power(logarithm, SPACE_EXPANSION_EXTRA_BALANCE.spLogPower) : logarithm);
+}
+
+function spaceExpansionHiggsReward(cp = squareConvergencePoints) {
+  const scaled = NumberMath.divideApproximate(NumberMath.log10(NumberMath.max(1, cp)),
+    SPACE_EXPANSION_BALANCE.higgsCpLogScale);
+  return NumberMath.floor(multiplyNumberValue(NumberMath.power(scaled, SPACE_EXPANSION_BALANCE.higgsPower),
+    spaceExpansionUpgradeMultiplier('higgs_gain')));
+}
+
+function spaceExpansionUpgradeMultiplier(id) {
+  const upgrade = SPACE_EXPANSION_UPGRADES.find(item => item.id === id);
+  return upgrade ? NumberMath.power(upgrade.effect, spaceExpansionUpgradeLevels[id]) : 1;
+}
+
+function spaceExpansionUpgradeCost(id) {
+  const upgrade = SPACE_EXPANSION_UPGRADES.find(item => item.id === id);
+  return upgrade ? multiplyNumberValue(upgrade.baseCostMg, NumberMath.power(upgrade.growth, spaceExpansionUpgradeLevels[id])) : null;
+}
+
+function buySpaceExpansionUpgrade(id) {
+  if (!spaceExpansionUnlocked() || gameSessionPaused() || !SPACE_EXPANSION_UPGRADES.some(item => item.id === id)) return false;
+  if (typeof tickSpaceExpansion === 'function') tickSpaceExpansion();
+  const cost = spaceExpansionUpgradeCost(id);
+  if (compareNumberValues(stagnantMassMg, cost) < 0) return false;
+  recordStagnantSingularities();
+  stagnantMassMg = subtractNumberValues(stagnantMassMg, cost);
+  spaceExpansionUpgradeLevels[id] = addBaseNumbers(spaceExpansionUpgradeLevels[id], 1);
+  render();
+  return true;
+}
+
+function stagnantMassGainPerRealSecond() {
+  return multiplyNumberValue(higgsParticles, spaceExpansionUpgradeMultiplier('mass_gain'));
+}
+
+function stagnantMassEffectMultiplier() {
+  return isPositiveNumberValue(stagnantSingularities) ? spaceExpansionUpgradeMultiplier('mass_effect') : 1;
+}
+
+function stagnantMassGrowth() {
+  const tuning = SPACE_EXPANSION_BALANCE;
+  return NumberMath.power(NumberMath.divideApproximate(stagnantSingularityEffectLog(),
+    Math.log10(1 + tuning.massReferenceMg)), tuning.massCurve);
+}
+
+function abstractionMassExpansionGrowth() {
+  if (!hasAbstractionResearch('28-1') || !isPositiveNumberValue(stagnantSingularities)) return 0;
+  const tuning = ABSTRACTION_TIER28_BALANCE;
+  return NumberMath.power(NumberMath.divideApproximate(stagnantSingularityEffectLog(),
+    Math.log10(1 + tuning.massReferenceMg)), tuning.massCurve);
+}
+
+function abstractionMassSingularityLimitMultiplier() {
+  if (!hasAbstractionResearch('28-1')) return 1;
+  return multiplyNumberValue(addBaseNumbers(1, multiplyNumberValue(ABSTRACTION_TIER28_BALANCE.singularityLimitStrength,
+    abstractionMassExpansionGrowth())), stagnantMassEffectMultiplier());
+}
+
+function abstractionMassTimeLimitMultiplier() {
+  if (!hasAbstractionResearch('28-1')) return 1;
+  return multiplyNumberValue(NumberMath.powerOfTen(multiplyNumberValue(ABSTRACTION_TIER28_BALANCE.timeLimitLogStrength,
+    abstractionMassExpansionGrowth())), stagnantMassEffectMultiplier());
+}
+
+function stagnantMassRadiusMultiplier() {
+  if (!isPositiveNumberValue(stagnantSingularities) || isKnuthChallengeActive('kc5')) return 1;
+  return multiplyNumberValue(addBaseNumbers(1, multiplyNumberValue(SPACE_EXPANSION_BALANCE.radiusStrength,
+    stagnantMassGrowth())), multiplyNumberValue(stagnantMassBlackHoleMultiplier(), stagnantMassEffectMultiplier()));
+}
+
+function stagnantMassRandomMultiplier() {
+  return isPositiveNumberValue(stagnantSingularities)
+    ? multiplyNumberValue(NumberMath.powerOfTen(multiplyNumberValue(SPACE_EXPANSION_BALANCE.randomLogStrength, stagnantMassGrowth())),
+      stagnantMassEffectMultiplier()) : 1;
+}
+
+function advanceSpaceExpansion(elapsedRealMs) {
+  if (!Number.isFinite(elapsedRealMs) || elapsedRealMs <= 0 || !isPositiveNumberValue(higgsParticles)) return false;
+  stagnantMassMg = addBaseNumbers(stagnantMassMg, multiplyNumberValue(stagnantMassGainPerRealSecond(), elapsedRealMs / 1000));
+  recordStagnantSingularities();
+  return true;
+}
+
+function loadSpaceExpansionResources(saved) {
+  higgsParticles = NumberMath.floor(numberValueFromSave(saved.higgsParticles));
+  stagnantMassMg = numberValueFromSave(saved.stagnantMassMg);
+  stagnantSingularities = NumberMath.floor(numberValueFromSave(saved.stagnantSingularities));
+  recordStagnantSingularities();
+  for (const upgrade of SPACE_EXPANSION_UPGRADES) {
+    spaceExpansionUpgradeLevels[upgrade.id] = NumberMath.floor(NumberMath.max(0,
+      numberValueFromSave(saved.spaceExpansionUpgradeLevels?.[upgrade.id])));
+  }
+  for (const upgrade of SPACE_EXPANSION_ONE_TIME_UPGRADES) {
+    spaceExpansionOneTimeUpgradeState[upgrade.id] = saved.spaceExpansionOneTimeUpgradeState?.[upgrade.id] === true;
+  }
+}
+
+function loadSpaceExpansionState(saved, { resourcesLoaded = false } = {}) {
+  if (!resourcesLoaded) loadSpaceExpansionResources(saved);
+  spaceExpansionActive = saved.spaceExpansionActive === true && spaceExpansionUnlocked() && !activeKnuthChallengeId;
+  if (typeof resetSpaceExpansionClock === 'function') resetSpaceExpansionClock();
+}
+
+function toggleSpaceExpansion() {
+  if (!spaceExpansionUnlocked() || activeKnuthChallengeId || pendingKnuthPointClaim) return false;
+  if (typeof tickSpaceExpansion === 'function') tickSpaceExpansion();
+  const exiting = spaceExpansionActive;
+  const reward = exiting ? spaceExpansionHiggsReward() : 0;
+  if (exiting) higgsParticles = spaceExpansionHiggsAfterExit(reward);
+  if (canManuallyExchangeKnuthPoints()) beginKnuthPrestige({ spaceExpansionAfterPrestige: !exiting });
+  else {
+    spaceExpansionActive = !exiting;
+    resetProgressForNewKnuthRun();
+  }
+  spaceExpansionActive = !exiting;
+  if (exiting) restoreAbstractionPermanentSingularities();
+  if (divergerAvailable()) divergerPower = divergerProductionValue();
+  if (typeof setKnuthProductionView === 'function') setKnuthProductionView('space_expansion');
+  render();
+  return true;
+}
+
 function loadKnuthBaseUpgradeLevels(saved) {
   for (const upgrade of KNUTH_BASE_UPGRADES) {
     const value = Number(saved?.[upgrade.id] ?? 0);
@@ -1411,7 +2352,14 @@ function loadKnuthBaseUpgradeLevels(saved) {
 
 function knuthBaseEffectPerPurchase(id, base) {
   const isFirstGroup = KNUTH_BASE_UPGRADES.some(upgrade => upgrade.id === id && upgrade.group === 1);
-  return hasAbstractionResearch('11-1') && isFirstGroup ? base * 1.25 : base;
+  let effect = hasAbstractionResearch('11-1') && isFirstGroup ? base * 1.25 : base;
+  if (isFirstGroup && hasSpaceExpansionOneTimeUpgrade('group_boost')) effect = multiplyNumberValue(effect, spaceExpansionGroupMultiplier());
+  if (isFirstGroup && knuthAdvancedEquipped.group_effect > 0) {
+    effect = multiplyNumberValue(effect, knuthAdvancedEffect('group_effect'));
+    return hasAbstractionResearch('22-2') ? NumberMath.power(effect, 2) : effect;
+  }
+  return hasAbstractionResearch('22-2') && isFirstGroup
+    ? typeof effect === 'number' ? effect * effect : NumberMath.power(effect, 2) : effect;
 }
 
 function knuthBaseMultiplier(id, base) {
@@ -1423,15 +2371,45 @@ function knuthBaseGroupUnlocked(group) {
   return KNUTH_BASE_UPGRADES.every(upgrade => upgrade.group >= group || knuthBaseUpgradeLevel(upgrade.id) > 0);
 }
 
-function knuthRepeatableCostAfterPurchases(currentCost, baseGrowth, purchases) {
+function feedbackKnuthHighPriceCost(currentCost, baseGrowth, purchases) {
+  if (currentCost === null || purchases <= 0) return currentCost;
+  const balance = KNUTH_REPEATABLE_COST_BALANCE;
+  const baseLog = Math.log10(baseGrowth * 8);
+  const scientific = NumberMath.isScientific(currentCost) ? currentCost : NumberMath.toScientific(currentCost);
+  if (typeof scientific.exponent === 'number' && scientific.exponent < 1e18) {
+    let exponent = Math.floor(scientific.exponent);
+    let fraction = scientific.exponent - exponent + Math.log10(scientific.mantissa);
+    while (purchases > 0 && exponent < 1e18) {
+      const band = Math.floor((exponent - balance.kpBandStartExponent) / balance.kpBandWidth) + 1;
+      const increment = baseLog * Math.pow(balance.kpBandGrowth, band);
+      if (!Number.isFinite(increment)) break;
+      const whole = Math.floor(increment);
+      fraction += increment - whole;
+      const carry = Math.floor(fraction);
+      exponent += whole + carry;
+      fraction -= carry;
+      purchases--;
+    }
+    currentCost = NumberMath.normalize(Math.pow(10, fraction), exponent);
+    if (purchases <= 0) return currentCost;
+  }
+  const logarithm = NumberMath.isScientific(currentCost.exponent)
+    && NumberMath.isScientific(currentCost.exponent.exponent) ? currentCost.exponent : NumberMath.log10(currentCost);
+  return upgradePriceFromExponent(feedbackBandedUpgradePriceExponent(logarithm, baseLog, purchases, balance));
+}
+
+function feedbackKnuthRepeatableCost(currentCost, baseGrowth, purchases) {
+  if (currentCost === null || purchases <= 0) return currentCost;
+  if (NumberMath.isScientific(currentCost.exponent) && NumberMath.isScientific(currentCost.exponent.exponent)) {
+    return feedbackKnuthHighPriceCost(currentCost, baseGrowth, purchases);
+  }
   let cost = currentCost;
   let remaining = purchases;
-  for (const [limit, multiplier] of [['1e50', 1], ['1.8e308', 2]]) {
+  for (const [limit, multiplier] of [['1e50', 1], ['1.8e308', 2], ['1e400', 8]]) {
     if (remaining <= 0) return cost;
     if (compareNumberValues(cost, limit) >= 0) continue;
     const growth = baseGrowth * multiplier;
     let untilBoundary = Math.max(1, Math.ceil((numberLog10(limit) - numberLog10(cost)) / Math.log10(growth)));
-    // Logs locate the boundary; compare actual prices to correct rounding at an exact threshold.
     const boundaryCost = multiplyNumberValue(cost, NumberMath.power(growth, untilBoundary));
     if (compareNumberValues(boundaryCost, limit) < 0) untilBoundary++;
     else if (untilBoundary > 1 && compareNumberValues(
@@ -1441,15 +2419,47 @@ function knuthRepeatableCostAfterPurchases(currentCost, baseGrowth, purchases) {
     cost = multiplyNumberValue(cost, NumberMath.power(growth, count));
     remaining -= count;
   }
-  return remaining > 0
-    ? multiplyNumberValue(cost, NumberMath.power(baseGrowth * 8, remaining))
-    : cost;
+  return remaining > 0 ? feedbackKnuthHighPriceCost(cost, baseGrowth, remaining) : cost;
 }
 
+function knuthRepeatableCostAfterPurchases(currentCost, baseGrowth, purchases, referenceCost = currentCost) {
+  if (!independentUpgradePriceReferenceActive()) return feedbackKnuthRepeatableCost(currentCost, baseGrowth, purchases);
+  if (currentCost === null || purchases <= 0) return currentCost;
+  let cost = currentCost;
+  let remaining = purchases;
+  const referenceGrowth = Math.log10(baseGrowth);
+  for (const [limit, multiplier] of [['1e50', 1], ['1.8e308', 2], ['1e400', 8]]) {
+    if (remaining <= 0) return cost;
+    if (compareNumberValues(referenceCost, limit) >= 0) continue;
+    const growth = baseGrowth * multiplier;
+    const count = upgradeReferenceBoundaryIndex(referenceCost, referenceGrowth, numberLog10(limit), remaining);
+    cost = multiplyNumberValue(cost, NumberMath.power(growth, count));
+    referenceCost = multiplyNumberValue(referenceCost, NumberMath.power(baseGrowth, count));
+    remaining -= count;
+  }
+  if (remaining <= 0) return cost;
+  const increment = referenceBandedGrowthExponent(referenceCost, referenceGrowth, Math.log10(baseGrowth * 8),
+    remaining, KNUTH_REPEATABLE_COST_BALANCE);
+  return increment === null ? null : multiplyNumberValue(cost, NumberMath.powerOfTen(increment));
+}
+
+const knuthBaseUpgradeCostCache = new Map();
 function knuthBaseUpgradeCost(upgrade) {
-  return upgrade.growth
-    ? knuthRepeatableCostAfterPurchases(upgrade.baseCost, upgrade.growth, knuthBaseUpgradeLevel(upgrade.id))
-    : multiplyNumberValue(upgrade.baseCost, 1);
+  if (!upgrade.growth) return multiplyNumberValue(upgrade.baseCost, 1);
+  const level = knuthBaseUpgradeLevel(upgrade.id);
+  const cached = knuthBaseUpgradeCostCache.get(upgrade.id);
+  const rule = `${JSON.stringify(KNUTH_REPEATABLE_COST_BALANCE)}:${independentUpgradePriceReferenceActive()}`;
+  const reusable = cached && cached.baseCost === upgrade.baseCost && cached.growth === upgrade.growth
+    && cached.rule === rule && cached.level === level;
+  if (reusable) return cached.cost;
+  const cost = knuthRepeatableCostAfterPurchases(upgrade.baseCost, upgrade.growth, level);
+  knuthBaseUpgradeCostCache.set(upgrade.id, { level, cost, baseCost: upgrade.baseCost, growth: upgrade.growth, rule });
+  return cost;
+}
+
+function knuthBaseUpgradeReferenceCost(upgrade) {
+  if (!independentUpgradePriceReferenceActive()) return knuthBaseUpgradeCost(upgrade);
+  return multiplyNumberValue(upgrade.baseCost, upgrade.growth ? NumberMath.power(upgrade.growth, knuthBaseUpgradeLevel(upgrade.id)) : 1);
 }
 
 function canBuyKnuthBaseUpgrade(id) {
@@ -1457,13 +2467,14 @@ function canBuyKnuthBaseUpgrade(id) {
   if (!upgrade || !knuthUnlocked || !hasClaimedKnuthPoint || isKnuthChallengeActive('kc5') || !knuthBaseGroupUnlocked(upgrade.group)) return false;
   const level = knuthBaseUpgradeLevel(id);
   return level < knuthBaseUpgradeMax(upgrade)
-    && compareNumberValues(knuthPoints, knuthBaseUpgradeCost(upgrade)) >= 0;
+    && compareUpgradeCost(knuthPoints, knuthBaseUpgradeCost(upgrade)) >= 0;
 }
 
 function buyKnuthBaseUpgrade(id, { renderAfter = true } = {}) {
   if (!canBuyKnuthBaseUpgrade(id)) return false;
   const upgrade = KNUTH_BASE_UPGRADES.find(item => item.id === id);
-  knuthPoints = subtractNumberValues(knuthPoints, knuthBaseUpgradeCost(upgrade));
+  const cost = knuthBaseUpgradeCost(upgrade);
+  knuthPoints = compareUpgradeCost(knuthPoints, cost) === 0 ? 0 : subtractNumberValues(knuthPoints, cost);
   knuthBaseUpgradeLevels[id] = knuthBaseUpgradeLevel(id) + 1;
   if (id === 'number_black_hole') {
     numberBlackHoleSystemEnabled = true;
@@ -1510,7 +2521,7 @@ function advanceKnuthBaseAutomation(elapsedRealMs) {
     .filter(id => knuthBaseAutoEnabled[id]);
   if (!choices.length) { knuthBaseAutoTimerMs = 0; return false; }
   const maximum = KNUTH_BASE_AUTO_INTERVAL_MS * KNUTH_BASE_AUTO_BATCH_LIMIT;
-  const elapsed = gameTick(elapsedRealMs) * autoUpgradeSpeedMultiplier();
+  const elapsed = autoUpgradeElapsedTime(gameTick(elapsedRealMs), maximum);
   knuthBaseAutoTimerMs = Math.min(maximum, knuthBaseAutoTimerMs + (Number.isFinite(elapsed) ? elapsed : maximum));
   const attempts = Math.min(hasGeneralizationResearch('3-4') ? KNUTH_BASE_AUTO_BATCH_LIMIT : 1,
     Math.floor(knuthBaseAutoTimerMs / KNUTH_BASE_AUTO_INTERVAL_MS));
@@ -1552,13 +2563,13 @@ const KNUTH_SLOT_UPGRADES = [
     id: 'knuth_time_gain',
     slots: 1,
     title: '시간의 가치',
-    description: '현재 제곱 진행의 가속 게임 시간 T(초)에 따라 SP와 CP 획득량이 1+√T배가 됩니다.'
+    description: '제곱에 머문 시간 T에 따라 SP와 CP 획득량을 배율합니다. 시간 가속의 영향을 받습니다.'
   },
   {
     id: 'percent_purchase_bonus',
     slots: 1,
     title: '연속 강화',
-    description: '각 레인의 누적 추가 퍼센트 파워가 구매 횟수 x에 따라 20x/(x+1000)%로 증가합니다. 기본 상한을 넘어서도 적용됩니다.'
+    description: '각 레인에서 퍼센트 파워를 구매한 횟수에 따라 추가 파워를 얻습니다. 기본 파워가 상한에 도달해도 적용됩니다.'
   },
   {
     id: 'percent_cap_200',
@@ -1570,13 +2581,13 @@ const KNUTH_SLOT_UPGRADES = [
     id: 'percent_count_discount',
     slots: 1,
     title: '반복 구매 할인',
-    description: '각 레인의 구매 횟수에 따라 퍼센트 파워의 로그 가격과 가격 상승을 줄입니다. 약 100회에서 최대 효과의 95%에 도달합니다.'
+    description: '각 레인에서 퍼센트 파워를 구매한 횟수에 따라 구매 가격과 가격 상승을 줄입니다. 구매 횟수가 늘어날수록 할인은 점점 완만해집니다.'
   },
   {
     id: 'percent_overflow',
     slots: 2,
     title: '퍼센트 오버플로우',
-    description: '상한을 넘어 얻은 퍼센트 파워를 O로 누적합니다. SP와 CP 획득량이 1+3×log2(1+O/100000)배가 됩니다.'
+    description: '상한을 넘어 얻은 퍼센트 파워가 사라지지 않고 오버플로우로 쌓입니다. 쌓인 양에 따라 SP와 CP 획득량을 배율합니다.'
   },
   {
     id: 'percent_time_discount',
@@ -1590,7 +2601,7 @@ const KNUTH_SLOT_UPGRADES = [
   },
   {
     id: 'dyson_diverger', slots: 2, title: '항성 발산',
-    description: `다이슨 스웜 개수 d에 따라 발산력을 증폭합니다. D ×10^[${KNUTH_EQUIPMENT_BALANCE.dysonDiverger.logStrength}×(d/${KNUTH_EQUIPMENT_BALANCE.dysonDiverger.scale})/max(1, log10(D))]. KC1에서는 비활성화됩니다.`
+    description: '보유한 다이슨 스웜의 개수에 따라 발산력을 배율합니다. KC1에서는 적용되지 않습니다.'
   },
   {
     id: 'percent_softcap_square', slots: 2, title: '소프트캡 제곱',
@@ -1598,23 +2609,23 @@ const KNUTH_SLOT_UPGRADES = [
   },
   {
     id: 'accumulated_time_sp', slots: 2, title: '시간의 유산',
-    description: `숫자 블랙홀 누적 가속 시간 A(초)에 따라 SP 획득량이 1+${KNUTH_EQUIPMENT_BALANCE.accumulatedTimeSp.strength}×A/${KNUTH_EQUIPMENT_BALANCE.accumulatedTimeSp.scale}배가 됩니다.`
+    description: '숫자 블랙홀의 누적 가속 시간에 따라 SP 획득량을 배율합니다.'
   },
   {
     id: 'group_percent_growth', slots: 3, title: '연산의 축적',
-    description: `기본 커누스 1그룹 총 구매 횟수 N에 따라 퍼센트 최종 획득 수와 소프트캡을 각각 10^[${KNUTH_EQUIPMENT_BALANCE.groupPercent.strength}×(N/${KNUTH_EQUIPMENT_BALANCE.groupPercent.scale})^${KNUTH_EQUIPMENT_BALANCE.groupPercent.curve}]배 증폭합니다.`
+    description: '기본 커누스 1그룹의 총 구매 횟수에 따라 퍼센트로 얻는 수와 소프트캡을 배율합니다.'
   },
   {
     id: 'research_resource_growth', slots: 3, title: '추상화의 결실',
-    description: `구매한 추상화 연구 수 R에 따라 SP와 CP 획득량이 10^[${KNUTH_EQUIPMENT_BALANCE.researchResources.strength}×(R/${KNUTH_EQUIPMENT_BALANCE.researchResources.scale})^${KNUTH_EQUIPMENT_BALANCE.researchResources.curve}]배가 됩니다. 비활성 연구도 구매 수에 포함합니다.`
+    description: '구매한 추상화 연구의 개수에 따라 SP와 CP 획득량을 배율합니다. 비활성화된 연구도 포함합니다.'
   },
   {
     id: 'diverger_black_hole', slots: 3, title: '발산하는 사건의 지평선',
-    description: `발산력 D에 따라 숫자 블랙홀의 최종 시간 가속이 1+${KNUTH_EQUIPMENT_BALANCE.divergerBlackHole.strength}×[log10(1+D)/${KNUTH_EQUIPMENT_BALANCE.divergerBlackHole.scale}]^${KNUTH_EQUIPMENT_BALANCE.divergerBlackHole.curve}배 증폭됩니다. 투여 속도·반지름은 그대로입니다.`
+    description: '보유한 발산력에 따라 숫자 블랙홀의 시간 가속을 배율합니다. 투여 속도와 반지름은 바뀌지 않습니다.'
   },
   {
     id: 'achievement_percent_growth', slots: 3, title: '업적의 무게',
-    description: `달성한 업적 수 A에 따라 퍼센트 최종 획득 수와 소프트캡을 각각 10^[${KNUTH_EQUIPMENT_BALANCE.achievementPercent.strength}×(A/${KNUTH_EQUIPMENT_BALANCE.achievementPercent.scale})^${KNUTH_EQUIPMENT_BALANCE.achievementPercent.curve}]배 증폭합니다.`
+    description: '달성한 업적의 개수에 따라 퍼센트로 얻는 수와 소프트캡을 배율합니다.'
   },
   {
     id: 'second_branch_expansion', slots: 64, title: '선택의 확장',
@@ -1662,6 +2673,14 @@ const KNUTH_CHALLENGES = [
     goalResource: 'cp',
     goal: '1e170',
     reward: '기본 커누스 업그레이드 자동구매 및 N 구매·조회를 해금하고, 4·5·6그룹을 해금합니다.'
+  },
+  {
+    id: 'kc6',
+    title: 'KC6',
+    restriction: '퍼센트로 얻는 최종 수가 1e-10제곱됩니다. SP·CP 획득량을 배율하는 효과는 1배가 됩니다.',
+    goalResource: 'cp',
+    goal: '1e1000',
+    reward: '연산 강화의 300회 제한을 해제합니다. 301번째부터 기본 가격이 1e10배씩 증가하며, 1e200·1e300·1e400… KP 구간마다 가격 상승 배율을 제곱합니다. 29-1 연구 시 상승 기준 가격을 따로 계산합니다.'
   }
 ];
 
@@ -1699,8 +2718,9 @@ function isKnuthChallengeActive(id) {
 
 function knuthSlotCapacity(level = knuthOperationLevel) {
   // Split into quotient/remainder to preserve .5 rounding near the safe-integer boundary.
-  const capacity = hasAbstractionResearch('16-2')
+  const purchasedCapacity = hasAbstractionResearch('16-2')
     ? Math.min(Number.MAX_SAFE_INTEGER, Math.floor(level / 4) * 5 + Math.round((level % 4) * 1.25)) : level;
+  const capacity = Math.min(Number.MAX_SAFE_INTEGER, purchasedCapacity + spaceExpansionHiggsSlotBonus());
   return isKnuthChallengeActive('kc5') ? Math.round(capacity / 3) : capacity;
 }
 
@@ -1708,15 +2728,167 @@ function knuthSlotsUsed() {
   return KNUTH_SLOT_UPGRADES.reduce(
     (total, upgrade) => total + (knuthEquippedUpgradeIds.has(upgrade.id) ? upgrade.slots : 0),
     0
-  );
+  ) + KNUTH_ADVANCED_UPGRADES.reduce((total, upgrade) => total + knuthAdvancedEquipped[upgrade.id] * upgrade.slots, 0);
 }
 
-function trimKnuthEquipmentToCapacity() {
-  for (const id of [...knuthEquippedUpgradeIds].reverse()) {
-    if (knuthSlotsUsed() <= knuthSlotCapacity()) break;
-    knuthEquippedUpgradeIds.delete(id);
-    refreshKnuthEquipmentDerivedState(id);
+function knuthAdvancedUnlocked() {
+  return knuthUnlocked && hasClaimedKnuthPoint && knuthBaseUpgradeLevel('advanced_equipment') > 0;
+}
+
+function knuthAdvancedEffect(id) {
+  const upgrade = KNUTH_ADVANCED_UPGRADES.find(item => item.id === id);
+  if (!upgrade || knuthAdvancedEquipped[id] <= 0 || !knuthAdvancedUnlocked()) return 1;
+  const count = knuthAdvancedEquipped[id];
+  if (!upgrade.diminishingPower || count <= KNUTH_ADVANCED_POWER_DECAY.fullCopies) {
+    return NumberMath.power(upgrade.effect, count);
   }
+  const tuning = KNUTH_ADVANCED_POWER_DECAY;
+  let bonus = upgrade.effect - 1;
+  let tailLog = 0;
+  // The tail decays doubly exponentially; stop below floating-point relevance, independent of count.
+  for (let i = 0; i < Math.min(count - tuning.fullCopies, 64); i++) {
+    bonus = Math.pow(bonus, tuning.bonusPower);
+    if (bonus < Number.EPSILON / 16) break;
+    tailLog += Math.log1p(bonus);
+  }
+  return multiplyNumberValue(NumberMath.power(upgrade.effect, tuning.fullCopies), Math.exp(tailLog));
+}
+
+function knuthAdvancedEffectPerCopy(upgrade, copyIndex = 1) {
+  const tuning = KNUTH_ADVANCED_POWER_DECAY;
+  return upgrade.diminishingPower && copyIndex > tuning.fullCopies
+    ? 1 + Math.pow(upgrade.effect - 1, Math.pow(tuning.bonusPower, copyIndex - tuning.fullCopies))
+    : upgrade.effect;
+}
+
+function applyKnuthAdvancedPower(id, value) {
+  return knuthAdvancedUnlocked() && knuthAdvancedEquipped[id] > 0 ? NumberMath.power(value, knuthAdvancedEffect(id)) : value;
+}
+
+function knuthAdvancedPercentPower() {
+  // Bulk integration requires a finite native exponent even with Higgs bonus slots.
+  if (!knuthAdvancedUnlocked() || knuthAdvancedEquipped.percent_power === 0) return 1;
+  return percentBatchInvariant('advanced-percent-power', () =>
+    Math.min(Number.MAX_VALUE / 16, Math.pow(1.05, knuthAdvancedEquipped.percent_power)));
+}
+
+function knuthAdvancedUpgradeCost(id) {
+  const upgrade = KNUTH_ADVANCED_UPGRADES.find(item => item.id === id);
+  return upgrade ? NumberMath.powerOfTen(addBaseNumbers(upgrade.startExponent,
+    multiplyNumberValue(knuthAdvancedOwned[id], upgrade.growthExponent))) : null;
+}
+
+function canBuyKnuthAdvancedUpgrade(id) {
+  return knuthAdvancedUnlocked() && KNUTH_ADVANCED_UPGRADES.some(upgrade => upgrade.id === id)
+    && knuthAdvancedOwned[id] < Number.MAX_SAFE_INTEGER
+    && compareUpgradeCost(knuthPoints, knuthAdvancedUpgradeCost(id)) >= 0;
+}
+
+function buyKnuthAdvancedUpgrade(id) {
+  if (!canBuyKnuthAdvancedUpgrade(id)) return false;
+  knuthPoints = NumberMath.floor(NumberMath.divideApproximate(knuthPoints, knuthAdvancedUpgradeCost(id)));
+  knuthAdvancedOwned[id]++;
+  render();
+  return true;
+}
+
+function normalizedKnuthEquipmentOrder(source = knuthEquipmentOrder) {
+  const remaining = new Map(KNUTH_SLOT_UPGRADES.filter(upgrade => knuthEquippedUpgradeIds.has(upgrade.id))
+    .map(upgrade => [`normal:${upgrade.id}`, 1]));
+  for (const upgrade of KNUTH_ADVANCED_UPGRADES) remaining.set(`advanced:${upgrade.id}`, knuthAdvancedEquipped[upgrade.id]);
+  const result = [];
+  for (const entry of Array.isArray(source) ? source : []) {
+    if (!entry || !['normal', 'advanced'].includes(entry.kind) || typeof entry.id !== 'string'
+      || !Number.isSafeInteger(entry.count) || entry.count <= 0) continue;
+    const key = `${entry.kind}:${entry.id}`, available = remaining.get(key) ?? 0;
+    const count = Math.min(entry.count, available);
+    if (count <= 0) continue;
+    result.push({ kind: entry.kind, id: entry.id, count });
+    remaining.set(key, available - count);
+  }
+  for (const id of knuthEquippedUpgradeIds) {
+    if (remaining.get(`normal:${id}`)) result.push({ kind: 'normal', id, count: 1 });
+  }
+  for (const upgrade of KNUTH_ADVANCED_UPGRADES) {
+    const count = remaining.get(`advanced:${upgrade.id}`);
+    if (count > 0) result.push({ kind: 'advanced', id: upgrade.id, count });
+  }
+  return result;
+}
+
+function appendKnuthEquipmentOrder(kind, id, count = 1) {
+  const last = knuthEquipmentOrder[knuthEquipmentOrder.length - 1];
+  if (last?.kind === kind && last.id === id) last.count += count;
+  else knuthEquipmentOrder.push({ kind, id, count });
+}
+
+function removeKnuthEquipmentOrder(kind, id, count = Infinity) {
+  for (let index = knuthEquipmentOrder.length - 1; index >= 0 && count > 0; index--) {
+    const entry = knuthEquipmentOrder[index];
+    if (entry.kind !== kind || entry.id !== id) continue;
+    const removed = Math.min(count, entry.count);
+    entry.count -= removed;
+    count -= removed;
+    if (entry.count === 0) knuthEquipmentOrder.splice(index, 1);
+  }
+}
+
+function refreshKnuthAdvancedDerivedState(id) {
+  if (id === 'group_effect' && divergerAvailable()) divergerPower = divergerProductionValue();
+}
+
+function changeKnuthAdvancedEquipment(id, equip, all = false) {
+  const upgrade = KNUTH_ADVANCED_UPGRADES.find(item => item.id === id);
+  if (!upgrade || (equip && !knuthAdvancedUnlocked())) return false;
+  const available = equip ? Math.min(knuthAdvancedOwned[id] - knuthAdvancedEquipped[id],
+    Math.max(0, Math.floor((knuthSlotCapacity() - knuthSlotsUsed()) / upgrade.slots))) : knuthAdvancedEquipped[id];
+  const count = all ? available : Math.min(1, available);
+  if (count <= 0) return false;
+  knuthEquipmentOrder = normalizedKnuthEquipmentOrder();
+  knuthAdvancedEquipped[id] += equip ? count : -count;
+  if (equip) appendKnuthEquipmentOrder('advanced', id, count);
+  else removeKnuthEquipmentOrder('advanced', id, count);
+  refreshKnuthAdvancedDerivedState(id);
+  render();
+  return true;
+}
+
+function loadKnuthAdvancedEquipmentState(saved) {
+  for (const upgrade of KNUTH_ADVANCED_UPGRADES) {
+    const owned = saved.knuthAdvancedOwned?.[upgrade.id], equipped = saved.knuthAdvancedEquipped?.[upgrade.id];
+    knuthAdvancedOwned[upgrade.id] = Number.isSafeInteger(owned) && owned >= 0 ? owned : 0;
+    knuthAdvancedEquipped[upgrade.id] = Number.isSafeInteger(equipped) && equipped >= 0
+      ? Math.min(equipped, knuthAdvancedOwned[upgrade.id], Math.floor(Number.MAX_SAFE_INTEGER / upgrade.slots)) : 0;
+  }
+  knuthEquipmentOrder = Array.isArray(saved.knuthEquipmentOrder) ? saved.knuthEquipmentOrder : [];
+}
+
+function clearKnuthEquipment() {
+  knuthEquippedUpgradeIds.clear();
+  for (const upgrade of KNUTH_ADVANCED_UPGRADES) knuthAdvancedEquipped[upgrade.id] = 0;
+  knuthEquipmentOrder = [];
+}
+
+function trimKnuthEquipmentToCapacity({ refresh = true } = {}) {
+  knuthEquipmentOrder = normalizedKnuthEquipmentOrder();
+  let excess = Math.max(0, knuthSlotsUsed() - knuthSlotCapacity()), removed = 0;
+  for (let index = knuthEquipmentOrder.length - 1; index >= 0 && excess > 0; index--) {
+    const entry = knuthEquipmentOrder[index];
+    const upgrade = (entry.kind === 'normal' ? KNUTH_SLOT_UPGRADES : KNUTH_ADVANCED_UPGRADES).find(item => item.id === entry.id);
+    const count = Math.min(entry.count, Math.ceil(excess / upgrade.slots));
+    if (entry.kind === 'normal') {
+      knuthEquippedUpgradeIds.delete(entry.id);
+      if (refresh) refreshKnuthEquipmentDerivedState(entry.id);
+    } else {
+      knuthAdvancedEquipped[entry.id] -= count;
+      if (refresh) refreshKnuthAdvancedDerivedState(entry.id);
+    }
+    excess = Math.max(0, excess - count * upgrade.slots);
+    removed += count;
+    entry.count -= count;
+    if (entry.count === 0) knuthEquipmentOrder.splice(index, 1);
+  }
+  return removed;
 }
 
 function hasKnuthUpgrade(id) {
@@ -1786,7 +2958,8 @@ function knuthDivergerBlackHoleMultiplier() {
 }
 
 function singularityHoldingLimit() {
-  return addBaseNumbers(KNUTH_LATE_BASE_BALANCE.singularityBaseLimit, knuthBaseUpgradeEffectLevel('singularity_limit'));
+  const base = addBaseNumbers(KNUTH_LATE_BASE_BALANCE.singularityBaseLimit, knuthBaseUpgradeEffectLevel('singularity_limit'));
+  return NumberMath.floor(multiplyNumberValue(base, abstractionMassSingularityLimitMultiplier()));
 }
 
 function singularityRadiusGrowth() {
@@ -1849,13 +3022,49 @@ function singularityUpgradeCost(id) {
 }
 
 function loadSingularityState(saved) {
-  singularityPoints = NumberMath.floor(numberValueFromSave(saved.singularityPoints));
+  abstractionPermanentSingularities = NumberMath.floor(numberValueFromSave(saved.abstractionPermanentSingularities));
+  setSingularityPoints(NumberMath.floor(numberValueFromSave(saved.singularityPoints)));
   totalSingularitiesPurchased = NumberMath.max(
     singularityPoints, NumberMath.floor(numberValueFromSave(saved.totalSingularitiesPurchased))
   );
   for (const upgrade of SINGULARITY_UPGRADES) {
     singularityUpgradeLevels[upgrade.id] = NumberMath.floor(numberValueFromSave(saved.singularityUpgradeLevels?.[upgrade.id]));
   }
+}
+
+function setSingularityPoints(value) {
+  singularityPoints = abstractionPermanentStorageActive('26-2')
+    ? NumberMath.max(value, abstractionPermanentSingularities) : value;
+  return singularityPoints;
+}
+
+function abstractionSingularityStorageCapacity() {
+  if (!abstractionPermanentStorageActive('26-2') || typeof numberBlackHoleAvailable !== 'function'
+    || !numberBlackHoleAvailable()) return 0;
+  const tuning = ABSTRACTION_PRODUCTION_BRANCH_BALANCE;
+  const scaledRadius = NumberMath.divideApproximate(numberBlackHoleSchwarzschildRadius(), tuning.reserveRadiusScale);
+  return NumberMath.floor(multiplyNumberValue(tuning.reservePerRadiusDecade,
+    NumberMath.log10(addBaseNumbers(1, scaledRadius))));
+}
+
+function abstractionSingularityBonus(radius) {
+  if (!abstractionPermanentStorageActive('26-2') || !isPositiveNumberValue(radius)) return 0;
+  const tuning = ABSTRACTION_PRODUCTION_BRANCH_BALANCE;
+  const logarithm = NumberMath.log10(addBaseNumbers(1,
+    NumberMath.divideApproximate(radius, tuning.singularityBonusRadiusScale)));
+  return addBaseNumbers(1, NumberMath.floor(multiplyNumberValue(tuning.singularityBonusStrength,
+    NumberMath.power(logarithm, tuning.singularityBonusCurve))));
+}
+
+function recordAbstractionPermanentSingularities() {
+  if (!abstractionPermanentStorageActive('26-2')) return;
+  const candidate = NumberMath.min(singularityPoints, abstractionSingularityStorageCapacity());
+  abstractionPermanentSingularities = NumberMath.max(abstractionPermanentSingularities, candidate);
+}
+
+function restoreAbstractionPermanentSingularities() {
+  setSingularityPoints(singularityPoints);
+  recordAbstractionPermanentSingularities();
 }
 
 function refreshKnuthEquipmentDerivedState(id) {
@@ -1872,6 +3081,7 @@ function knuthPercentOverflowMultiplier(overflow = knuthPercentOverflow) {
 }
 
 function knuthSpCpGainMultiplier(resource = 'sp') {
+  if (isKnuthChallengeActive('kc6')) return 1;
   let multiplier = 1;
   if (hasKnuthUpgrade('knuth_time_gain')) {
     multiplier = addBaseNumbers(multiplier, NumberMath.power(abstractionEffectiveTime(), 0.5));
@@ -1905,26 +3115,76 @@ function divergerPercentPriceShiftAmount() {
   return numberValueFromReal(divergerPercentPriceShiftMilestones() * 1e10);
 }
 
-function knuthOperationUpgradeCost() {
+function knuthOperationLegacyCost(level) {
   // L purchases quote purchase L+1; the first purchase has no growth factor.
-  const doubles = Math.min(knuthOperationLevel, 99);
-  const quadruples = Math.min(Math.max(0, knuthOperationLevel - 99), 100);
-  const octuples = Math.max(0, knuthOperationLevel - 199);
+  const doubles = Math.min(level, 99);
+  const quadruples = Math.min(Math.max(0, level - 99), 100);
+  const octuples = Math.max(0, level - 199);
   return multiplyNumberValue(NumberMath.power(2, doubles), multiplyNumberValue(
     NumberMath.power(4, quadruples), NumberMath.power(8, octuples)
   ));
 }
 
+function knuthOperationMaxLevel() {
+  return hasCompletedKnuthChallenge('kc6') ? Number.MAX_SAFE_INTEGER : KNUTH_OPERATION_MAX_LEVEL;
+}
+
+function knuthOperationRewardCostAfterPurchases(cost, purchases, referenceCost = cost) {
+  if (cost === null || purchases <= 0) return cost;
+  if (!independentUpgradePriceReferenceActive()) {
+    const threshold = NumberMath.powerOfTen(KC6_BALANCE.kpBandStartExponent);
+    if (compareUpgradeCost(cost, threshold) < 0) {
+      const toBoundary = Math.max(1, Math.ceil((KC6_BALANCE.kpBandStartExponent - numberLog10(cost))
+        / KC6_BALANCE.operationGrowthExponent));
+      const count = Math.min(purchases, toBoundary);
+      cost = multiplyNumberValue(cost, NumberMath.powerOfTen(KC6_BALANCE.operationGrowthExponent * count));
+      purchases -= count;
+    }
+    if (purchases <= 0) return cost;
+    const logarithm = NumberMath.isScientific(cost.exponent) && NumberMath.isScientific(cost.exponent.exponent)
+      ? cost.exponent : NumberMath.log10(cost);
+    return upgradePriceFromExponent(feedbackBandedUpgradePriceExponent(logarithm,
+      KC6_BALANCE.operationGrowthExponent, purchases, KC6_BALANCE));
+  }
+  const increment = referenceBandedGrowthExponent(referenceCost, KC6_BALANCE.operationGrowthExponent,
+    KC6_BALANCE.operationGrowthExponent, purchases, KC6_BALANCE);
+  return increment === null ? null : multiplyNumberValue(cost, NumberMath.powerOfTen(increment));
+}
+
+let knuthOperationRewardCostCache = null;
+function knuthOperationUpgradeCost() {
+  if (!hasCompletedKnuthChallenge('kc6') || knuthOperationLevel < KNUTH_OPERATION_MAX_LEVEL) {
+    return knuthOperationLegacyCost(knuthOperationLevel);
+  }
+  const rule = `${JSON.stringify(KC6_BALANCE)}:${independentUpgradePriceReferenceActive()}`;
+  const cached = knuthOperationRewardCostCache;
+  if (cached && cached.rule === rule && cached.level === knuthOperationLevel) return cached.cost;
+  const startCost = multiplyNumberValue(
+    knuthOperationLegacyCost(KNUTH_OPERATION_MAX_LEVEL - 1), NumberMath.powerOfTen(KC6_BALANCE.operationGrowthExponent));
+  const cost = knuthOperationRewardCostAfterPurchases(startCost, knuthOperationLevel - KNUTH_OPERATION_MAX_LEVEL);
+  knuthOperationRewardCostCache = { level: knuthOperationLevel, rule, cost };
+  return cost;
+}
+
+function knuthOperationReferenceCost() {
+  if (!independentUpgradePriceReferenceActive()) return knuthOperationUpgradeCost();
+  if (!hasCompletedKnuthChallenge('kc6') || knuthOperationLevel < KNUTH_OPERATION_MAX_LEVEL) {
+    return knuthOperationLegacyCost(knuthOperationLevel);
+  }
+  return multiplyNumberValue(knuthOperationLegacyCost(KNUTH_OPERATION_MAX_LEVEL - 1),
+    NumberMath.powerOfTen(KC6_BALANCE.operationGrowthExponent * (knuthOperationLevel - KNUTH_OPERATION_MAX_LEVEL + 1)));
+}
+
 function canBuyKnuthOperationUpgrade() {
-  return !isKnuthChallengeActive('kc5') && knuthOperationLevel < KNUTH_OPERATION_MAX_LEVEL
-    && compareNumberValues(knuthPoints, knuthOperationUpgradeCost()) >= 0;
+  return !isKnuthChallengeActive('kc5') && knuthOperationLevel < knuthOperationMaxLevel()
+    && compareUpgradeCost(knuthPoints, knuthOperationUpgradeCost()) >= 0;
 }
 
 function buyKnuthOperationUpgrade({ renderAfter = true } = {}) {
   if (!canBuyKnuthOperationUpgrade()) return false;
   const cost = knuthOperationUpgradeCost();
 
-  knuthPoints = subtractNumberValues(knuthPoints, cost);
+  knuthPoints = compareUpgradeCost(knuthPoints, cost) === 0 ? 0 : subtractNumberValues(knuthPoints, cost);
   knuthOperationLevel += 1;
   if (renderAfter) render();
   return true;
@@ -1934,9 +3194,11 @@ function toggleKnuthUpgrade(id) {
   const upgrade = KNUTH_SLOT_UPGRADES.find(item => item.id === id);
   if (!upgrade) return false;
 
+  knuthEquipmentOrder = normalizedKnuthEquipmentOrder();
   if (knuthEquippedUpgradeIds.has(id)) {
     if (!hasCompletedKnuthChallenge('kc1')) return false;
     knuthEquippedUpgradeIds.delete(id);
+    removeKnuthEquipmentOrder('normal', id);
     refreshKnuthEquipmentDerivedState(id);
     render();
     return true;
@@ -1944,6 +3206,7 @@ function toggleKnuthUpgrade(id) {
   if (knuthSlotsUsed() + upgrade.slots > knuthSlotCapacity()) return false;
 
   knuthEquippedUpgradeIds.add(id);
+  appendKnuthEquipmentOrder('normal', id);
   refreshKnuthEquipmentDerivedState(id);
   if (typeof observeAchievementProductionUnlocks === 'function') observeAchievementProductionUnlocks();
   render();
@@ -2213,7 +3476,18 @@ function dysonEffectNumber() {
 
 function effectiveDysonSwarmLevel() {
   if (isKnuthChallengeActive('kc1')) return 0;
-  return squareBreakthroughLevel('dyson_swarm');
+  return squareBreakthroughLevel('dyson_swarm') + abstractionDivergerDysonBonus();
+}
+
+function abstractionDivergerDysonBonus() {
+  if (!hasAbstractionResearch('19-2') || !divergerAvailable() || isKnuthChallengeActive('kc1')) return 0;
+  return percentBatchInvariant('diverger-dyson-bonus', () => {
+    // Excluding Dyson's own boost prevents the bonus from feeding itself.
+    const logarithm = NumberMath.log10(addBaseNumbers(1, divergerProductionBeforeDyson()));
+    const { divergerDysonMaxBonus, divergerDysonLogScale } = ABSTRACTION_TIER19_BALANCE;
+    const ratio = NumberMath.divideApproximate(logarithm, addBaseNumbers(logarithm, divergerDysonLogScale));
+    return NumberMath.toNumber(NumberMath.floor(multiplyNumberValue(divergerDysonMaxBonus, ratio)));
+  });
 }
 
 function affectedNumberMultiplierValue(base, level) {
@@ -2272,7 +3546,10 @@ function squareBreakthroughOrdinaryMax(upgrade) {
 }
 
 function squareBreakthroughMax(upgrade) {
-  const extra = upgrade.id === 'dyson_swarm' ? knuthBaseUpgradeEffectLevel('dyson_limit') * (hasAbstractionResearch('17-3') ? 2 : 1)
+  const dysonExtra = knuthBaseUpgradeEffectLevel('dyson_limit') * (hasAbstractionResearch('17-3') ? 2 : 1);
+  const extra = upgrade.id === 'dyson_swarm' ? hasSpaceExpansionOneTimeUpgrade('group_boost')
+    ? NumberMath.toNumber(NumberMath.min(Number.MAX_SAFE_INTEGER,
+      NumberMath.floor(multiplyNumberValue(dysonExtra, spaceExpansionGroupMultiplier())))) : dysonExtra
     : upgrade.id === 'overclock' ? knuthBaseUpgradeEffectLevel('overclock_limit') * 4 : 0;
   return Math.min(Number.MAX_SAFE_INTEGER, squareBreakthroughOrdinaryMax(upgrade) + extra);
 }
@@ -2387,7 +3664,8 @@ function squareDimensionPower(index = 0) {
     squareDimensionVolume(index),
     squareDimensionPowerExponent(index)
   );
-  return multiplyNumberValue(multiplyNumberValue(basePower, divergerSquareDimensionMultiplier()), knuthBaseMultiplier('dimension_gain', 4));
+  return multiplyNumberValue(basePower, spaceExpansionMultiplier(
+    multiplyNumberValue(divergerSquareDimensionMultiplier(), knuthBaseMultiplier('dimension_gain', 4))));
 }
 
 function setSquareDimensionPowerForDev(value, index = 0) {
@@ -2400,7 +3678,8 @@ function setSquareDimensionPowerForDev(value, index = 0) {
   }
 
   const exponent = squareDimensionPowerExponent(index);
-  const basePower = divideNumberValue(value, multiplyNumberValue(divergerSquareDimensionMultiplier(), knuthBaseMultiplier('dimension_gain', 4)));
+  const basePower = divideNumberValue(value, spaceExpansionMultiplier(
+    multiplyNumberValue(divergerSquareDimensionMultiplier(), knuthBaseMultiplier('dimension_gain', 4))));
   const targetVolume = NumberMath.powerApproximate(basePower, 1 / exponent);
   const scalePower = NumberMath.power(
     SQUARE_DIMENSION_SCALE,
@@ -2513,7 +3792,7 @@ function buySquareDimensionSide(side, index = 0, renderAfter = true) {
   const cost = squareDimensionSideCost(side, index);
   if (compareNumberValues(squarePoints, cost) < 0) return false;
 
-  squarePoints = subtractNumberValues(squarePoints, cost);
+  setSquarePoints(subtractNumberValues(squarePoints, cost));
   if (side === 'z') {
     dimension.zGrowthLevel = addBaseNumbers(dimension.zGrowthLevel, 1);
     dimension.zCost = multiplyNumberValue(dimension.zCost, 2);
@@ -2569,7 +3848,7 @@ function buySquareDimensionSideMaximum(side, index = 0) {
   const totalCost = squareDimensionSideBulkCost(cost, purchases);
   const nextCost = multiplyNumberValue(cost, NumberMath.power(2, purchases));
 
-  squarePoints = subtractNumberValues(squarePoints, totalCost);
+  setSquarePoints(subtractNumberValues(squarePoints, totalCost));
   if (side === 'z') {
     dimension.zGrowthLevel = addBaseNumbers(dimension.zGrowthLevel, numberValueFromReal(purchases));
     dimension.zCost = nextCost;
@@ -2591,7 +3870,7 @@ function buySquareDimensionPowerTimeUpgrade(index = 0, renderAfter = true) {
   }
   if (compareNumberValues(squarePoints, dimension.powerIntervalCost) < 0) return false;
 
-  squarePoints = subtractNumberValues(squarePoints, dimension.powerIntervalCost);
+  setSquarePoints(subtractNumberValues(squarePoints, dimension.powerIntervalCost));
   dimension.powerInterval = Math.max(
     SQUARE_DIMENSION_MIN_PRODUCTION_INTERVAL,
     Math.ceil(dimension.powerInterval / 2)
@@ -2607,7 +3886,7 @@ function buySquareDimensionPowerStrength(index = 0, renderAfter = true) {
   const cost = multiplyNumberValue(SQUARE_DIMENSION_POWER_STRENGTH_COST, index === 0 ? 1 : 2);
   if (compareNumberValues(squarePoints, cost) < 0) return false;
 
-  squarePoints = subtractNumberValues(squarePoints, cost);
+  setSquarePoints(subtractNumberValues(squarePoints, cost));
   dimension.powerStrengthUnlocked = true;
   log(
     hasGeneralizationResearch('5-1')
@@ -2689,7 +3968,7 @@ function advanceSquareDimensionAutoUpgrade(elapsedMs) {
     return false;
   }
 
-  squareDimensionAutoUpgradeTimer += elapsedMs * autoUpgradeSpeedMultiplier();
+  squareDimensionAutoUpgradeTimer += autoUpgradeElapsedTime(elapsedMs);
   const operationLimit = SQUARE_DIMENSION_AUTO_UPGRADE_BATCH_LIMIT;
   if (!Number.isFinite(squareDimensionAutoUpgradeTimer)) {
     squareDimensionAutoUpgradeTimer = Number.MAX_VALUE;
@@ -2779,16 +4058,17 @@ function advanceSquareDimensions(elapsedMs) {
 }
 
 function squarePointBaseGain() {
+  if (isKnuthChallengeActive('kc6')) return 1;
   let gain = hasSquareUpgrade('sp_gain_double') ? 2 : 1;
   gain = multiplyNumberValue(gain, affectedNumberMultiplierValue(2, squareBreakthroughLevel('extra_investment')));
   return multiplyNumberValue(gain, knuthBaseMultiplier('sp_gain', 10000));
 }
 
 function squarePointGain() {
-  return multiplyNumberValue(
+  return spaceExpansionMultiplier(multiplyNumberValue(
     squarePointBaseGain(),
     knuthSpCpGainMultiplier()
-  );
+  ));
 }
 
 function knuthChallengeTheoryRewardMultiplier() {
@@ -2808,10 +4088,7 @@ function squarePointGainForValue(value) {
       NumberMath.log10(divideNumberValue(value, requirement)),
       1
     );
-  return multiplyNumberValue(
-    multiplyNumberValue(squarePointBaseGain(), gain),
-    knuthSpCpGainMultiplier()
-  );
+  return spaceExpansionFinalSpGain(multiplyNumberValue(gain, squarePointGain()));
 }
 
 function abstractionSpGainPerGameSecond() {
@@ -2823,18 +4100,62 @@ function abstractionSpGainPerRealSecond() {
   return multiplyNumberValue(abstractionSpGainPerGameSecond(), gameTick(1000) / 1000);
 }
 
+function abstractionCpGainPerRealSecond() {
+  return hasAbstractionResearch('23-1')
+    ? multiplyNumberValue(squareConvergencePointGain(), ABSTRACTION_TIER23_BALANCE.passiveCpFraction) : 0;
+}
+
+function abstractionRandomPowerKpMultiplier() {
+  if (!hasAbstractionResearch('23-2') || !isPositiveNumberValue(randomPower)) return 1;
+  const tuning = ABSTRACTION_TIER23_BALANCE;
+  const scaledLog = NumberMath.divideApproximate(NumberMath.log10(addBaseNumbers(1, randomPower)),
+    tuning.randomPowerKpLogScale);
+  return NumberMath.powerOfTen(multiplyNumberValue(tuning.randomPowerKpExponent,
+    NumberMath.power(scaledLog, tuning.randomPowerKpCurve)));
+}
+
+function abstractionRandomPowerPercentMultiplier() {
+  if (!hasAbstractionResearch('24-1') || !isPositiveNumberValue(randomPower)) return 1;
+  const tuning = ABSTRACTION_TIER24_BALANCE;
+  const scaledLog = NumberMath.divideApproximate(NumberMath.log10(addBaseNumbers(1, randomPower)),
+    tuning.randomPowerLogScale);
+  return NumberMath.powerOfTen(multiplyNumberValue(tuning.percentLogStrength,
+    NumberMath.power(scaledLog, tuning.percentCurve)));
+}
+
+function setSquarePoints(value, restorePermanent = true) {
+  const hasReserve = restorePermanent && abstractionPermanentStorageActive('23-3') && isPositiveNumberValue(abstractionPermanentSp);
+  squarePoints = hasReserve ? NumberMath.max(value, abstractionPermanentSp) : value;
+  if (hasReserve) squareUnlocked = true;
+  return squarePoints;
+}
+
+function recordAbstractionPermanentSp() {
+  if (!abstractionPermanentStorageActive('23-3')) return;
+  abstractionPermanentSp = NumberMath.max(abstractionPermanentSp,
+    multiplyNumberValue(squarePoints, ABSTRACTION_TIER23_BALANCE.permanentSpFraction));
+}
+
 function advanceAbstraction(elapsedRealMs) {
   const elapsed = Number(elapsedRealMs);
-  if (!hasAbstractionResearch('1-1') || !Number.isFinite(elapsed) || elapsed <= 0) return false;
-
-  const possibleSp = squarePointGainForValue(getBaseNumber());
-  if (compareNumberValues(possibleSp, 0) <= 0) return false;
-  const gameElapsedMs = gameTick(elapsed);
-  const gainedSp = multiplyNumberValue(possibleSp, gameElapsedMs / 100000);
-  if (compareNumberValues(gainedSp, 0) <= 0) return false;
-
-  squarePoints = addBaseNumbers(squarePoints, gainedSp);
-  return true;
+  if (!Number.isFinite(elapsed) || elapsed <= 0) return false;
+  if (!hasAbstractionResearch('1-1') && !hasAbstractionResearch('23-1')) return false;
+  const gainedCp = multiplyNumberValue(abstractionCpGainPerRealSecond(), elapsed / 1000);
+  let changed = false;
+  if (isPositiveNumberValue(gainedCp)) {
+    squareConvergencePoints = addBaseNumbers(squareConvergencePoints, gainedCp);
+    hasEverEarnedSquareConvergencePoint = true;
+    squareConvergenceUnlocked = true;
+    changed = true;
+  }
+  if (hasAbstractionResearch('1-1')) {
+    const gainedSp = multiplyNumberValue(squarePointGainForValue(getBaseNumber()), gameTick(elapsed) / 100000);
+    if (isPositiveNumberValue(gainedSp)) {
+      setSquarePoints(addBaseNumbers(squarePoints, gainedSp));
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 function squarePointExchangeRequirement() {
@@ -2869,7 +4190,7 @@ function effectivePerClickMultiplier() {
     multiplier,
     affectedNumberMultiplierValue(8, squareBreakthroughLevel('doctor_octopus'))
   );
-  return multiplyNumberValue(multiplier, squareDimensionNumberMultiplier());
+  return spaceExpansionMultiplier(multiplyNumberValue(multiplier, squareDimensionNumberMultiplier()));
 }
 
 function maybeUnlockPercent() {
@@ -2962,14 +4283,32 @@ function grantPercentPower(currentPower, currentBonus, purchaseNumber) {
 }
 
 function percentPowerSoftcapBonusLevels() {
-  return 4 * dysonEffectNumber() * squareBreakthroughLevel('overclock');
+  return multiplyNumberValue(4 * squareBreakthroughLevel('overclock'), dysonEffectMultiplier());
+}
+
+function percentPowerPriceAccelerationBonusLevels() {
+  return multiplyNumberValue(2 * squareBreakthroughLevel('bottleneck_tracker'), dysonEffectMultiplier());
 }
 
 function percentPowerPriceAccelerationStart() {
-  const baseStart = 8 + (2 * dysonEffectNumber() * squareBreakthroughLevel('bottleneck_tracker'));
-  if (!hasKnuthUpgrade('diverger_percent_price_delay')) return baseStart;
+  if (percentPriceValidationCache?.start !== undefined) return percentPriceValidationCache.start;
+  const baseStart = addBaseNumbers(8, percentPowerPriceAccelerationBonusLevels());
+  const start = hasKnuthUpgrade('diverger_percent_price_delay')
+    ? addBaseNumbers(baseStart, multiplyNumberValue(divergerPercentPriceShiftMilestones(), 1e10)) : baseStart;
+  if (percentPriceValidationCache) percentPriceValidationCache.start = start;
+  return start;
+}
 
-  return baseStart + divergerPercentPriceShiftMilestones() * 1e10;
+let percentPriceValidationCache = null;
+
+function withPercentPriceValidationCache(operation) {
+  if (percentPriceValidationCache !== null) return operation();
+  percentPriceValidationCache = {};
+  try {
+    return operation();
+  } finally {
+    percentPriceValidationCache = null;
+  }
 }
 
 function percentPowerSoftcapDecayPower() {
@@ -2980,16 +4319,18 @@ function percentPowerSoftcapDecayPower() {
 
 function percentEfficiencyMultiplierNumerator() {
   const bottleneckEfficiencyMultiplier = hasGeneralizationResearch('1-1') ? 2 : 1;
-  return 4 + (bottleneckEfficiencyMultiplier * dysonEffectNumber() * squareBreakthroughLevel('bottleneck_tracker'));
+  return addBaseNumbers(4, multiplyNumberValue(
+    bottleneckEfficiencyMultiplier * squareBreakthroughLevel('bottleneck_tracker'), dysonEffectMultiplier()
+  ));
 }
 
 function percentEfficiencyMultiplier() {
-  return percentEfficiencyMultiplierNumerator() / 4;
+  return NumberMath.divideApproximate(percentEfficiencyMultiplierNumerator(), 4);
 }
 
 function applyPercentEfficiency(gain) {
   return divideNumberValue(
-    multiplyNumberValue(gain, numberValueFromReal(percentBatchInvariant('efficiency', percentEfficiencyMultiplierNumerator))),
+    multiplyNumberValue(gain, percentBatchInvariant('efficiency', percentEfficiencyMultiplierNumerator)),
     4
   );
 }
@@ -2997,9 +4338,11 @@ function applyPercentEfficiency(gain) {
 function percentPowerUpgradeCostForNextLevel(currentPower, baseCost = 40000) {
   const nextPower = normalizedPercentPower(currentPower) + 1;
   const standardExponent = nextPower - 2;
-  const acceleratedLevels = Math.max(0, nextPower - percentPowerPriceAccelerationStart());
-  const acceleratedExponent = (acceleratedLevels * (acceleratedLevels + 1)) / 2;
-  return multiplyNumberValue(baseCost, powerOfTenValue(standardExponent + acceleratedExponent));
+  const acceleratedLevels = subtractNumberValues(nextPower, percentPowerPriceAccelerationStart());
+  const acceleratedExponent = NumberMath.divideApproximate(
+    multiplyNumberValue(acceleratedLevels, addBaseNumbers(acceleratedLevels, 1)), 2
+  );
+  return multiplyNumberValue(baseCost, powerOfTenValue(addBaseNumbers(standardExponent, acceleratedExponent)));
 }
 
 function percentPowerSoftcap(power, purchaseBonus = 0) {
@@ -3011,7 +4354,10 @@ function calculatePercentPowerSoftcap(powerLevel) {
   const powerExponent = hasGeneralizationResearch('5-4')
     ? Math.pow(powerLevel, 1.5)
     : powerLevel;
-  const exponent = powerExponent + percentPowerSoftcapBonusLevels() - 1;
+  const bonusLevels = percentPowerSoftcapBonusLevels();
+  const exponent = typeof bonusLevels === 'number' && Number.isFinite(powerExponent)
+    ? powerExponent + bonusLevels - 1
+    : subtractNumberValues(addBaseNumbers(powerExponent, bonusLevels), 1);
   const scale = hasGeneralizationResearch('5-4') || !Number.isSafeInteger(exponent)
     ? NumberMath.powerApproximate(10, exponent)
     : powerOfTenValue(exponent);
@@ -3027,7 +4373,16 @@ function calculatePercentPowerSoftcap(powerLevel) {
   }
   softcap = multiplyNumberValue(softcap, knuthEquipmentPercentMultiplier());
   if (hasKnuthUpgrade('percent_softcap_square')) softcap = NumberMath.power(softcap, 2);
-  return isPositiveNumberValue(singularityPoints) ? multiplyNumberValue(softcap, singularitySoftcapMultiplier()) : softcap;
+  if (isPositiveNumberValue(singularityPoints)) {
+    softcap = multiplyNumberValue(softcap, singularitySoftcapMultiplier());
+    if (hasAbstractionResearch('19-1')) {
+      const { softcapPowerStrength, singularityScale } = ABSTRACTION_TIER19_BALANCE;
+      const ratio = NumberMath.divideApproximate(singularityPoints, addBaseNumbers(singularityPoints, singularityScale));
+      const power = addBaseNumbers(1, multiplyNumberValue(softcapPowerStrength, ratio));
+      softcap = NumberMath.powerApproximate(softcap, power);
+    }
+  }
+  return softcap;
 }
 
 function percentPowerGrowthLimit(power, purchaseBonus = 0) {
@@ -3069,7 +4424,8 @@ function finalNumberProductionGain(
   currentValue = getBaseNumber(),
   softcapPower = percentPower,
   purchaseBonus = percentPowerPurchaseBonus,
-  finalExponent = 1
+  finalExponent = 1,
+  finalGainExponent = 1
 ) {
   const softenedGain = applyPercentSoftcapToProduction(
     baseGain,
@@ -3078,11 +4434,17 @@ function finalNumberProductionGain(
     purchaseBonus
   );
   const gain = multiplyNumberValue(softenedGain, finalMultiplier);
-  return finalExponent === 1 ? gain : NumberMath.power(gain, finalExponent);
+  const poweredGain = finalExponent === 1 ? gain : NumberMath.power(gain, finalExponent);
+  return finalGainExponent === 1 ? poweredGain : NumberMath.power(poweredGain, finalGainExponent);
+}
+
+function percentChallengeProductionExponent() {
+  return isKnuthChallengeActive('kc6') ? KC6_BALANCE.percentGainExponent : 1;
 }
 
 function percentProductionExponent() {
-  return (hasAbstractionResearch('8-2') ? 4 : 1) * (hasKnuthUpgrade('percent_gain_square') ? 2 : 1);
+  return (hasAbstractionResearch('8-2') ? 4 : 1) * (hasKnuthUpgrade('percent_gain_square') ? 2 : 1)
+    * knuthAdvancedPercentPower();
 }
 
 function percentPreExponentMultiplier(value) {
@@ -3092,9 +4454,14 @@ function percentPreExponentMultiplier(value) {
     ? multiplier
     : NumberMath.power(multiplier, 1 / researchExponent);
   // A singularity scales the final gain linearly, not once per production power.
-  return isPositiveNumberValue(singularityPoints)
-    ? multiplyNumberValue(existing, NumberMath.power(singularityPercentMultiplier(), 1 / percentProductionExponent()))
+  const withSingularities = isPositiveNumberValue(singularityPoints)
+    ? multiplyNumberValue(existing, NumberMath.power(singularityPercentMultiplier(),
+      1 / ((hasAbstractionResearch('8-2') ? 4 : 1) * (hasKnuthUpgrade('percent_gain_square') ? 2 : 1))))
     : existing;
+  const randomMultiplier = percentBatchInvariant('final-extra-percent', percentFinalExtraMultiplier);
+  // Cancel the later production exponent so this research multiplies the final gain exactly once.
+  return compareNumberValues(randomMultiplier, 1) === 0 ? withSingularities
+    : multiplyNumberValue(withSingularities, NumberMath.power(randomMultiplier, 1 / percentProductionExponent()));
 }
 
 function percentGain(value, power, purchaseBonus = 0) {
@@ -3114,11 +4481,28 @@ function percentUseGain(value, power, purchaseBonus = 0) {
 }
 
 function applyPercentUse(value, power, source, purchaseBonus = 0) {
-  const gain = percentUseGain(value, power, purchaseBonus);
+  const gain = percentProductionBaseGain(value, power, purchaseBonus);
   if (!isPositiveNumberValue(gain)) return 0;
   if (typeof recordAchievementPercentUse === 'function') recordAchievementPercentUse();
-  addToBaseNumber(gain, source, power, purchaseBonus, percentPreExponentMultiplier(value), percentProductionExponent());
+  addToBaseNumber(gain, source, power, purchaseBonus, percentExpansionFinalMultiplier(value),
+    percentProductionExponent(), percentChallengeProductionExponent());
   return gain;
+}
+
+function percentProductionBaseGain(value, power, purchaseBonus = 0) {
+  return spaceExpansionActive
+    ? divideNumberValue(multiplyNumberValue(value, numberValueFromReal(percentEffectivePower(power, purchaseBonus))), 100)
+    : percentUseGain(value, power, purchaseBonus);
+}
+
+function percentExpansionFinalMultiplier(value) {
+  const multiplier = percentPreExponentMultiplier(value);
+  if (!spaceExpansionActive) return multiplier;
+  // Build the aggregate directly: cancelling enormous old/new boosts can lose the new exponent.
+  const baseMultiplier = multiplyNumberValue(percentEfficiencyMultiplier(), multiplyNumberValue(
+    percentBatchInvariant('dimensions', squareDimensionNumberMultiplier),
+    percentBatchInvariant('abstraction', abstractionPercentGainMultiplier)));
+  return spaceExpansionMultiplier(multiplyNumberValue(baseMultiplier, multiplier));
 }
 
 const PERCENT_USE_BULK_EXACT_LIMIT = 64;
@@ -3146,7 +4530,7 @@ function withPercentProductionCache(operation) {
 function percentFinalUseGain(value, power, purchaseBonus = 0) {
   const exponent = percentProductionExponent();
   const softcap = percentPowerSoftcap(power, purchaseBonus);
-  if (percentPowerSoftcapDecayPower() === 1
+  if (!spaceExpansionActive && percentPowerSoftcapDecayPower() === 1
     && isApproximateNumber(value) && isApproximateNumber(softcap)
     && typeof value.exponent === 'number' && value.exponent <= 1e9
     && typeof softcap.exponent === 'number'
@@ -3159,18 +4543,27 @@ function percentFinalUseGain(value, power, purchaseBonus = 0) {
       return exponent === 1 ? gain : NumberMath.power(gain, exponent);
     });
     const multiplier = multiplyNumberValue(abstractionNumberPercentMultiplier(value), knuthEquipmentPercentMultiplier());
+    const multiplierPower = (hasKnuthUpgrade('percent_gain_square') ? 2 : 1) * knuthAdvancedPercentPower();
     const finalGain = multiplyNumberValue(constantGain,
-      hasKnuthUpgrade('percent_gain_square') ? NumberMath.power(multiplier, 2) : multiplier);
-    return isPositiveNumberValue(singularityPoints)
-      ? multiplyNumberValue(finalGain, singularityPercentMultiplier()) : finalGain;
+      multiplierPower === 1 ? multiplier : NumberMath.power(multiplier, multiplierPower));
+    const advancedPower = knuthAdvancedPercentPower();
+    const withSingularities = isPositiveNumberValue(singularityPoints)
+      ? multiplyNumberValue(finalGain, advancedPower === 1 ? singularityPercentMultiplier()
+        : NumberMath.power(singularityPercentMultiplier(), advancedPower)) : finalGain;
+    const finalProduction = multiplyNumberValue(withSingularities,
+      percentBatchInvariant('final-extra-percent', percentFinalExtraMultiplier));
+    const challengeExponent = percentChallengeProductionExponent();
+    return challengeExponent === 1 ? finalProduction : NumberMath.power(finalProduction, challengeExponent);
   }
+  const gain = percentProductionBaseGain(value, power, purchaseBonus);
   return finalNumberProductionGain(
-    percentUseGain(value, power, purchaseBonus),
-    percentPreExponentMultiplier(value),
+    gain,
+    percentExpansionFinalMultiplier(value),
     value,
     power,
     purchaseBonus,
-    exponent
+    exponent,
+    percentChallengeProductionExponent()
   );
 }
 
@@ -3187,16 +4580,23 @@ function percentUseValueFromLog10(logarithm) {
 }
 
 function percentUseGainRatio(power, purchaseBonus = 0) {
-  const ratio = (percentEffectivePower(power, purchaseBonus) * percentBatchInvariant('efficiency', percentEfficiencyMultiplierNumerator)) / 400;
+  const ratio = NumberMath.divideApproximate(multiplyNumberValue(
+    percentEffectivePower(power, purchaseBonus), percentBatchInvariant('efficiency', percentEfficiencyMultiplierNumerator)
+  ), 400);
   const existing = multiplyNumberValue(
     multiplyNumberValue(
-      numberValueFromReal(ratio),
+      ratio,
       percentBatchInvariant('dimensions', squareDimensionNumberMultiplier)
     ),
     multiplyNumberValue(percentBatchInvariant('abstraction', abstractionPercentGainMultiplier), knuthEquipmentPercentMultiplier())
   );
-  return isPositiveNumberValue(singularityPoints)
+  const withSingularities = isPositiveNumberValue(singularityPoints)
     ? multiplyNumberValue(existing, singularityPercentMultiplier()) : existing;
+  const total = multiplyNumberValue(withSingularities,
+    percentBatchInvariant('final-extra-percent', percentFinalExtraMultiplier));
+  if (!spaceExpansionActive) return total;
+  const baseRatio = numberValueFromReal(percentEffectivePower(power, purchaseBonus) / 100);
+  return multiplyNumberValue(baseRatio, spaceExpansionMultiplier(NumberMath.divideApproximate(total, baseRatio)));
 }
 
 function percentUsesWithPoweredGain(value, power, uses, purchaseBonus) {
@@ -3215,7 +4615,7 @@ function percentUsesWithPoweredGain(value, power, uses, purchaseBonus) {
 }
 
 function percentUsesWithPoweredGainSegment(value, power, uses, purchaseBonus) {
-  const exponent = percentProductionExponent();
+  const exponent = percentProductionExponent() * percentChallengeProductionExponent();
   const softcap = percentPowerSoftcap(power, purchaseBonus);
   const gainAt = current => percentFinalUseGain(current, power, purchaseBonus);
 
@@ -3233,6 +4633,20 @@ function percentUsesWithPoweredGainSegment(value, power, uses, purchaseBonus) {
       );
       if (compareNumberValues(uses, usesToSoftcap) < 0) {
         return multiplyNumberValue(value, NumberMath.powerOfTen(multiplyNumberValue(growthLog, uses)));
+      }
+      uses = subtractNumberValues(uses, usesToSoftcap);
+      value = softcap;
+    } else if (exponent < 1) {
+      // A fractional final power grows sublinearly; integrate without negative operands.
+      const integrationPower = 1 - exponent;
+      const distance = subtractNumberValues(NumberMath.power(
+        NumberMath.divideApproximate(softcap, value), integrationPower
+      ), 1);
+      const scale = NumberMath.divideApproximate(value, multiplyNumberValue(gain, integrationPower));
+      const usesToSoftcap = multiplyNumberValue(scale, distance);
+      if (compareNumberValues(uses, usesToSoftcap) < 0) {
+        const growth = NumberMath.divideApproximate(uses, scale);
+        return multiplyNumberValue(value, NumberMath.power(addBaseNumbers(1, growth), 1 / integrationPower));
       }
       uses = subtractNumberValues(uses, usesToSoftcap);
       value = softcap;
@@ -3266,7 +4680,7 @@ function percentUsesWithPoweredGainSegment(value, power, uses, purchaseBonus) {
 }
 
 function percentUsesWithoutExponentiation(value, power, uses, purchaseBonus = 0) {
-  if (percentProductionExponent() !== 1 || hasAbstractionResearch('9-2')) {
+  if (percentProductionExponent() * percentChallengeProductionExponent() !== 1 || hasAbstractionResearch('9-2')) {
     return percentUsesWithPoweredGain(value, power, uses, purchaseBonus);
   }
   let remaining = uses;
@@ -3415,16 +4829,38 @@ function formatDelay(ms) {
 }
 
 function gameTick(ms) {
-  let tick = hasSquareUpgrade('game_speed_1_5') ? Math.floor(ms * 1.5) : ms;
+  const hasSpeedUpgrade = hasSquareUpgrade('game_speed_1_5');
+  let tick = hasSpeedUpgrade ? Math.floor(ms * 1.5) : ms;
+  const initialTick = tick;
+  let dysonTimeFactor = null;
+  let squareBlackHoleFactor = 1;
   if (hasSquareBreakthrough('black_hole')) {
-    tick = Math.floor(tick * 2 * dysonEffectNumber() * abstractionBlackHoleTimeMultiplier());
+    dysonTimeFactor = dysonEffectMultiplier();
+    squareBlackHoleFactor = abstractionBlackHoleTimeMultiplier();
+    tick = Math.floor(tick * 2 * NumberMath.toNumber(dysonTimeFactor) * squareBlackHoleFactor);
   }
-  if (hasSquareConvergenceUpgrade('timium')) tick *= 2048;
+  const hasTimium = hasSquareConvergenceUpgrade('timium');
+  if (hasTimium) tick *= 2048;
   if (numberBlackHoleSystemEnabled && knuthUnlocked && !isKnuthChallengeActive('kc5') && ms > 0) {
+    const limit = numberBlackHoleTimeLimit();
+    const blackHoleFactor = numberBlackHoleTimeMultiplier();
     const existingMultiplier = tick / ms;
-    const allowedMultiplier = NUMBER_BLACK_HOLE_MAX_TIME_MULTIPLIER
+    const allowedMultiplier = limit
       / Math.max(existingMultiplier, Number.MIN_VALUE);
-    tick = Math.floor(tick * Math.min(numberBlackHoleTimeMultiplier(), allowedMultiplier));
+    const acceleratedTick = tick * Math.min(blackHoleFactor, allowedMultiplier);
+    if (Number.isFinite(acceleratedTick)) {
+      tick = Math.floor(acceleratedTick);
+    } else {
+      // Cap in big-number space before conversion: Infinity * 0 would erase the clock.
+      let exactTick = Number.isFinite(initialTick) ? numberValueFromReal(initialTick)
+        : NumberMath.floor(multiplyNumberValue(numberValueFromReal(ms), hasSpeedUpgrade ? 1.5 : 1));
+      if (dysonTimeFactor !== null) exactTick = NumberMath.floor(multiplyNumberValue(
+        multiplyNumberValue(multiplyNumberValue(exactTick, 2), dysonTimeFactor), squareBlackHoleFactor));
+      if (hasTimium) exactTick = multiplyNumberValue(exactTick, 2048);
+      const boundedTick = NumberMath.min(multiplyNumberValue(exactTick, blackHoleFactor),
+        multiplyNumberValue(numberValueFromReal(ms), limit));
+      tick = NumberMath.toNumber(NumberMath.min(Number.MAX_VALUE, NumberMath.floor(boundedTick)));
+    }
   }
   return isKnuthChallengeActive('kc4') && tick > 0
     ? Math.max(Number.MIN_VALUE, tick * kc4TimeMultiplier())
@@ -3551,7 +4987,7 @@ function firstPercentPowerCompoundingPurchase(purchaseCount, baseCost) {
   const maximumCount = Math.max(0, Math.floor(Number(purchaseCount) || 0));
   const cacheKey = [
     NumberMath.serialize(baseCost),
-    percentPowerPriceAccelerationStart(),
+    NumberMath.serialize(percentPowerPriceAccelerationStart()),
     hasSquareBreakthrough('deflation'),
     hasSquareUpgrade('all_cost_half')
   ].join('|');
@@ -3809,8 +5245,7 @@ function percentPowerBulkBalanceAfter(model, purchases, balance, deadline) {
   return { affordable: true, balance: remaining };
 }
 
-function planPercentPowerBulkPurchase(model, limit, deadline) {
-  const balance = getBaseNumber();
+function planPercentPowerBulkPurchase(model, limit, deadline, balance = getBaseNumber()) {
   let low = 0;
   let high = 1;
   let remaining = balance;
@@ -3898,7 +5333,15 @@ function syncPermanentPercentLanes() {
 }
 
 function autoUpgradeSpeedMultiplier() {
-  return affectedNumberMultiplier(1.5, squareBreakthroughLevel('invisible_hand'));
+  return affectedNumberMultiplierValue(1.5, squareBreakthroughLevel('invisible_hand'));
+}
+
+function autoUpgradeElapsedTime(elapsedGameMs, maximum = Number.MAX_VALUE) {
+  if (!(elapsedGameMs > 0)) return 0;
+  if (!Number.isFinite(elapsedGameMs)) return maximum;
+  // Only the scheduler's bounded work budget is converted back to a JS number.
+  return NumberMath.toNumber(NumberMath.min(maximum,
+    multiplyNumberValue(elapsedGameMs, autoUpgradeSpeedMultiplier())));
 }
 
 function resetSquareUpgradeState() {
@@ -3998,23 +5441,25 @@ function squareConvergencePointGain() {
   const ratio = divideNumberValue(squarePoints, requirement);
   let gain = NumberMath.max(NumberMath.log10(ratio), 1);
   if (hasAbstractionResearch('17-2')) gain = NumberMath.power(gain, ABSTRACTION_TIER17_BALANCE.cpBasePower);
-  return multiplyNumberValue(gain, squareConvergenceGainMultiplier());
+  return applyKnuthAdvancedPower('cp_power', multiplyNumberValue(gain, squareConvergenceGainMultiplier()));
 }
 
 function squareConvergenceGainMultiplier() {
+  if (isKnuthChallengeActive('kc6')) return 1;
   let gain = 1;
   const upgradeLevel = squareConvergenceUpgradeLevel('cp_gain_5x');
   if (upgradeLevel > 0) {
     gain = multiplyNumberValue(gain, NumberMath.power(5, upgradeLevel));
   }
-  return multiplyNumberValue(
+  return spaceExpansionMultiplier(multiplyNumberValue(
     multiplyNumberValue(gain, knuthSpCpGainMultiplier('cp')),
     multiplyNumberValue(
       multiplyNumberValue(abstractionCpGainMultiplier(), abstractionKpCpGainMultiplier()),
       multiplyNumberValue(knuthBaseMultiplier('cp_gain', 25),
-        multiplyNumberValue(abstractionSingularityCpMultiplier(), abstractionRadiusCpMultiplier()))
+        multiplyNumberValue(multiplyNumberValue(abstractionSingularityCpMultiplier(), abstractionRadiusCpMultiplier()),
+          multiplyNumberValue(abstractionProbabilizerCpMultiplier(), abstractionBlackHoleCpMultiplier())))
     )
-  );
+  ));
 }
 
 function squareConvergenceExchangeRequirement() {
@@ -4027,13 +5472,13 @@ function collectSquareConvergenceIfReady() {
   const gainedConvergencePoints = squareConvergencePointGain();
   if (!isPositiveNumberValue(gainedConvergencePoints)) return 0;
 
-  squarePoints = 0;
+  setSquarePoints(0);
   squareConvergencePoints = addBaseNumbers(squareConvergencePoints, gainedConvergencePoints);
   if (isKnuthChallengeActive('kc4')) resetKc4Time();
   if (typeof recordAchievementConvergence === 'function') recordAchievementConvergence();
   hasEverEarnedSquareConvergencePoint = true;
   if (hasGeneralizationResearch('4-4')) {
-    squarePoints = addBaseNumbers(squarePoints, GENERALIZATION_CONVERGENCE_SP_REWARD);
+    setSquarePoints(addBaseNumbers(squarePoints, GENERALIZATION_CONVERGENCE_SP_REWARD));
   }
   squareConvergenceUnlocked = true;
   squareUnlocked = true;
@@ -4179,7 +5624,7 @@ function purchaseTheory(purchases) {
   const totalCost = theoryBulkCost(currentCost, growth, purchases, selectedResource);
   const paidResourceLabel = theoryCostResourceLabel(selectedResource);
   if (selectedResource === 0) {
-    squarePoints = subtractNumberValues(squarePoints, totalCost);
+    setSquarePoints(subtractNumberValues(squarePoints, totalCost));
     theorySquarePointCost = theoryCostAfterPurchases(currentCost, growth, purchases, selectedResource);
   } else {
     squareConvergencePoints = subtractNumberValues(squareConvergencePoints, totalCost);
@@ -4208,6 +5653,29 @@ function greatTheoryCostForResource(resourceIndex) {
   if (resourceIndex === 1) return greatTheoryKpCost;
   if (resourceIndex === 3) return greatTheoryTheoryCost;
   return greatTheorySpCost;
+}
+
+function greatTheoryPurchasesFromCosts() {
+  // Older saves recorded next prices, which retain purchase history even after spending/refunds.
+  const bases = [ABSTRACTION_CP_BASE_COST, ABSTRACTION_KP_BASE_COST, ABSTRACTION_SP_BASE_COST, 4];
+  return bases.reduce((total, base, index) => {
+    const costLog = NumberMath.log10(NumberMath.max(base, greatTheoryCostForResource(index)));
+    const baseLog = NumberMath.log10(base);
+    let count;
+    if (index === 2 && compareNumberValues(greatTheorySpCost, ABSTRACTION_SP_COST_ACCELERATION_THRESHOLD) >= 0) {
+      const thresholdLog = NumberMath.log10(ABSTRACTION_SP_COST_ACCELERATION_THRESHOLD);
+      const normal = NumberMath.divideApproximate(subtractNumberValues(thresholdLog, baseLog), NumberMath.log10(ABSTRACTION_SP_COST_GROWTH));
+      const accelerated = NumberMath.divideApproximate(subtractNumberValues(costLog, thresholdLog), NumberMath.log10(ABSTRACTION_SP_COST_ACCELERATED_GROWTH));
+      count = addBaseNumbers(normal, accelerated);
+    } else {
+      count = NumberMath.divideApproximate(subtractNumberValues(costLog, baseLog),
+        NumberMath.log10(greatTheoryCostGrowthForResource(index, base)));
+    }
+    const numeric = NumberMath.toNumber(count);
+    const rounded = Number.isFinite(numeric) && numeric <= Number.MAX_SAFE_INTEGER
+      ? Math.round(numeric) : NumberMath.floor(count);
+    return addBaseNumbers(total, rounded);
+  }, 0);
 }
 
 function greatTheoryResourceLabel(resourceIndex) {
@@ -4329,10 +5797,11 @@ function purchaseGreatTheory(purchases) {
     theory = subtractNumberValues(theory, totalCost);
     greatTheoryTheoryCost = nextCost;
   } else {
-    squarePoints = subtractNumberValues(squarePoints, totalCost);
+    setSquarePoints(subtractNumberValues(squarePoints, totalCost));
     greatTheorySpCost = nextCost;
   }
   greatTheory = addBaseNumbers(greatTheory, numberValueFromReal(purchases));
+  totalGreatTheoryPurchased = addBaseNumbers(totalGreatTheoryPurchased, numberValueFromReal(purchases));
   render();
   return true;
 }
@@ -4341,14 +5810,19 @@ function hasPurchasedAbstractionResearch(id) {
   return abstractionResearchState[id] === true;
 }
 
-function abstractionBranchLimit(group) {
-  if (group === 1) return knuthBaseUpgradeEffectLevel('extra_branch') > 0 ? 2 : 1;
+function abstractionBranchLimit(group, owns = hasAbstractionResearch) {
+  if (group === 1) return Math.min(3, 1 + (knuthBaseUpgradeEffectLevel('extra_branch') > 0 ? 1 : 0)
+    + (owns('22-1') ? 1 : 0));
   return group === 2 && hasKnuthUpgrade('second_branch_expansion') ? 2 : 1;
 }
 
 function abstractionSecondBranchIsActive(branch) {
   return hasKnuthUpgrade('second_branch_expansion')
     || abstractionSecondBranchPurchaseOrder.indexOf(branch) <= 0;
+}
+
+function abstractionPermanentStorageActive(id) {
+  return !spaceExpansionActive && hasAbstractionResearch(id);
 }
 
 function hasAbstractionResearch(id) {
@@ -4395,9 +5869,15 @@ function abstractionResearchBranchLocked(research) {
 function canResearchAbstraction(id) {
   const research = ABSTRACTION_RESEARCHES.find(item => item.id === id);
   if (!research || hasPurchasedAbstractionResearch(id) || !canOpenAbstraction()) return false;
-  return abstractionResearchTierUnlocked(research) && !abstractionResearchBranchLocked(research)
+  return abstractionResearchTierUnlocked(research) && abstractionResearchConditionReady(research)
+    && !abstractionResearchBranchLocked(research)
     && abstractionResearchParentsReady(research)
     && compareNumberValues(greatTheory, research.greatTheoryCost) >= 0;
+}
+
+function abstractionResearchConditionReady(research) {
+  return research.randomPowerRequirement === undefined
+    || compareNumberValues(randomPower, research.randomPowerRequirement) >= 0;
 }
 
 function abstractionResearchTierUnlocked(research) {
@@ -4408,12 +5888,15 @@ function abstractionResearchTierUnlocked(research) {
 function researchAbstraction(id, { renderAfter = true } = {}) {
   const research = ABSTRACTION_RESEARCHES.find(item => item.id === id);
   if (!research || !canResearchAbstraction(id)) return false;
+  if (id === '21-1') initializeProbabilizerRangeProgress();
   greatTheory = subtractNumberValues(greatTheory, research.greatTheoryCost);
   recordAbstractionBranchPurchase(research);
   abstractionResearchState[id] = true;
   abstractionResearchPaidCosts[id] = research.greatTheoryCost;
+  if (id === '23-3') setSquarePoints(squarePoints);
+  if (id === '26-2') restoreAbstractionPermanentSingularities();
   if (id === '3-1') automatiumPrestigeRetentionUnlocked = true;
-  if (['14-1', '14-2', '14-3', '18-7'].includes(id) && divergerAvailable()) {
+  if (['14-1', '14-2', '14-3', '18-7', '19-2', '20-1', '22-2'].includes(id) && divergerAvailable()) {
     divergerPower = divergerProductionValue();
   }
   if (renderAfter) render();
@@ -4434,7 +5917,7 @@ function loadAbstractionBranchPriorities(saved) {
 }
 
 function setAbstractionBranchPriority(group, rank, branch) {
-  if (![1, 2].includes(group) || !Number.isInteger(rank) || rank < 0 || rank > 1) return false;
+  if (![1, 2].includes(group) || !Number.isInteger(rank) || rank < 0 || rank >= (group === 1 ? 3 : 2)) return false;
   const priorities = abstractionBranchPriorities[group];
   const previousRank = priorities.indexOf(branch);
   if (previousRank < 0) return false;
@@ -4466,7 +5949,7 @@ function researchPurchasePlan(kind, id) {
     if (abstraction && hasPurchasedAbstractionResearch(researchId)) return false;
     const research = byId.get(researchId);
     if (!research || visiting.has(researchId)) return false;
-    if (abstraction && !abstractionResearchTierUnlocked(research)) return false;
+    if (abstraction && (!abstractionResearchTierUnlocked(research) || !abstractionResearchConditionReady(research))) return false;
     visiting.add(researchId);
     if (research.branch) {
       const group = research.branchGroup ?? 1;
@@ -4615,12 +6098,15 @@ function abstractionPresetPurchasePlan(index) {
   if (preset.ids.some(id => !abstractionResearchTierUnlocked(definitions.get(id)))) {
     return { error: '19행 이후 연구에는 추상화 심화 업그레이드가 필요합니다.' };
   }
+  if (preset.ids.some(id => !abstractionResearchConditionReady(definitions.get(id)))) {
+    return { error: '무작위력이 연구 조건을 충족하지 않습니다.' };
+  }
   for (const group of new Set(ABSTRACTION_RESEARCHES.filter(research => research.branch)
     .map(research => research.branchGroup ?? 1))) {
     const branches = new Set(preset.ids.map(id => definitions.get(id))
       .filter(research => research.branch && (research.branchGroup ?? 1) === group)
       .map(research => research.branch));
-    if (branches.size > abstractionBranchLimit(group)) return { error: '현재 허용된 분기 수를 초과합니다.' };
+    if (branches.size > abstractionBranchLimit(group, id => selected.has(id))) return { error: '현재 허용된 분기 수를 초과합니다.' };
   }
 
   const ordered = [];
@@ -4631,6 +6117,12 @@ function abstractionPresetPurchasePlan(index) {
     let next = null;
     for (const research of ABSTRACTION_RESEARCHES) {
       if (!remaining.has(research.id)) continue;
+      if (research.branch) {
+        const group = research.branchGroup ?? 1;
+        const chosen = new Set([...ready].map(id => definitions.get(id))
+          .filter(item => item.branch && (item.branchGroup ?? 1) === group).map(item => item.branch));
+        if (!chosen.has(research.branch) && chosen.size >= abstractionBranchLimit(group, id => ready.has(id))) continue;
+      }
       const normalParents = research.parents.filter(id => !definitions.get(id)?.branch);
       const branchParents = research.parents.filter(id => definitions.get(id)?.branch);
       if (normalParents.every(id => ready.has(id))
@@ -4658,7 +6150,11 @@ function loadAbstractionResearchPreset(index) {
     paid: { ...abstractionResearchPaidCosts },
     order: [...abstractionSecondBranchPurchaseOrder],
     retention: automatiumPrestigeRetentionUnlocked,
-    divergerPower
+    probabilizerRangeProgress: probabilizerRangeProgress ? { ...probabilizerRangeProgress } : null,
+    divergerPower,
+    squarePoints,
+    singularityPoints,
+    abstractionPermanentSingularities
   };
   for (const id of plan.ids) {
     if (researchAbstraction(id, { renderAfter: false })) continue;
@@ -4668,23 +6164,35 @@ function loadAbstractionResearchPreset(index) {
     Object.assign(abstractionResearchPaidCosts, previous.paid);
     abstractionSecondBranchPurchaseOrder = previous.order;
     automatiumPrestigeRetentionUnlocked = previous.retention;
+    probabilizerRangeProgress = previous.probabilizerRangeProgress;
     divergerPower = previous.divergerPower;
+    squarePoints = previous.squarePoints;
+    singularityPoints = previous.singularityPoints;
+    abstractionPermanentSingularities = previous.abstractionPermanentSingularities;
     return false;
   }
   render();
   return true;
 }
 
-function loadAbstractionResetState(savedCosts, savedToggle) {
+function loadAbstractionResetState(savedCosts, savedToggle, { legacyLatePrices = false } = {}) {
   abstractionResetOnNextKnuthPoint = savedToggle === true;
+  const reducedPriceIds = new Set(['22-1', '22-2', '22-3', '23-1', '23-2', '23-3']);
+  let priceRefund = 0;
   for (const research of ABSTRACTION_RESEARCHES) {
     delete abstractionResearchPaidCosts[research.id];
     if (!hasPurchasedAbstractionResearch(research.id)) continue;
     const paid = savedCosts?.[research.id];
     // Older saves have research flags, but no record of historical prices.
-    abstractionResearchPaidCosts[research.id] = Number.isSafeInteger(paid) && paid >= 0
-      ? paid : research.greatTheoryCost;
+    let paidCost = Number.isSafeInteger(paid) && paid >= 0
+      ? paid : legacyLatePrices && reducedPriceIds.has(research.id) ? 4500 : research.greatTheoryCost;
+    if (reducedPriceIds.has(research.id) && paidCost > research.greatTheoryCost) {
+      priceRefund += paidCost - research.greatTheoryCost;
+      paidCost = research.greatTheoryCost;
+    }
+    abstractionResearchPaidCosts[research.id] = paidCost;
   }
+  return priceRefund;
 }
 
 function abstractionResearchRefund() {
@@ -4704,6 +6212,7 @@ function toggleAbstractionReset() {
 
 function applyAbstractionResetOnKnuthPoint() {
   if (!abstractionResetOnNextKnuthPoint) return;
+  recordAbstractionPermanentSingularities();
   const hadSlotExpansion = hasAbstractionResearch('16-2');
   greatTheory = addBaseNumbers(greatTheory, abstractionResearchRefund());
   for (const research of ABSTRACTION_RESEARCHES) {
@@ -4752,7 +6261,12 @@ function abstractionEffectiveDivergerB() {
   const base = hasAbstractionResearch('4-2')
     ? divergerB * (1 + 50 * abstractionLogRatio(knuthPoints, 50, true))
     : divergerB;
-  return base * abstractionSecondBranchParameterMultiplier('b');
+  const effective = base * abstractionSecondBranchParameterMultiplier('b');
+  const multiplier = probabilizerDivergerParameterMultiplier();
+  if (compareNumberValues(multiplier, 1) === 0) return effective;
+  // b remains a native exponent; retain headroom for the formula's c/2 addition.
+  return NumberMath.toNumber(NumberMath.min(Number.MAX_VALUE / 1024,
+    multiplyNumberValue(effective, multiplier)));
 }
 
 function knuthRunRealSeconds(now = gameUtcNowMs()) {
@@ -4836,10 +6350,11 @@ function abstractionSecondBranchParameterMultiplier(parameter) {
 
 function abstractionEffectiveDivergerA() {
   const base = multiplyNumberValue(isPositiveNumberValue(divergerA) ? divergerA : 1, abstractionSecondBranchParameterMultiplier('a'));
-  if (!hasAbstractionResearch('18-7')) return base;
+  if (!hasAbstractionResearch('18-7')) return multiplyNumberValue(base, probabilizerDivergerParameterMultiplier());
   const { aFromBStrength, bReference } = ABSTRACTION_MINI_BRANCH_BALANCE;
-  return NumberMath.power(base, addBaseNumbers(1, multiplyNumberValue(aFromBStrength,
-    abstractionMiniLog2(addBaseNumbers(1, NumberMath.divideApproximate(abstractionEffectiveDivergerB(), bReference))))));
+  return multiplyNumberValue(NumberMath.power(base, addBaseNumbers(1, multiplyNumberValue(aFromBStrength,
+    abstractionMiniLog2(addBaseNumbers(1, NumberMath.divideApproximate(abstractionEffectiveDivergerB(), bReference)))))),
+    probabilizerDivergerParameterMultiplier());
 }
 
 function abstractionMiniLog2(value) {
@@ -4995,6 +6510,7 @@ function resetGeneralizationResearch() {
 }
 
 function resetRunStateAfterSquarePrestige() {
+  if (typeof cancelMaximumPurchases === 'function') cancelMaximumPurchases();
   pendingSquarePrestigeValue = null;
   pendingSquarePrestigePoints = null;
   pendingSquarePrestigeRequirement = null;
@@ -5074,7 +6590,83 @@ function resetDivergerProgress() {
   divergerGraphScaleMaximum = null;
 }
 
-function resetProgressForNewKnuthRun() {
+function loadDefinitionStoryState(saved) {
+  definitionFragments = NumberMath.floor(numberValueFromSave(saved.definitionFragments));
+  definitionStoryCompleted = saved.definitionStoryCompleted === true || isPositiveNumberValue(definitionFragments);
+  const step = Number(saved.definitionStoryStep);
+  definitionStoryStep = hasSpaceExpansionOneTimeUpgrade('definition_space') && !definitionStoryCompleted
+    ? Number.isInteger(step) && step >= 1 && step <= DEFINITION_STORY_LINES.length ? step : 1 : 0;
+}
+
+function completeDefinitionStory() {
+  if (definitionStoryCompleted || definitionStoryStep !== DEFINITION_STORY_LINES.length) return false;
+  definitionStoryCompleted = true;
+  definitionStoryStep = 0;
+  definitionFragments = addBaseNumbers(definitionFragments, 1);
+  // Clear the Knuth layer before the lower reset so starting upgrades and reserves cannot restore it.
+  knuthPoints = 0;
+  knuthUnlocked = false;
+  hasClaimedKnuthPoint = false;
+  pendingKnuthPointClaim = false;
+  knuthOperationLevel = 0;
+  loadKnuthBaseUpgradeLevels(null);
+  loadKnuthBaseAutomation(null);
+  clearKnuthEquipment();
+  loadKnuthAdvancedEquipmentState({});
+  knuthResetEquipmentOnNextPrestige = false;
+  activeKnuthChallengeId = null;
+  completedKnuthChallengeIds.clear();
+  knuthChallengeDysonSwarmMaxAtEntry = 8;
+  shortestKnuthRealSeconds = null;
+  longestKnuthRealSeconds = null;
+  loadAbstractionResearchState(null);
+  for (const id of Object.keys(abstractionResearchPaidCosts)) delete abstractionResearchPaidCosts[id];
+  abstractionResetOnNextKnuthPoint = false;
+  abstractionSecondBranchPurchaseOrder = [];
+  automatiumPrestigeRetentionUnlocked = false;
+  abstractionPermanentSp = 0;
+  abstractionPermanentSingularities = 0;
+  greatTheory = 0;
+  totalGreatTheoryPurchased = 0;
+  greatTheoryCpCost = ABSTRACTION_CP_BASE_COST;
+  greatTheoryKpCost = ABSTRACTION_KP_BASE_COST;
+  greatTheorySpCost = ABSTRACTION_SP_BASE_COST;
+  greatTheoryTheoryCost = 4;
+  abstractionCostResourceIndex = 0;
+  spaceExpansionActive = false;
+  loadSpaceExpansionResources({ spaceExpansionOneTimeUpgradeState: { definition_space: true } });
+  loadSingularityState({});
+  loadProbabilizerState({});
+  numberBlackHoleSystemEnabled = false;
+  numberBlackHoleAutoUpgradeEnabled = false;
+  numberBlackHoleAutoMaxEnabled = false;
+  numberBlackHoleAutoAmountLimit = null;
+  numberBlackHoleAutoSpeedLimit = null;
+  numberBlackHoleDonationPercent = NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT;
+  numberBlackHoleDonationRate = NUMBER_BLACK_HOLE_BASE_DONATION_RATE;
+  numberBlackHoleDonationAmountLevel = 0;
+  numberBlackHoleDonationSpeedLevel = 0;
+  numberBlackHoleDonationAmountCost = NUMBER_BLACK_HOLE_BASE_UPGRADE_COST;
+  numberBlackHoleDonationSpeedCost = NUMBER_BLACK_HOLE_BASE_UPGRADE_COST;
+  numberBlackHoleDonationResource = 'number';
+  numberBlackHoleTotalInvested = 0;
+  numberBlackHoleTotalSpInvested = 0;
+  numberBlackHoleSpDonationCount = 0;
+  numberBlackHoleAccumulatedGameSeconds = 0;
+  numberBlackHolePassiveRadius = 0;
+  if (typeof resetNumberBlackHoleTimers === 'function') resetNumberBlackHoleTimers();
+  if (typeof resetSpaceExpansionClock === 'function') resetSpaceExpansionClock();
+  if (typeof stopAutomatiumForDefinition === 'function') stopAutomatiumForDefinition();
+  autoUpgradeEnabled = false;
+  squareDimensionAutoUpgradeEnabled = false;
+  resetProgressForNewKnuthRun({ restorePermanent: false });
+  setChapter('multiplication');
+  render();
+  return true;
+}
+
+function resetProgressForNewKnuthRun({ preserveProduction = false, restorePermanent = true } = {}) {
+  if (typeof cancelMaximumPurchases === 'function') cancelMaximumPurchases();
   resetKc4Time();
   const retainAutomatium = automatiumPrestigeRetentionUnlocked
     && hasSquareConvergenceUpgrade('automatium');
@@ -5092,10 +6684,18 @@ function resetProgressForNewKnuthRun() {
     squareConvergenceUpgradeState.automatium = true;
     squareConvergenceUpgradeLevels.automatium = 1;
   }
+  const dimensionAutoTimer = squareDimensionAutoUpgradeTimer;
+  const productionInterval = divergerInterval;
   resetGeneralizationResearchState();
-  resetSquareDimensionState();
-  resetDivergerProgress();
-  squarePoints = 0;
+  if (preserveProduction) {
+    squareDimensionAutoUpgradeTimer = dimensionAutoTimer;
+    divergerInterval = productionInterval;
+  }
+  else {
+    resetSquareDimensionState();
+    resetDivergerProgress();
+  }
+  setSquarePoints(0, false);
   squareConvergencePoints = 0;
   hasEverEarnedSquareConvergencePoint = false;
   theory = 0;
@@ -5112,17 +6712,18 @@ function resetProgressForNewKnuthRun() {
   resetRunStateAfterSquarePrestige();
   if (retainAutomatium) applyAutomatiumSquareUpgradeUnlocks();
   if (knuthResetEquipmentOnNextPrestige) {
-    knuthEquippedUpgradeIds.clear();
+    clearKnuthEquipment();
     knuthResetEquipmentOnNextPrestige = false;
   }
   if (knuthBaseUpgradeEffectLevel('starting_resources') > 0) {
     setBaseNumber(1e14);
-    squarePoints = 1e10;
+    setSquarePoints(1e10, false);
     squareConvergencePoints = 1000;
     squareUnlocked = true;
     squareConvergenceUnlocked = true;
     hasEverEarnedSquareConvergencePoint = true;
   }
+  if (restorePermanent) setSquarePoints(squarePoints);
 }
 
 function applyKnuthStartingUpgrades() {
@@ -5144,7 +6745,7 @@ function applyKnuthStartingUpgrades() {
 
 function startKnuthChallenge(id) {
   const challenge = knuthChallenge(id);
-  if (!knuthUnlocked || !hasClaimedKnuthPoint || !challenge || activeKnuthChallengeId || hasCompletedKnuthChallenge(id)) return false;
+  if (!knuthUnlocked || !hasClaimedKnuthPoint || !challenge || activeKnuthChallengeId || spaceExpansionActive || hasCompletedKnuthChallenge(id)) return false;
   const dysonUpgrade = SQUARE_BREAKTHROUGH_UPGRADES.find(upgrade => upgrade.id === 'dyson_swarm');
   knuthChallengeDysonSwarmMaxAtEntry = id === 'kc1'
     ? squareBreakthroughMax(dysonUpgrade)
@@ -5246,14 +6847,13 @@ function knuthPointGain() {
   const baseGain = hasAbstractionResearch('8-1')
     ? NumberMath.powerOfTen(NumberMath.divideApproximate(NumberMath.subtract(cpLog10, 15), 15))
     : NumberMath.divide(cpLog10, 15);
-  let multiplier = abstractionSecondBranchKpMultiplier();
+  let multiplier = multiplyNumberValue(abstractionSecondBranchKpMultiplier(), abstractionRandomPowerKpMultiplier());
   if (isPositiveNumberValue(singularityPoints) && isPositiveNumberValue(singularityUpgradeLevels.kp_gain)) {
     multiplier = multiplyNumberValue(multiplier, singularityKpMultiplier());
   }
-  return NumberMath.floor(multiplyNumberValue(
-    multiplyNumberValue(NumberMath.floor(NumberMath.max(baseGain, 1)), knuthBaseMultiplier('kp_gain', 5)),
-    multiplier
-  ));
+  const totalMultiplier = spaceExpansionMultiplier(multiplyNumberValue(knuthBaseMultiplier('kp_gain', 5), multiplier));
+  return NumberMath.floor(applyKnuthAdvancedPower('kp_power', multiplyNumberValue(
+    NumberMath.floor(NumberMath.max(baseGain, 1)), totalMultiplier)));
 }
 
 function canManuallyExchangeKnuthPoints() {
@@ -5271,21 +6871,24 @@ function exchangeKnuthPointsManually() {
   return true;
 }
 
-function beginKnuthPrestige() {
+function beginKnuthPrestige({ spaceExpansionAfterPrestige = spaceExpansionActive } = {}) {
   const completionSeconds = knuthRunRealSeconds();
   if (typeof updateAchievements === 'function') updateAchievements();
   const claimedBefore = hasClaimedKnuthPoint;
   if (claimedBefore && !activeKnuthChallengeId) recordKnuthCompletion(completionSeconds);
   const gainedKnuthPoints = knuthPointGain();
+  const preserveProduction = claimedBefore && hasAbstractionResearch('22-3');
+  if (claimedBefore) recordAbstractionPermanentSp();
   const achievementRun = typeof snapshotAchievementKnuthRun === 'function'
     ? snapshotAchievementKnuthRun()
     : null;
   if (claimedBefore && typeof recordAchievementKnuthReward === 'function') {
     recordAchievementKnuthReward(gainedKnuthPoints, completionSeconds, achievementRun);
   }
+  spaceExpansionActive = spaceExpansionAfterPrestige;
   activeKnuthChallengeId = null;
   knuthChallengeDysonSwarmMaxAtEntry = 8;
-  resetProgressForNewKnuthRun();
+  resetProgressForNewKnuthRun({ preserveProduction, restorePermanent: false });
   knuthUnlocked = true;
   pendingKnuthPointClaim = !claimedBefore;
   if (!claimedBefore) pendingKnuthCompletionSeconds = completionSeconds;
@@ -5294,6 +6897,7 @@ function beginKnuthPrestige() {
     knuthPoints = addBaseNumbers(knuthPoints, gainedKnuthPoints);
     applyAbstractionResetOnKnuthPoint();
   }
+  setSquarePoints(squarePoints);
   if (!claimedBefore) setChapter('multiplication');
   render();
 }

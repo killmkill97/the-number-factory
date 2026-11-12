@@ -565,6 +565,21 @@ function abstractionTimeResearchInfo(id) {
   if (!hasAbstractionResearch(id)) return '';
   const show = abstractionLiveValueText;
   const tuning = ABSTRACTION_SECOND_BRANCH_BALANCE;
+  if (spaceExpansionActive && id === '23-3') return `공간 팽창 중 비활성 · 영구 SP ${show(abstractionPermanentSp)} 기록 보존\n기록 갱신·최소 보유량 보호·복구 중단`;
+  if (spaceExpansionActive && id === '26-2') return `공간 팽창 중 비활성 · 영구 특이점 ${show(abstractionPermanentSingularities)}개 기록 보존\n추가 획득·기록 갱신·최소 보유량 보호·복구 중단`;
+  if (id === '23-1') return `현재 +${show(abstractionCpGainPerRealSecond())} CP/현실초 · 가속 영향 없음`;
+  if (id === '23-2') return `무작위력 ${show(randomPower)} · KP ×${show(abstractionRandomPowerKpMultiplier())}`;
+  if (id === '24-1') return `무작위력 ${show(randomPower)} · 퍼센트 획득량 ×${show(abstractionRandomPowerPercentMultiplier())}`;
+  if (id === '25-1') return `무작위력 ${show(randomPower)} · CP ×${show(abstractionProbabilizerCpMultiplier())}`;
+  if (id === '26-1') return `a·b ×${show(abstractionProbabilizerRangeMultiplier())} · 최빈값 ${show(probabilizerParameters().mode)}\n남은 b 방향 거리의 ${show(abstractionProbabilizerModeFraction() * 100)}% 이동 · 범위 상한 적용`;
+  if (id === '27-1') return `블랙홀 가속 ×${show(numberBlackHoleTimeMultiplier())} · 무작위력 생산 시간 ×${show(abstractionProbabilizerTimeMultiplier())}`;
+  if (id === '25-2') return '수·SP 소모 없음 · 투입량·횟수 정상 누적';
+  if (id === '26-2') return `영구 특이점 ${show(abstractionPermanentSingularities)}개 · 저장 한도 ${show(abstractionSingularityStorageCapacity())}개\n구매 시 +${show(singularityPointGain())}개 · 남은 보유 한도 적용`;
+  if (id === '27-2') return `상한 확장 ×${show(ABSTRACTION_PRODUCTION_BRANCH_BALANCE.blackHoleLimitMultiplier)} · 최종 상한 ×${show(numberBlackHoleTimeLimit())}\n반지름 ${show(numberBlackHoleSchwarzschildRadius())} · CP ×${show(abstractionBlackHoleCpMultiplier())}`;
+  if (id === '28-1') return `정체된 특이점 ${show(stagnantSingularities)}개\n특이점 상한 ×${show(abstractionMassSingularityLimitMultiplier())} → ${show(singularityHoldingLimit())}개\n확률자 상한 추가 확장량 ×${show(abstractionMassTimeLimitMultiplier())} · 최종 가속 상한 ×${show(numberBlackHoleTimeLimit())}`;
+  if (id === '29-1') return '독립 상승 기준 적용 중\n기본 커누스 반복 구매 · KC6 이후 연산 강화 · 확률자 KP 구매';
+  if (id === '30-1') return `일회성 추가 업그레이드 해금\n구매 ${SPACE_EXPANSION_ONE_TIME_UPGRADES.filter(u=>hasSpaceExpansionOneTimeUpgrade(u.id)).length} / ${SPACE_EXPANSION_ONE_TIME_UPGRADES.length}`;
+  if (id === '23-3') return `영구 최소 SP ${show(abstractionPermanentSp)}\n이번 커누스 저장 후보 ${show(multiplyNumberValue(squarePoints, ABSTRACTION_TIER23_BALANCE.permanentSpFraction))} SP · 최고 기록만 갱신`;
   if (id === '4-1') {
     const time = abstractionEffectiveTime();
     const ratio = isPositiveNumberValue(squareRunGameSeconds)
@@ -622,6 +637,7 @@ function ensureAbstractionResearchUi(research) {
 
   const node = document.createElement('article');
   node.className = 'research-node';
+  node.classList.toggle('abstraction-detailed-research', research.column >= 22);
   node.classList.toggle('abstraction-branch-research', Boolean(research.branch));
   node.classList.toggle('abstraction-mini-research', (research.branchGroup ?? 1) > 2);
   node.addEventListener('mouseenter', () => setAbstractionResearchFocus(research.id));
@@ -676,9 +692,9 @@ function renderAbstractionTreeLayout() {
         label = document.createElement('div');
         label.className = 'abstraction-branch-label';
         label.dataset.abstractionBranchLabel = research.branch;
-        label.textContent = (research.branchGroup ?? 1) > 2 ? '미니 분기 · 둘 중 하나 선택'
+        label.textContent = research.branchLabel ?? ((research.branchGroup ?? 1) > 2 ? '미니 분기 · 둘 중 하나 선택'
           : ABSTRACTION_BRANCH_OPTIONS[research.branchGroup ?? 1]
-            .find(option => option.id === research.branch)?.label ?? research.branch;
+            .find(option => option.id === research.branch)?.label ?? research.branch);
         abstractionTreeCanvas.appendChild(label);
       }
       label.style.left = `${position.left}px`;
@@ -832,20 +848,25 @@ function renderAbstractionBoard() {
     const parentsReady = abstractionResearchParentsReady(research);
     const branchLocked = abstractionResearchBranchLocked(research);
     const tierLocked = !abstractionResearchTierUnlocked(research);
+    const conditionReady = abstractionResearchConditionReady(research);
     const plan = researchPurchasePlan('abstraction', research.id);
     const available = plan !== null && compareNumberValues(greatTheory, plan.cost) >= 0;
     ui.node.classList.toggle('bought', bought);
-    ui.node.classList.toggle('locked', inactive || (!bought && (!parentsReady || branchLocked || tierLocked)));
+    ui.node.classList.toggle('locked', inactive || (!bought && (!parentsReady || branchLocked || tierLocked || !conditionReady)));
     updateAbstractionTimeResearchUi(research.id, ui);
     ui.parents.textContent = research.parents.length > 0
       ? `선행 연구: ${research.parents.join(', ')}`
       : '선행 연구 없음';
+    if (research.randomPowerRequirement !== undefined) {
+      ui.parents.textContent += ` · 조건: 무작위력 ${fmt(research.randomPowerRequirement)} 이상`;
+    }
     const devMode = typeof devConsoleIsOpen === 'function' && devConsoleIsOpen();
     ui.button.disabled = devMode ? false : bought || !available;
     ui.button.textContent = bought
       ? inactive ? '연구 완료 · 64연산 미장착' : '연구 완료'
       : tierLocked ? '추상화 심화 필요'
       : branchLocked ? '다른 분기 선택됨'
+      : !conditionReady ? `무작위력 ${fmt(research.randomPowerRequirement)} 필요`
       : `연구 · ${fmt(plan?.cost ?? research.greatTheoryCost)} 대이론`;
     ui.button.title = plan && plan.ids.length > 1 ? `선행 포함 ${plan.ids.length}개 연구` : '';
   }
@@ -881,6 +902,7 @@ function createAbstractionPresetCard(index) {
   const header = document.createElement('div');
   header.className = 'abstraction-preset-header';
   const name = document.createElement('strong');
+  name.setAttribute('data-i18n-skip', '');
   const menuButton = document.createElement('button');
   menuButton.type = 'button';
   menuButton.className = 'abstraction-preset-menu-button';
@@ -948,7 +970,7 @@ function renderAbstractionPresetBoard() {
     if (!abstractionPresetUi[index]) createAbstractionPresetCard(index);
     const preset = abstractionResearchPresets[index];
     const ui = abstractionPresetUi[index];
-    const name = preset.name || `프리셋 ${index + 1}`;
+    const name = preset.name || (window.NumberTycoonI18n?.text(`프리셋 ${index + 1}`) ?? `프리셋 ${index + 1}`);
     const chars = Array.from(name);
     ui.name.textContent = chars.length >= 15 ? `${chars.slice(0, 14).join('')}…` : name;
     ui.name.title = chars.length >= 15 ? name : '';
@@ -970,6 +992,7 @@ function renderAbstractionBranchSettings() {
   for (const [select, group, rank] of [
     [abstractionBranchPriority1, 1, 0],
     [abstractionBranchPriority2, 1, 1],
+    [abstractionBranchPriority3, 1, 2],
     [abstractionSecondBranchPriority, 2, 0],
     [abstractionSecondBranchPriority2, 2, 1]
   ]) {
@@ -1065,6 +1088,7 @@ abstractionSettingsDialog.addEventListener('click', event => {
 for (const [select, group, rank] of [
   [abstractionBranchPriority1, 1, 0],
   [abstractionBranchPriority2, 1, 1],
+  [abstractionBranchPriority3, 1, 2],
   [abstractionSecondBranchPriority, 2, 0],
   [abstractionSecondBranchPriority2, 2, 1]
 ]) {

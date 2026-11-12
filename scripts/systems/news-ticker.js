@@ -281,6 +281,7 @@ const CLICKABLE_ACHIEVEMENT_NEWS = new Set([
   '보고있다면 잘 봐. 이거 한번만 눌러봐'
 ]);
 let newsTickerMode = localStorage.getItem(NEWS_TICKER_MODE_KEY) || 'all';
+let currentNewsTickerMessage = '';
 
 if (!NEWS_TICKER_MODES.has(newsTickerMode)) {
   newsTickerMode = 'all';
@@ -327,6 +328,7 @@ function randomNewsTickerMessage(previousMessage = '') {
 
 function startNewsTickerMessage(message) {
   if (!newsTickerText) return;
+  currentNewsTickerMessage = message;
 
   newsTickerText.style.visibility = 'hidden';
   newsTickerText.classList.remove('is-running');
@@ -335,6 +337,7 @@ function startNewsTickerMessage(message) {
     ? '클릭해서 업적 달성'
     : '';
   newsTickerText.textContent = message;
+  window.NumberTycoonI18n?.apply(newsTickerText);
 
   const trackWidth = newsTickerText.parentElement.getBoundingClientRect().width || window.innerWidth;
   const textWidth = newsTickerText.getBoundingClientRect().width;
@@ -355,7 +358,7 @@ function startNewsTickerMessage(message) {
 function setRandomNewsTickerMessage() {
   if (!newsTickerText) return;
 
-  const message = randomNewsTickerMessage(newsTickerText.textContent);
+  const message = randomNewsTickerMessage(currentNewsTickerMessage);
   startNewsTickerMessage(message);
 }
 
@@ -366,11 +369,15 @@ if (newsTickerText) {
   setRandomNewsTickerMessage();
   newsTickerText.addEventListener('animationend', setRandomNewsTickerMessage);
   newsTickerText.addEventListener('click', () => {
-    if (CLICKABLE_ACHIEVEMENT_NEWS.has(newsTickerText.textContent)) {
+    if (CLICKABLE_ACHIEVEMENT_NEWS.has(currentNewsTickerMessage)) {
       unlockAchievement('real_one');
     }
   });
 }
+
+window.addEventListener('numbertycoon:languagechange', () => {
+  if (currentNewsTickerMessage) startNewsTickerMessage(currentNewsTickerMessage);
+});
 
 if (newsSettingsBtn && newsModeSelect && newsSettingsPanel && currencyStatusScaleInput) {
   newsSettingsBtn.addEventListener('click', () => {

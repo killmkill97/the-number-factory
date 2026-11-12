@@ -89,13 +89,14 @@ function automatiumId() {
 }
 
 function defaultAutomatiumSource() {
-  return `// 새 N 프로그램\nwhile true {\n    click\n}\n`;
+  const source = `// 새 N 프로그램\nwhile true {\n    click\n}\n`;
+  return globalThis.window?.NumberTycoonI18n?.code(source) ?? source;
 }
 
 function makeAutomatiumProgram(index = automatiumPrograms.length + 1) {
   return {
     id: automatiumId(),
-    name: `프로그램 ${index}`,
+    name: globalThis.window?.NumberTycoonI18n?.text(`프로그램 ${index}`) ?? `프로그램 ${index}`,
     source: defaultAutomatiumSource(),
     enabled: false,
     hidden: false,
@@ -437,7 +438,7 @@ function nBreakthroughUpgradeAmount(id, level) {
   if (id === 'extra_investment') return affectedNumberMultiplierValue(2, level);
   if (id === 'tas') return numberValueFromReal(autoClickerMinSpeed());
   if (id === 'invisible_hand') return autoUpgradeSpeedMultiplier();
-  if (id === 'overclock') return numberValueFromReal(4 * dysonEffectNumber() * level);
+  if (id === 'overclock') return percentPowerSoftcapBonusLevels();
   if (id === 'deflation') return level > 0 ? 0.1 : 1;
   if (id === 'doctor_octopus') return affectedNumberMultiplierValue(8, level);
   if (id === 'solid_start') return level > 0 ? 2000000 : 0;
@@ -561,7 +562,7 @@ function nBlackHoleUpgradeSnapshot(rawUpgrade, node) {
   const id = normalizeNName(rawUpgrade);
   if (!['amount', 'speed'].includes(id)) nLanguageError(`알 수 없는 black_hole 업그레이드 '${rawUpgrade}'`, node);
   const amount = id === 'amount';
-  const limit = amount ? numberBlackHoleDonationPercentLimit() : numberBlackHoleDonationRateLimit();
+  const limit = amount ? numberBlackHoleBaseDonationPercentLimit() : numberBlackHoleDonationRateLimit();
   const maximum = amount ? NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT : NUMBER_BLACK_HOLE_MAX_DONATION_RATE;
   const cost = amount ? numberBlackHoleDonationAmountCost : numberBlackHoleDonationSpeedCost;
   return {
@@ -585,7 +586,7 @@ function nKnuthUpgradeSnapshot(rawUpgrade, node) {
   const upgrade = KNUTH_BASE_UPGRADES.find(item => item.id === id);
   if (!operation && !upgrade) nLanguageError(`알 수 없는 knuth 업그레이드 '${rawUpgrade}'`, node);
   const level = operation ? knuthOperationLevel : knuthBaseUpgradeLevel(id);
-  const max = operation ? KNUTH_OPERATION_MAX_LEVEL : knuthBaseUpgradeMax(upgrade);
+  const max = operation ? knuthOperationMaxLevel() : knuthBaseUpgradeMax(upgrade);
   return {
     upgraded: level,
     amount: operation ? knuthSlotCapacity() : level,
@@ -640,6 +641,17 @@ const automatiumGameAdapter = {
 
   get(path, node) {
     const names = path.map(segment => segment.name);
+    if (['higgs', 'sm', 'space_expansion'].includes(names[0])) {
+      if (!spaceExpansionNUnlocked()) nLanguageError('공간 팽창 자동화 업그레이드가 필요합니다.', node);
+      if (path.some(segment => segment.index !== null)) nLanguageError('공간 팽창 조회에는 인덱스를 사용할 수 없습니다.', node);
+      if (path.length === 1 && names[0] === 'higgs') return higgsParticles;
+      if (path.length === 1 && names[0] === 'sm') return stagnantMassMg;
+      if (path.length === 2 && names[0] === 'space_expansion') {
+        if (names[1] === 'active') return spaceExpansionActive;
+        if (names[1] === 'higgs_gain') return spaceExpansionHiggsGainOnExit();
+      }
+      nLanguageError(`알 수 없는 공간 팽창 값 'get.${names.join('.')}'`, node);
+    }
     if (path.length === 1) {
       if (names[0] === 'number') return getBaseNumber();
       if (names[0] === 'sp') return squarePoints;
@@ -658,7 +670,11 @@ const automatiumGameAdapter = {
     if (path[0].index !== null || path[1].index !== null) {
       nLanguageError('조회할 레인 번호는 맨 뒤에 붙여야 합니다. 예: get.base.percent_auto.amount[2]', node);
     }
-    return nUpgradeSnapshot(names[0], names[1], node, path[2].index)[property];
+    const snapshot = nUpgradeSnapshot(names[0], names[1], node, path[2].index);
+    if (normalizeNName(names[0]) === 'knuth' && property === 'cost' && snapshot.cost === null) {
+      nLanguageError('커누스 업그레이드 비용이 큰수 표현 범위를 넘었습니다.', node);
+    }
+    return snapshot[property];
   },
 
   buy(kind, upgrade, upgradeIndex, node) {
@@ -723,6 +739,13 @@ const automatiumGameAdapter = {
     return setNumberBlackHoleSetting(kind, numeric);
   },
 
+  spaceExpansion(action, node) {
+    if (!spaceExpansionNUnlocked() || !spaceExpansionUnlocked()) return false;
+    const desired = action === 'start';
+    if (!['start', 'end'].includes(action) || spaceExpansionActive === desired) return false;
+    return toggleSpaceExpansion();
+  },
+
   square(statement, requestedSp = null, programId = null) {
     if (squareUnlocked) {
       const gain = squarePointGainForValue(getBaseNumber());
@@ -770,6 +793,7 @@ function automatiumGameAdapterFor(programId) {
     get: (...args) => automatiumGameAdapter.get(...args),
     buy: (...args) => automatiumGameAdapter.buy(...args),
     blackHoleSetting: (...args) => automatiumGameAdapter.blackHoleSetting(...args),
+    spaceExpansion: (...args) => automatiumGameAdapter.spaceExpansion(...args),
     consumeBudgetYield: (...args) => automatiumGameAdapter.consumeBudgetYield(...args),
     square: (statement, target) => automatiumGameAdapter.square(statement, target, programId),
     cp: (...args) => automatiumGameAdapter.cp(...args),
@@ -852,6 +876,11 @@ function stopAutomatiumProgram(program, message = '꺼짐') {
   automatiumUiDirty = true;
 }
 
+function stopAutomatiumForDefinition() {
+  for (const program of automatiumPrograms) stopAutomatiumProgram(program);
+  saveAutomatiumPrograms();
+}
+
 function failAutomatiumProgram(program, error) {
   program.enabled = false;
   automatiumExecutions.set(program.id, {
@@ -927,6 +956,13 @@ flag = boolean
 x = (get.sp + 10) * 2
 flag = get.cp == 0</code></pre>
 
+    <h4>공간 팽창 자동화</h4>
+    <p>공간 팽창의 SM 일회성 업그레이드 ‘공간 팽창 자동화’를 구매하면 사용할 수 있습니다. start는 비활성일 때만 시작하고 end는 진행 중일 때만 종료합니다. 이미 같은 상태이면 아무것도 하지 않으며, 도전 등 기존 진입 제한은 유지됩니다.</p>
+    <pre><code>space_expansion start
+if get.space_expansion.higgs_gain &gt;= 1000 {
+    space_expansion end
+}</code></pre>
+
     <h4>게임 값 읽기</h4>
     <table>
       <thead><tr><th>코드</th><th>값</th></tr></thead>
@@ -935,6 +971,10 @@ flag = get.cp == 0</code></pre>
         <tr><td><code>get.sp</code></td><td>현재 SP</td></tr>
         <tr><td><code>get.cp</code></td><td>현재 CP</td></tr>
         <tr><td><code>get.kp</code></td><td>현재 보유 KP (이번 교환의 예상 획득량이 아님)</td></tr>
+        <tr><td><code>get.higgs</code></td><td>보유 힉스입자 · 공간 팽창 자동화 구매 필요</td></tr>
+        <tr><td><code>get.sm</code></td><td>보유 정체된 질량, 단위 mg · 1kg = 1e6mg</td></tr>
+        <tr><td><code>get.space_expansion.active</code></td><td>공간 팽창 중이면 true</td></tr>
+        <tr><td><code>get.space_expansion.higgs_gain</code></td><td>이번 종료로 실제 늘어날 힉스입자 수. 최고기록/합산 방식을 반영하며 비활성 시 0</td></tr>
       </tbody>
     </table>
     <p>업그레이드는 <code>get.&lt;종류&gt;.&lt;ID&gt;.&lt;내용&gt;</code>으로 읽습니다. 정확한 종류와 ID는 <strong>업그레이드 ID</strong> 탭에서 확인할 수 있습니다.</p>
@@ -1004,7 +1044,7 @@ buy knuth sp_gain s
 if get.knuth.cp_gain.available {
     buy knuth cp_gain
 }</code></pre>
-    <p>KC5 완료 후 KP로 연산 강화와 기본 커누스 업그레이드를 구매합니다. ID 목록의 knuth 항목을 사용하세요. upgraded는 구매 횟수, amount는 연산 강화의 유효 슬롯 수이며 나머지는 구매 횟수입니다. cost는 다음 KP 가격, max는 연산 강화 300, 그 외 반복 구매 0, 단발 구매 1입니다. KC5 진행 중에는 구매할 수 없습니다. 화면의 개별 자동구매 토글과 N 구매는 독립적으로 작동합니다.</p>
+    <p>KC5 완료 후 KP로 연산 강화와 기본 커누스 업그레이드를 구매합니다. ID 목록의 knuth 항목을 사용하세요. upgraded는 구매 횟수, amount는 연산 강화의 유효 슬롯 수이며 나머지는 구매 횟수입니다. cost는 다음 KP 가격, max는 연산 강화 300(KC6 완료 후 0: 제한 없음), 그 외 반복 구매 0, 단발 구매 1입니다. KC5 진행 중에는 구매할 수 없습니다. 화면의 개별 자동구매 토글과 N 구매는 독립적으로 작동합니다.</p>
 
     <h4>숫자 클릭</h4>
     <pre><code>click
@@ -1187,6 +1227,7 @@ function renderAutomatiumUpgradeIds() {
   const rows = automatiumUpgradeIdRows().filter(row => {
     if (!query) return true;
     const searchable = [row.kind, row.kindLabel, row.title, row.id, row.indexNote, ...row.aliases]
+      .map(value => `${value} ${window.NumberTycoonI18n?.text(value) ?? ''}`)
       .join(' ')
       .toLowerCase();
     return searchable.includes(query);
@@ -1356,8 +1397,8 @@ function addAutomatiumExample(exampleId) {
   }
 
   const program = makeAutomatiumProgram();
-  program.name = example.title;
-  program.source = example.source;
+  program.name = window.NumberTycoonI18n?.text(example.title) ?? example.title;
+  program.source = window.NumberTycoonI18n?.code(example.source) ?? example.source;
   automatiumPrograms.push(program);
   selectedAutomatiumProgramId = program.id;
   saveAutomatiumPrograms();
@@ -1484,6 +1525,14 @@ function nAutocompleteContext() {
     };
   }
 
+  const expansionMatch = line.match(/^\s*space_expansion\s+([A-Za-z_]*)$/);
+  if (expansionMatch && spaceExpansionNUnlocked()) {
+    const prefix = expansionMatch[1];
+    return { start: cursor - prefix.length, end: cursor,
+      items: nAutocompleteMatches(['start', 'end'].map(action => ({ label: action, insert: action,
+        detail: action === 'start' ? '공간 팽창 시작' : '공간 팽창 종료' })), prefix) };
+  }
+
   const blackHoleMatch = line.match(/^\s*black_hole\s+(?:(amount|speed)\s+)?([A-Za-z_]*)$/);
   if (blackHoleMatch) {
     const prefix = blackHoleMatch[2] ?? '';
@@ -1493,7 +1542,8 @@ function nAutocompleteContext() {
     return { start: cursor - prefix.length, end: cursor, items: nAutocompleteMatches(candidates, prefix) };
   }
 
-  const getMatch = line.match(/get\.knuth\.(?:[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_]*)?)?$/i)
+  const getMatch = line.match(/get\.space_expansion\.(?:[A-Za-z_]*)$/i)
+    ?? line.match(/get\.knuth\.(?:[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_]*)?)?$/i)
     ?? line.match(/get\.(?:generalization|gz)\.(?:\d+(?:-\d*)?(?:\.(?:[A-Za-z_][A-Za-z0-9_]*)?)?)?$/i)
     ?? line.match(/get(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\]?)?){0,3}$/);
   if (getMatch) {
@@ -1517,6 +1567,11 @@ function nAutocompleteContext() {
         { label: 'sp', insert: 'sp', detail: '현재 SP' },
         { label: 'cp', insert: 'cp', detail: '현재 CP' },
         { label: 'kp', insert: 'kp', detail: '현재 보유 KP' },
+        ...(spaceExpansionNUnlocked() ? [
+          { label: 'higgs', insert: 'higgs', detail: '보유 힉스입자' },
+          { label: 'sm', insert: 'sm', detail: '정체된 질량 (mg)' },
+          { label: 'space_expansion', insert: 'space_expansion.', detail: '공간 팽창 상태·보상' }
+        ] : []),
         { label: 'base', insert: 'base.', detail: '베이스 업그레이드' },
         { label: 'square', insert: 'square.', detail: '제곱 업그레이드' },
         { label: 'square_break', insert: 'square_break.', detail: '제곱돌파 업그레이드' },
@@ -1531,6 +1586,12 @@ function nAutocompleteContext() {
     }
 
     if (parts.length === 3) {
+      if (parts[1] === 'space_expansion' && spaceExpansionNUnlocked()) {
+        return { start: replaceStart, end: cursor, items: nAutocompleteMatches([
+          { label: 'active', insert: 'active', detail: '진행 중이면 true' },
+          { label: 'higgs_gain', insert: 'higgs_gain', detail: '종료 힉스입자 보상' }
+        ], prefix) };
+      }
       const kind = normalizeNName(parts[1]);
       const candidates = nAutocompleteUpgradeRows(kind).map(row => ({
         label: row.rawId,
@@ -1639,6 +1700,7 @@ function nAutocompleteContext() {
     { label: 'click', insert: 'click', detail: '숫자 추가 · 1초 쿨다운' },
     { label: 'wait', insert: 'wait 1s', detail: '지정한 실제 시간 동안 대기' },
     { label: 'black_hole', insert: 'black_hole ', detail: '블랙홀 투여 설정 · KC4 완료' },
+    ...(spaceExpansionNUnlocked() ? [{ label: 'space_expansion', insert: 'space_expansion ', detail: '공간 팽창 시작·종료' }] : []),
     { label: 'square', insert: 'square ', detail: '목표 SP 지정 가능' },
     { label: 'sp', insert: 'sp ', detail: '목표 SP 지정 가능' },
     { label: 'cp', insert: 'cp ', detail: '목표 CP 지정 가능' },
@@ -2213,6 +2275,7 @@ function renderAutomatiumAccess() {
   if (!unlocked) {
     if (!automatiumWorkspace.classList.contains('hidden')) closeAutomatiumEditor();
   }
+  if (typeof renderDefinitionStory === 'function') renderDefinitionStory();
 }
 
 function runAutomatiumTick() {

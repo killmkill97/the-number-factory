@@ -43,18 +43,29 @@ loadPersistedSaveStats();
 
 function saveGame() {
   syncKc4RealTime();
-  repairPercentPowerCostState();
-  repairExtraPercentLanePowerCosts();
+  withPercentPriceValidationCache(() => {
+    repairPercentPowerCostState();
+    repairExtraPercentLanePowerCosts();
+  });
   updateAchievements();
   if (baseNumberIsInNoUnit()) unlockAchievement('no_unit_save');
   const nextSaveCount = saveCount + 1;
   const data = captureGameSaveData(nextSaveCount);
+  let previousSavedAt = 0;
+  try {
+    const previous = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    if (Number.isSafeInteger(previous?.savedAtUtcMs)) previousSavedAt = previous.savedAtUtcMs;
+  } catch { /* Legacy saves may not contain save metadata. */ }
+  data.savedAtUtcMs = Math.max(Date.now(), previousSavedAt + 1);
+  data.saveRevision = globalThis.crypto?.randomUUID?.()
+    ?? `${data.savedAtUtcMs}-${nextSaveCount}-${Math.random().toString(36).slice(2)}`;
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   saveCount = nextSaveCount;
   saveStatsLoadedFromStorage = true;
   persistSaveStats();
   window.numberTycoonSession?.noteSave();
   log('게임을 이 브라우저에 저장했습니다.', true);
+  return true;
 }
 
 function captureGameSaveData(nextSaveCount = saveCount) {
@@ -113,6 +124,9 @@ function captureGameSaveData(nextSaveCount = saveCount) {
     squareBreakthroughEntered,
     knuthUnlocked,
     knuthPoints: serializeNumberValue(knuthPoints),
+    definitionFragments: serializeNumberValue(definitionFragments),
+    definitionStoryStep,
+    definitionStoryCompleted,
     squareRunGameSeconds: serializeKnuthContinuousValue(squareRunGameSeconds),
     knuthRunStartedAtMs,
     shortestKnuthRealSeconds,
@@ -120,6 +134,12 @@ function captureGameSaveData(nextSaveCount = saveCount) {
     pendingKnuthCompletionSeconds,
     squareSincePrestigeGameSeconds: serializeKnuthContinuousValue(squareSincePrestigeGameSeconds),
     knuthPercentOverflow: serializeKnuthContinuousValue(knuthPercentOverflow),
+    randomPower: serializeNumberValue(randomPower),
+    probabilizerTimerMs,
+    probabilizerLastRoll,
+    probabilizerUpgradeLevels: { ...probabilizerUpgradeLevels },
+    probabilizerPowerUpgradeLevels: { ...probabilizerPowerUpgradeLevels },
+    probabilizerRangeProgress: probabilizerRangeProgress ? { ...probabilizerRangeProgress } : null,
     numberBlackHoleSystemEnabled,
     numberBlackHoleAutoUpgradeEnabled,
     numberBlackHoleAutoMaxEnabled,
@@ -149,12 +169,24 @@ function captureGameSaveData(nextSaveCount = saveCount) {
     knuthBaseAutoEnabled: { ...knuthBaseAutoEnabled },
     knuthResetEquipmentOnNextPrestige,
     knuthEquippedUpgradeIds: [...knuthEquippedUpgradeIds],
+    knuthAdvancedOwned: { ...knuthAdvancedOwned },
+    knuthAdvancedEquipped: { ...knuthAdvancedEquipped },
+    knuthEquipmentOrder: normalizedKnuthEquipmentOrder(),
     activeKnuthChallengeId,
+    spaceExpansionActive,
+    higgsParticles: serializeNumberValue(higgsParticles),
+    stagnantMassMg: serializeNumberValue(stagnantMassMg),
+    stagnantSingularities: serializeNumberValue(stagnantSingularities),
+    spaceExpansionUpgradeLevels: Object.fromEntries(SPACE_EXPANSION_UPGRADES.map(upgrade =>
+      [upgrade.id, serializeNumberValue(spaceExpansionUpgradeLevels[upgrade.id])])),
+    spaceExpansionOneTimeUpgradeState: { ...spaceExpansionOneTimeUpgradeState },
     kc4ElapsedRealSeconds,
     knuthChallengeDysonSwarmMaxAtEntry,
     completedKnuthChallengeIds: [...completedKnuthChallengeIds],
     activeChapter,
     squarePoints: serializeNumberValue(squarePoints),
+    abstractionPermanentSp: serializeNumberValue(abstractionPermanentSp),
+    abstractionPermanentSingularities: serializeNumberValue(abstractionPermanentSingularities),
     squareConvergenceUnlocked,
     squareConvergencePoints: serializeNumberValue(squareConvergencePoints),
     hasEverEarnedSquareConvergencePoint,
@@ -199,10 +231,11 @@ function captureGameSaveData(nextSaveCount = saveCount) {
     divergerSpeedLevel,
     divergerSpeedIntervalHistory: [...divergerSpeedIntervalHistory],
     divergerSpeedCpCost: serializeNumberValue(divergerSpeedCpCost),
-    divergerUpgradeHistory,
+    divergerUpgradeHistory: captureDivergerUpgradeHistory(),
     theory: serializeNumberValue(theory),
     totalTheoryPurchased: serializeNumberValue(totalTheoryPurchased),
     greatTheory: serializeNumberValue(greatTheory),
+    totalGreatTheoryPurchased: serializeNumberValue(totalGreatTheoryPurchased),
     greatTheoryCpCost: serializeNumberValue(greatTheoryCpCost),
     greatTheoryKpCost: serializeNumberValue(greatTheoryKpCost),
     greatTheorySpCost: serializeNumberValue(greatTheorySpCost),
@@ -212,6 +245,7 @@ function captureGameSaveData(nextSaveCount = saveCount) {
     abstractionResearchState: { ...abstractionResearchState },
     abstractionSecondBranchPurchaseOrder: [...abstractionSecondBranchPurchaseOrder],
     abstractionResearchPaidCosts: { ...abstractionResearchPaidCosts },
+    abstractionLateResearchPriceVersion: 1,
     abstractionResetOnNextKnuthPoint,
     abstractionBranchPriorities: { 1: [...abstractionBranchPriorities[1]], 2: [...abstractionBranchPriorities[2]] },
     abstractionResearchPresets: abstractionResearchPresets.map(preset => ({ name: preset.name, ids: [...preset.ids] })),
@@ -272,11 +306,16 @@ function loadGame(rawOverride = null, options = {}) {
 
   try {
     const d = normalizeKnuthSaveFields(JSON.parse(raw));
-    if (rawOverride !== null && options.persistOverride !== false) localStorage.setItem(SAVE_KEY, raw);
+    if (typeof cancelMaximumPurchases === 'function') cancelMaximumPurchases();
     const saveVersion = Number(d.version ?? 1);
     const isLegacySave = !Number.isFinite(saveVersion) || saveVersion < 5;
+    // Suppress reserve restoration before singularity/SP fields are read; validate the mode after unlocks load.
+    spaceExpansionActive = !isLegacySave && d.spaceExpansionActive === true;
+    loadSpaceExpansionResources(isLegacySave ? {} : d);
+    loadDefinitionStoryState(isLegacySave ? {} : d);
     loadKnuthBaseUpgradeLevels(isLegacySave ? null : d.knuthBaseUpgradeLevels);
     loadKnuthBaseAutomation(isLegacySave ? null : d.knuthBaseAutoEnabled);
+    loadKnuthAdvancedEquipmentState(isLegacySave ? {} : d);
 
     if (!saveStatsLoadedFromStorage) {
       saveCount = normalizeSaveCounter(d.saveCount);
@@ -291,6 +330,8 @@ function loadGame(rawOverride = null, options = {}) {
     greatTheoryKpCost = numberValueFromSave(d.greatTheoryKpCost, ABSTRACTION_KP_BASE_COST);
     greatTheorySpCost = numberValueFromSave(d.greatTheorySpCost, ABSTRACTION_SP_BASE_COST);
     greatTheoryTheoryCost = numberValueFromSave(d.greatTheoryTheoryCost, 4);
+    totalGreatTheoryPurchased = numberValueFromSave(d.totalGreatTheoryPurchased,
+      d.totalGreatTheoryPurchased == null ? greatTheoryPurchasesFromCosts() : 0);
     const savedAbstractionResourceIndex = Number(d.abstractionCostResourceIndex ?? 0);
     abstractionCostResourceIndex = Number.isInteger(savedAbstractionResourceIndex)
       && savedAbstractionResourceIndex >= 0
@@ -303,8 +344,11 @@ function loadGame(rawOverride = null, options = {}) {
       d.abstractionResearchState
     );
     loadAbstractionResearchState(d.abstractionResearchState);
+    abstractionPermanentSp = NumberMath.max(0, numberValueFromSave(d.abstractionPermanentSp));
     loadAbstractionSecondBranchOrder(d.abstractionSecondBranchPurchaseOrder);
-    loadAbstractionResetState(d.abstractionResearchPaidCosts, d.abstractionResetOnNextKnuthPoint);
+    const abstractionPriceRefund = loadAbstractionResetState(d.abstractionResearchPaidCosts,
+      d.abstractionResetOnNextKnuthPoint, { legacyLatePrices: d.abstractionLateResearchPriceVersion == null });
+    greatTheory = addBaseNumbers(greatTheory, abstractionPriceRefund);
     loadAbstractionBranchPriorities(d.abstractionBranchPriorities);
     loadAbstractionResearchPresets(d.abstractionResearchPresets);
     loadKnuthRealTimeState(isLegacySave ? {} : d);
@@ -350,18 +394,17 @@ function loadGame(rawOverride = null, options = {}) {
       ? Math.max(0, Math.floor(savedDivergerSpeedLevel))
       : divergerSpeedLevelFromInterval(divergerInterval);
     loadDivergerSpeedIntervalHistory(d.divergerSpeedIntervalHistory);
-    // 발산자 강화는 CP 전용으로 변경되었으므로 이전 저장의 가격 대신 현재 레벨 기준으로 재계산한다.
-    divergerACpCost = divergerACpCostAtLevel(divergerALevel);
-    divergerBCpCost = divergerBCpCostAtLevel(divergerBLevel);
-    divergerCCpCost = divergerCCpCostAtLevel(divergerCLevel);
-    divergerSpeedCpCost = divergerSpeedCpCostAtLevel(divergerSpeedLevel);
+    // Validate old prices against current rules, retaining valid saved precision.
+    divergerACpCost = restoredDivergerCpCost('a', divergerALevel, d.divergerACpCost);
+    divergerBCpCost = restoredDivergerCpCost('b', divergerBLevel, d.divergerBCpCost);
+    divergerCCpCost = restoredDivergerCpCost('c', divergerCLevel, d.divergerCCpCost);
+    divergerSpeedCpCost = restoredDivergerCpCost('speed', divergerSpeedLevel, d.divergerSpeedCpCost);
     loadDivergerUpgradeHistory(d.divergerUpgradeHistory, {
       a: divergerALevel,
       b: divergerBLevel,
       c: divergerCLevel,
       speed: divergerSpeedLevel
     }, !Number.isFinite(saveVersion) || saveVersion < SAVE_VERSION);
-    divergerPower = divergerProductionValue(divergerN);
     divergerTimer = 0;
     divergerGraphSamples.length = 0;
     divergerGraphScaleMinimum = null;
@@ -465,6 +508,7 @@ function loadGame(rawOverride = null, options = {}) {
     }
 
     numberBlackHoleSystemEnabled = d.numberBlackHoleSystemEnabled === true;
+    loadProbabilizerState(d);
     numberBlackHoleAutoUpgradeEnabled = d.numberBlackHoleAutoUpgradeEnabled === true;
     numberBlackHoleAutoMaxEnabled = d.numberBlackHoleAutoMaxEnabled === true;
     numberBlackHoleAutoAmountLimit = numberBlackHoleAutoLimitFromSave(d.numberBlackHoleAutoAmountLimit);
@@ -481,10 +525,7 @@ function loadGame(rawOverride = null, options = {}) {
     numberBlackHoleDonationSpeedLevel = Number.isSafeInteger(savedBlackHoleSpeedLevel)
       ? Math.min(maxBlackHoleSpeedLevel, Math.max(0, savedBlackHoleSpeedLevel))
       : 0;
-    const maxBlackHoleDonationPercent = Math.min(
-      NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT,
-      NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT + numberBlackHoleDonationAmountLevel
-    );
+    const maxBlackHoleDonationPercent = numberBlackHoleDonationPercentLimit();
     const savedBlackHoleDonationPercent = Number(d.numberBlackHoleDonationPercent ?? NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT);
     numberBlackHoleDonationPercent = Number.isSafeInteger(savedBlackHoleDonationPercent)
       ? Math.max(NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT, Math.min(maxBlackHoleDonationPercent, savedBlackHoleDonationPercent))
@@ -532,7 +573,7 @@ function loadGame(rawOverride = null, options = {}) {
       knuthChallengeDysonSwarmMaxAtEntry = 8;
       completedKnuthChallengeIds.clear();
       activeChapter = squareUnlocked ? 'square' : 'multiplication';
-      squarePoints = numberValueFromSave(d.squarePoints, squareUnlocked ? 1 : 0);
+      setSquarePoints(numberValueFromSave(d.squarePoints, squareUnlocked ? 1 : 0), false);
       squareConvergenceUnlocked = false;
       squareConvergencePoints = 0;
       hasEverEarnedSquareConvergencePoint = false;
@@ -573,18 +614,14 @@ function loadGame(rawOverride = null, options = {}) {
         && !completedKnuthChallengeIds.has(d.activeKnuthChallengeId)
         ? d.activeKnuthChallengeId
         : null;
-      while (knuthSlotsUsed() > knuthSlotCapacity()) {
-        const lastId = [...knuthEquippedUpgradeIds].pop();
-        if (!lastId) break;
-        knuthEquippedUpgradeIds.delete(lastId);
-      }
+      trimKnuthEquipmentToCapacity({ refresh: false });
       knuthChallengeDysonSwarmMaxAtEntry = activeKnuthChallengeId === 'kc1'
         && Number.isSafeInteger(Number(d.knuthChallengeDysonSwarmMaxAtEntry))
         && Number(d.knuthChallengeDysonSwarmMaxAtEntry) >= 8
         ? Number(d.knuthChallengeDysonSwarmMaxAtEntry)
         : 8;
       activeChapter = d.activeChapter ?? (squareUnlocked ? 'square' : 'multiplication');
-    squarePoints = numberValueFromSave(d.squarePoints);
+    setSquarePoints(numberValueFromSave(d.squarePoints), false);
     squareConvergenceUnlocked = d.squareConvergenceUnlocked ?? false;
     squareConvergencePoints = numberValueFromSave(d.squareConvergencePoints);
     for (let index = 0; index < squareDimensionStates.length; index++) {
@@ -685,6 +722,9 @@ function loadGame(rawOverride = null, options = {}) {
       hasClaimedKnuthPoint = true;
       pendingKnuthPointClaim = false;
     }
+    loadSpaceExpansionState(isLegacySave ? {} : d, { resourcesLoaded: true });
+    // D(n) depends on restored random power, equipment, challenges and unlock flags.
+    divergerPower = divergerProductionValue(divergerN);
     if (activeChapter === 'tetration' || activeChapter === 'square-breakthrough' || activeChapter === 'square-convergence') {
       activeChapter = squareUnlocked ? 'square' : 'multiplication';
     }
@@ -710,30 +750,34 @@ function loadGame(rawOverride = null, options = {}) {
     if (percentChargeNeeded < minimumPercentChargeNeeded()) percentChargeNeeded = minimumPercentChargeNeeded();
     percentCharge = Math.min(percentCharge, percentChargeNeeded);
     percentPower = normalizedPercentPower(percentPower);
-    const savedPercentPowerCost = numberValueFromSave(d.percentPowerUpgradeCost);
-    const restoredMainCost = restoredPercentPowerCost(
-      savedPercentPowerCost,
-      d.percentPowerCostCompounding === true,
-      percentPowerPurchaseCount,
-      40000
-    );
-    percentPowerCostCompounding = restoredMainCost.compounding;
-    percentPowerUpgradeCost = restoredMainCost.cost;
-    repairPercentPowerCostState();
-    for (const lane of extraPercentLanes) {
-      lane.power = normalizedPercentPower(lane.power);
-      const savedLanePowerCost = numberValueFromSave(d.extraPercentLanes?.find(item => item.laneNumber === lane.laneNumber)?.powerCost);
-      const savedLanePowerCostIsCompounding = d.extraPercentLanes?.find(item => item.laneNumber === lane.laneNumber)?.powerCostCompounding === true;
-      const restoredLaneCost = restoredPercentPowerCost(
-        savedLanePowerCost,
-        savedLanePowerCostIsCompounding,
-        lane.powerPurchaseCount,
-        scaleByLane(40000, lane.laneNumber)
+    withPercentPriceValidationCache(() => {
+      const savedPercentPowerCost = numberValueFromSave(d.percentPowerUpgradeCost);
+      const restoredMainCost = restoredPercentPowerCost(
+        savedPercentPowerCost,
+        d.percentPowerCostCompounding === true,
+        percentPowerPurchaseCount,
+        40000
       );
-      lane.powerCostCompounding = restoredLaneCost.compounding;
-      lane.powerCost = restoredLaneCost.cost;
-      repairPercentLanePowerCost(lane);
-    }
+      percentPowerCostCompounding = restoredMainCost.compounding;
+      percentPowerUpgradeCost = restoredMainCost.cost;
+      repairPercentPowerCostState();
+      for (const lane of extraPercentLanes) {
+        lane.power = normalizedPercentPower(lane.power);
+        const savedLanePowerCost = numberValueFromSave(d.extraPercentLanes?.find(item => item.laneNumber === lane.laneNumber)?.powerCost);
+        const savedLanePowerCostIsCompounding = d.extraPercentLanes?.find(item => item.laneNumber === lane.laneNumber)?.powerCostCompounding === true;
+        const restoredLaneCost = restoredPercentPowerCost(
+          savedLanePowerCost,
+          savedLanePowerCostIsCompounding,
+          lane.powerPurchaseCount,
+          scaleByLane(40000, lane.laneNumber)
+        );
+        lane.powerCostCompounding = restoredLaneCost.compounding;
+        lane.powerCost = restoredLaneCost.cost;
+        repairPercentLanePowerCost(lane);
+      }
+    });
+    setSquarePoints(squarePoints);
+    restoreAbstractionPermanentSingularities();
     syncPermanentPercentLanes();
     rebasePercentPowerPricesForDiverger(true);
 
@@ -747,7 +791,7 @@ function loadGame(rawOverride = null, options = {}) {
     prestigeBtn.classList.add('hidden');
     document.getElementById('squareUpgradeRow')?.remove();
 
-    if (!squareUnlocked) {
+    if (!squareUnlocked && activeChapter !== 'definition') {
       setChapter('multiplication');
     } else {
       setChapter(activeChapter);
@@ -759,6 +803,7 @@ function loadGame(rawOverride = null, options = {}) {
       loadAchievementRunProgress(d.achievementRunProgress, d.pendingAchievementKnuthRun);
     }
     resetAchievementTimers();
+    if (rawOverride !== null && options.persistOverride !== false) localStorage.setItem(SAVE_KEY, raw);
     if (countAsLoad) {
       loadCount += 1;
       hasPerformedLoad = true;
@@ -768,9 +813,10 @@ function loadGame(rawOverride = null, options = {}) {
     window.numberTycoonSession?.noteLoad();
     render();
     log(
-      isLegacySave
+      (isLegacySave
         ? '구버전 저장 데이터를 새 제곱 포인트 규칙으로 복구했습니다.'
-        : '저장 데이터를 불러왔습니다.',
+        : '저장 데이터를 불러왔습니다.')
+        + (abstractionPriceRefund > 0 ? ` 연구 가격 차액 ${fmt(abstractionPriceRefund)} 대이론을 반환했습니다.` : ''),
       true
     );
     return true;
@@ -781,23 +827,62 @@ function loadGame(rawOverride = null, options = {}) {
   }
 }
 
-function requestSaveGame() {
-  if (!window.confirm('저장하시겠습니까?')) return;
-  saveGame();
-  window.numberTycoonCloud?.saveCurrent?.();
+function setSaveTransferStatus(message) {
+  const status = document.getElementById('saveTransferStatus');
+  if (status) status.textContent = message;
 }
 
-function requestLoadGame() {
-  if (!window.confirm('불러오시겠습니까?')) return;
-  if (window.numberTycoonCloud?.isReady?.()) {
-    window.numberTycoonCloud.loadCurrent();
-  } else {
-    loadGame();
+async function requestSaveGame() {
+  if (!window.confirm('저장하시겠습니까?')) return false;
+  try {
+    saveGame();
+  } catch (error) {
+    console.error(error);
+    log('브라우저 저장을 완료하지 못했습니다. 클라우드 전송을 중단했습니다.', true);
+    window.numberTycoonAuth?.notify?.('브라우저 저장에 실패했습니다. 저장 공간을 확인하세요.');
+    setSaveTransferStatus('브라우저 저장에 실패했습니다. 클라우드 전송도 중단했습니다.');
+    return false;
   }
+  if (window.numberTycoonCloud?.isReady?.()) {
+    setSaveTransferStatus('브라우저 저장 완료 · 클라우드 전송 중…');
+    const saved = await window.numberTycoonCloud.saveCurrent();
+    setSaveTransferStatus(window.numberTycoonAuth?.statusMessage?.()
+      || (saved ? '브라우저와 클라우드 저장 완료' : '클라우드 저장 실패 · 브라우저 저장은 유지됩니다.'));
+    return saved;
+  }
+  setSaveTransferStatus('브라우저에만 저장했습니다. 클라우드 저장은 로그인 후 다시 저장하세요.');
+  window.numberTycoonAuth?.notify?.('이 브라우저에 저장했습니다. 계정 연결 후 다시 저장하면 클라우드에도 저장됩니다.');
+  return true;
+}
+
+async function requestLoadGame() {
+  if (!window.confirm('불러오시겠습니까?')) return false;
+  if (window.numberTycoonCloud?.isReady?.()) {
+    setSaveTransferStatus('서버의 클라우드 저장 확인 중…');
+    const loaded = await window.numberTycoonCloud.loadCurrent();
+    setSaveTransferStatus(window.numberTycoonAuth?.statusMessage?.() || (loaded ? '불러오기 완료' : '불러오기를 완료하지 못했습니다.'));
+    return loaded;
+  } else {
+    const loaded = loadGame();
+    setSaveTransferStatus(loaded ? '브라우저 저장을 불러왔습니다. 계정 연결 전에는 클라우드를 불러오지 않습니다.' : '브라우저 저장을 불러오지 못했습니다.');
+    return loaded;
+  }
+}
+
+async function requestExplicitCloudLoad() {
+  if (!window.numberTycoonCloud?.isReady?.()) {
+    setSaveTransferStatus('클라우드 불러오기는 설정에서 Google 로그인 후 사용할 수 있습니다.');
+    return false;
+  }
+  setSaveTransferStatus('서버의 클라우드 저장 확인 중…');
+  const loaded = await window.numberTycoonCloud.loadCurrent({ source: 'cloud' });
+  setSaveTransferStatus(window.numberTycoonAuth?.statusMessage?.() || (loaded ? '클라우드 불러오기 완료' : '클라우드 불러오기를 취소했습니다.'));
+  return loaded;
 }
 
 saveBtn.addEventListener('click', requestSaveGame);
 loadBtn.addEventListener('click', requestLoadGame);
+document.getElementById('cloudLoadBtn')?.addEventListener('click', requestExplicitCloudLoad);
 
 window.saveGame = saveGame;
 window.loadGame = loadGame;

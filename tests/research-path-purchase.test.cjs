@@ -198,6 +198,8 @@ test('every current target completes at its planned exact price for all first-pr
         const context=game();
         assert.deepEqual(run(context, `
           knuthBaseUpgradeLevels.extra_branch=${limit-1};
+          knuthBaseUpgradeLevels.late_abstraction=1;
+          randomPower=ABSTRACTION_RESEARCHES.reduce((value,r)=>NumberMath.max(value,r.randomPowerRequirement??0),0);
           setAbstractionBranchPriority(1,0,${JSON.stringify(priority)});
           const kind=${JSON.stringify(kind)},id=${JSON.stringify(id)};
           const plan=researchPurchasePlan(kind,id);

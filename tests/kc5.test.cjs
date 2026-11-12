@@ -291,7 +291,8 @@ test('N help, ID list and contextual completions expose all basic Knuth upgrades
   `);
   assert.deepEqual(row.buy,['cp_gain']);
   assert.deepEqual(row.get,['upgraded','amount','cost','max','available']);
-  assert.equal(row.ids.length,25);
+  assert.equal(row.ids.length,24);
+  assert.ok(!row.ids.includes('black_hole_upgrades'));
   assert.ok(row.ids.includes('operation')&&row.ids.includes('theory_exchange'));
   assert.match(source, /기본 커누스 업그레이드 · KC5 보상/);
 });

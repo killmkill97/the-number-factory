@@ -106,7 +106,8 @@ window.numberTycoonSession = (() => {
     for (const [key, label] of [
       ['num', '숫자'], ['squarePoints', 'SP'], ['squareConvergencePoints', 'CP'],
       ['knuthPoints', 'KP'], ['theory', '이론'], ['greatTheory', '대이론'],
-      ['singularityPoints', '특이점'], ['divergerPower', '발산력']
+      ['singularityPoints', '특이점'], ['divergerPower', '발산력'], ['randomPower', '무작위력'],
+      ['higgsParticles', '힉스입자'], ['stagnantMassMg', '정체된 질량 (mg)'], ['stagnantSingularities', '정체된 특이점']
     ]) {
       const initial = numberValueFromSave(before[key]);
       const final = numberValueFromSave(after[key]);

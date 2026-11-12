@@ -68,18 +68,23 @@ function forceUnlockDevUpgrade(kind, id) {
   if (kind === 'abstraction') {
     const research = ABSTRACTION_RESEARCHES.find(item => item.id === id);
     if (!research) return false;
+    if (id === '21-1') initializeProbabilizerRangeProgress();
     if (!hasPurchasedAbstractionResearch(id)) abstractionResearchPaidCosts[id] = 0;
     recordAbstractionBranchPurchase(research);
     abstractionResearchState[id] = true;
+    if (id === '23-3') setSquarePoints(squarePoints);
+    if (id === '26-2') restoreAbstractionPermanentSingularities();
     if (id === '3-1') automatiumPrestigeRetentionUnlocked = true;
-    if (id === '18-7' && divergerAvailable()) divergerPower = divergerProductionValue();
+    if (['18-7', '19-2', '20-1', '22-2'].includes(id) && divergerAvailable()) divergerPower = divergerProductionValue();
     return true;
   }
 
   if (kind === 'knuth') {
     const upgrade = KNUTH_SLOT_UPGRADES.find(item => item.id === id);
     if (!upgrade || hasKnuthUpgrade(id)) return false;
+    knuthEquipmentOrder = normalizedKnuthEquipmentOrder();
     knuthEquippedUpgradeIds.add(id);
+    appendKnuthEquipmentOrder('normal', id);
     refreshKnuthEquipmentDerivedState(id);
     return true;
   }
@@ -133,9 +138,10 @@ function removeDevUpgrade(kind, id) {
   if (kind === 'abstraction') {
     const research = ABSTRACTION_RESEARCHES.find(item => item.id === id);
     if (!research || !hasPurchasedAbstractionResearch(id)) return false;
+    if (id === '26-2') recordAbstractionPermanentSingularities();
     abstractionResearchState[id] = false;
     delete abstractionResearchPaidCosts[id];
-    if (id === '18-7' && divergerAvailable()) divergerPower = divergerProductionValue();
+    if (['18-7', '19-2', '20-1', '22-2'].includes(id) && divergerAvailable()) divergerPower = divergerProductionValue();
     if (id === '16-2') trimKnuthEquipmentToCapacity();
     if (research.branchGroup === 2) loadAbstractionSecondBranchOrder(abstractionSecondBranchPurchaseOrder);
     return true;
@@ -144,7 +150,9 @@ function removeDevUpgrade(kind, id) {
   if (kind === 'knuth') {
     const upgrade = KNUTH_SLOT_UPGRADES.find(item => item.id === id);
     if (!upgrade || !hasKnuthUpgrade(id)) return false;
+    knuthEquipmentOrder = normalizedKnuthEquipmentOrder();
     knuthEquippedUpgradeIds.delete(id);
+    removeKnuthEquipmentOrder('normal', id);
     refreshKnuthEquipmentDerivedState(id);
     return true;
   }
@@ -338,15 +346,16 @@ function debugBoardPercentLaneRate(laneNumber, lane = null) {
   const power = laneNumber === 1 ? percentPower : lane.power;
   const purchaseBonus = laneNumber === 1 ? percentPowerPurchaseBonus : lane.powerPurchaseBonus;
   const speed = laneNumber === 1 ? percentAutoSpeed : lane.autoSpeed;
-  const gain = percentGain(getBaseNumber(), power, purchaseBonus);
+  const gain = percentProductionBaseGain(getBaseNumber(), power, purchaseBonus);
   return debugBoardRateValue(
     finalNumberProductionGain(
       gain,
-      percentPreExponentMultiplier(getBaseNumber()),
+      percentExpansionFinalMultiplier(getBaseNumber()),
       getBaseNumber(),
       power,
       purchaseBonus,
-      percentProductionExponent()
+      percentProductionExponent(),
+      percentChallengeProductionExponent()
     ),
     debugBoardGameCyclesPerSecond(speed)
   );
@@ -539,11 +548,7 @@ function runDevCommand(commandText) {
       throw new Error('커누스 슬롯 수는 0 이상 9007199254740991 이하의 정수로 입력하세요.');
     }
     knuthOperationLevel = slots;
-    let removed = 0;
-    for (const id of [...knuthEquippedUpgradeIds].reverse()) {
-      if (knuthSlotsUsed() <= knuthSlotCapacity()) break;
-      if (removeDevUpgrade('knuth', id)) removed += 1;
-    }
+    const removed = trimKnuthEquipmentToCapacity();
     if (slots > 0) {
       knuthUnlocked = true;
       hasClaimedKnuthPoint = true;
@@ -556,7 +561,7 @@ function runDevCommand(commandText) {
   }
 
   if (target === 'sp') {
-    squarePoints = value;
+    setSquarePoints(value);
     if (isPositiveNumberValue(value)) {
       squareUnlocked = true;
       setChapter('square');

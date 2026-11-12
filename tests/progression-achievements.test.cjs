@@ -60,12 +60,12 @@ function run(context, body) {
   return JSON.parse(JSON.stringify(vm.runInContext(`(() => {${body}})()`, context)));
 }
 
-test('all 25 new achievements are general, unique, and present in the existing UI', () => {
+test('all general achievements are unique and present in the existing UI', () => {
   assert.deepEqual(run(game(), `
     const general=ACHIEVEMENTS.filter(item=>item.category!=='secret');
     return {count:general.length,unique:new Set(ACHIEVEMENTS.map(item=>item.id)).size===ACHIEVEMENTS.length,
       ui:general.every(item=>achievementUi.has(item.id)),icons:ACHIEVEMENT_ICONS_ENABLED};
-  `), {count:44,unique:true,ui:true,icons:false});
+  `), {count:63,unique:true,ui:true,icons:false});
 });
 
 test('resource, slot, Dyson, click and time achievements respect exact large-number thresholds', () => {
@@ -124,13 +124,18 @@ test('math doctor requires branch expansion and every compatible path, ignoring 
       if(!research.branch || ['time','active'].includes(research.branch)) abstractionResearchState[research.id]=true;
     }
     const miniGroups=new Set();
+    const miniChoices=new Map();
     for(const research of ABSTRACTION_RESEARCHES){
       if((research.branchGroup??1)<=2 || miniGroups.has(research.branchGroup))continue;
       abstractionResearchState[research.id]=true;miniGroups.add(research.branchGroup);
+      miniChoices.set(research.branchGroup,research.branch);
+    }
+    for(const research of ABSTRACTION_RESEARCHES){
+      if(miniChoices.get(research.branchGroup)===research.branch&&research.branch)abstractionResearchState[research.id]=true;
     }
     const noExpansion=condition('math_doctor');knuthBaseUpgradeLevels.extra_branch=1;
     const onlyOnePath=condition('math_doctor');
-    ABSTRACTION_RESEARCHES.filter(r=>r.branch==='expansion').forEach(r=>abstractionResearchState[r.id]=true);
+    ABSTRACTION_RESEARCHES.filter(r=>['expansion','percent'].includes(r.branch)).forEach(r=>abstractionResearchState[r.id]=true);
     const full=condition('math_doctor');
     ABSTRACTION_RESEARCHES.push({id:'future-normal',parents:['14-1'],greatTheoryCost:1});
     const missingNew=condition('math_doctor');abstractionResearchState['future-normal']=true;
@@ -202,7 +207,7 @@ test('KP conditional achievements use newly awarded integer KP and sticky run re
     loadAchievementState({});achievementRunProgress.manualGameplay=true;achievementRunProgress.manualSpExchange=true;
     achievementRunProgress.percentUsedKnuth=true;achievementRunProgress.productionUnlocked=true;
     recordAchievementKnuthReward(500,31,snapshotAchievementKnuthRun());
-    return {below,exact,blocked:['no_hands','ora_ora','how_to_erase_you','that_is_wrong'].every(id=>!achieved(id))};
+    return {below,exact,blocked:['no_hands','ora_ora','how_to_erase_you'].every(id=>!achieved(id))};
   `), {below:false,exact:true,blocked:true});
 });
 
@@ -214,8 +219,8 @@ test('production unlock history survives cancelling research or unequipping prod
     achievementRunProgress=makeAchievementRunProgress();knuthOperationLevel=1;
     toggleKnuthUpgrade('permanent_production');completedKnuthChallengeIds.add('kc1');toggleKnuthUpgrade('permanent_production');
     recordAchievementKnuthReward(20,31,snapshotAchievementKnuthRun());
-    return {researchSticky,equipmentSticky:achievementRunProgress.productionUnlocked,notGranted:!achieved('that_is_wrong')};
-  `), {researchSticky:true,equipmentSticky:true,notGranted:true});
+    return {researchSticky,equipmentSticky:achievementRunProgress.productionUnlocked};
+  `), {researchSticky:true,equipmentSticky:true});
 });
 
 test('speed achievements use inclusive real-time boundaries, not accelerated game time', () => {
@@ -294,12 +299,15 @@ test('click achievement uses the actual softened one-click gain rather than the 
   `), {rawEnough:true,softened:false,unsoftened:true});
 });
 
-test('twenty-KP no-production threshold is inclusive and zero reward never awards prestige achievements', () => {
+test('removed no-production achievement is absent from UI, old saves and future KP rewards', () => {
   assert.deepEqual(run(game(), `
+    loadAchievementState({that_is_wrong:true,first_step:true});
+    const removed=!ACHIEVEMENTS.some(item=>item.id==='that_is_wrong')
+      &&!achievementUi.has('that_is_wrong')&&!Object.hasOwn(achievementState,'that_is_wrong');
     recordAchievementKnuthReward(0,0,snapshotAchievementKnuthRun());
-    const zero=['not_a_knuth','i_am_speed','ora_ora','how_to_erase_you','that_is_wrong'].every(id=>!achieved(id));
-    recordAchievementKnuthReward(19,31,snapshotAchievementKnuthRun());const below=achieved('that_is_wrong');
+    const zero=['not_a_knuth','i_am_speed','ora_ora','how_to_erase_you'].every(id=>!achieved(id));
     recordAchievementKnuthReward(20,31,snapshotAchievementKnuthRun());
-    return {zero,below,exact:achieved('that_is_wrong')};
-  `), {zero:true,below:false,exact:true});
+    return {removed,zero,otherKept:achieved('first_step'),
+      notRecreated:!Object.hasOwn(captureGameSaveData().achievementState,'that_is_wrong')};
+  `), {removed:true,zero:true,otherKept:true,notRecreated:true});
 });

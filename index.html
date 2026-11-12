@@ -1,11 +1,13 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
+<script src="./scripts/i18n/runtime.js?v=20261112-localization-v1"></script>
+<script src="./scripts/i18n/catalog-en.js?v=20261112-localization-v1"></script>
 <title>숫자의 끝을 보는 타이쿤 - 프로토타입</title>
 <link rel="icon" type="image/png" sizes="768x768" href="./assets/icons/game-icon.png?v=20261017">
 <link rel="apple-touch-icon" href="./assets/icons/game-icon.png?v=20261017">
-<link rel="stylesheet" href="./styles/number-tycoon.css?v=20261019-offline-summary-v1">
+<link rel="stylesheet" href="./styles/number-tycoon.css?v=20261112-localization-v1">
 </head>
 <body>
 <div class="news-ticker" aria-live="polite">
@@ -20,6 +22,13 @@
   <span id="achievementToastText"></span>
 </div>
 <div class="news-settings-panel hidden" id="newsSettingsPanel">
+  <label class="news-settings-row">
+    <span>언어</span>
+    <select id="languageSelect" class="news-mode-select" aria-label="게임 언어">
+      <option value="en" lang="en" data-i18n-skip>English</option>
+      <option value="ko" lang="ko" data-i18n-skip>한국어</option>
+    </select>
+  </label>
   <label class="news-settings-row">
     <span>뉴스 내용</span>
     <select id="newsModeSelect" class="news-mode-select" aria-label="뉴스 내용 설정">
@@ -93,13 +102,16 @@
   <div class="currency-status-row"><span>이론:</span><strong id="currencyTheoryValue">0</strong></div>
   <div class="currency-status-row"><span>대이론:</span><strong id="currencyGreatTheoryValue">0</strong></div>
   <div class="currency-status-row"><span>특이점:</span><strong id="currencySingularityValue">0</strong></div>
+  <div id="currencyDefinitionRow" class="currency-status-row definition-currency hidden"><span>정의 조각:</span><strong id="currencyDefinitionValue">0</strong></div>
   <div id="activeChallengeStatus" class="currency-status-challenge hidden" aria-live="polite"></div>
 </aside>
 <div class="app">
   <div class="save-toolbar">
     <button id="saveBtn">저장</button>
     <button id="loadBtn">불러오기</button>
+    <button id="cloudLoadBtn" type="button">클라우드 불러오기</button>
   </div>
+  <p id="saveTransferStatus" class="save-transfer-status" role="status" aria-live="polite"></p>
   <div class="chapter" id="chapterLabel">증가와 곱셈</div>
   <h1 id="gameTitle">숫자의 끝을 보는 타이쿤</h1>
 
@@ -107,6 +119,11 @@
     <button id="multiplicationTabBtn">베이스</button>
     <button id="squareTabBtn">제곱</button>
     <button id="knuthTabBtn" class="hidden">커누스</button>
+    <button id="definitionTabBtn" class="hidden">정의</button>
+  </div>
+
+  <div class="chapter-panel hidden" id="definitionPanel">
+    <button id="definitionContentCard" class="definition-content-card" type="button">이후 컨텐츠 개발 준비중</button>
   </div>
 
   <div class="chapter-panel" id="multiplicationPanel">
@@ -436,8 +453,8 @@
 
     <div id="knuthBaseUpgradePanel">
       <div class="section-title">KP 업그레이드</div>
-      <p class="knuth-base-group-status" id="knuthRepeatablePriceRule">그룹 반복 구매 가격 상승률: 현재 비용이 1e50 KP 이상이면 기존 상승 배율 ×2, 1.8e308 KP 이상이면 추가 ×4 (기존 대비 ×8). 연산 강화는 별도 가격 규칙을 사용합니다.</p>
-      <p class="knuth-base-group-status" id="knuthOperationPriceRule">연산 강화 가격: 1~100번째 구매까지 ×2, 101~200번째 ×4, 201~300번째 ×8 · 최대 300회 구매 · 기본 슬롯 +1개/회.</p>
+      <p class="knuth-base-group-status" id="knuthRepeatablePriceRule">그룹 반복 구매 가격 상승률: 현재 비용이 1e50 KP 이상이면 기존 상승 배율 ×2, 1.8e308 KP 이상이면 추가 ×4 (기존 대비 ×8). 1e400 KP부터 1e100배 구간마다 상승 배율의 지수에 ×4를 추가합니다 (1e400: 4제곱, 1e500: 16제곱, 1e600: 64제곱…). 29-1 연구 시 상승 기준 가격을 분리합니다. 연산 강화는 별도 가격 규칙을 사용합니다.</p>
+      <p class="knuth-base-group-status" id="knuthOperationPriceRule">연산 강화 가격: 1~100번째 구매까지 ×2, 101~200번째 ×4, 201~300번째 ×8 · 최대 300회 구매 · 기본 슬롯 +1개/회. KC6 완료 시 제한이 해제됩니다.</p>
       <div class="row knuth-operation-purchase">
         <button id="knuthOperationUpgradeBtn" type="button">
           <span>연산 강화</span>
@@ -451,6 +468,57 @@
     </div>
 
     <div id="knuthProductionPanel" class="hidden">
+      <div class="knuth-production-tabs" role="tablist" aria-label="커누스 생산 시스템">
+        <button id="knuthBlackHoleTabBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="knuthBlackHolePanel">숫자 블랙홀</button>
+        <button id="knuthProbabilizerTabBtn" type="button" role="tab" aria-selected="false" aria-controls="knuthProbabilizerPanel">확률자</button>
+        <button id="knuthSpaceExpansionTabBtn" class="hidden" type="button" role="tab" aria-selected="false" aria-controls="knuthSpaceExpansionPanel">공간 팽창</button>
+      </div>
+      <div id="knuthSpaceExpansionPanel" class="hidden" role="tabpanel" aria-labelledby="knuthSpaceExpansionTabBtn">
+        <div class="section-title">공간 팽창</div>
+        <div id="spaceExpansionStatus" class="number-black-hole-status" role="status">비활성</div>
+        <p id="spaceExpansionPenaltyRule" class="space-expansion-rule">공간 팽창 중에는 생산·교환 배율의 지수의 지수가 0.25배가 됩니다. SP는 최종 획득량에 log10을 한 번 더 적용합니다. 소프트캡 확장, 블랙홀 반지름과 시간 가속 배율은 유지됩니다.</p>
+        <button id="spaceExpansionToggleBtn" type="button">공간 팽창 시작</button>
+        <p id="spaceExpansionRewardPreview" class="space-expansion-rule"></p>
+        <dl class="number-black-hole-summary space-expansion-summary">
+          <div><dt>힉스입자 최고기록</dt><dd id="higgsParticleValue">0</dd></div>
+          <div><dt>종료 시 힉스입자</dt><dd id="spaceExpansionHiggsPreview">0</dd></div>
+          <div><dt>정체된 질량 (SM)</dt><dd id="stagnantMassValue">0 mg</dd></div>
+          <div><dt>정체된 특이점</dt><dd id="stagnantSingularityValue">0</dd></div>
+          <div><dt>다음 정체된 특이점</dt><dd id="stagnantSingularityNextValue">1 g</dd></div>
+          <div><dt>질량 생산 / 현실 초</dt><dd id="stagnantMassRateValue">0 mg</dd></div>
+          <div><dt>블랙홀 반지름</dt><dd id="stagnantMassRadiusEffect">×1</dd></div>
+          <div><dt>무작위력 획득</dt><dd id="stagnantMassRandomEffect">×1</dd></div>
+        </dl>
+        <p id="spaceExpansionRewardRule" class="space-expansion-rule">종료할 때 보유 CP로 힉스입자 최고기록을 갱신합니다. 힉스입자는 합산하지 않으며, 1개당 기본 현실 초당 1mg의 정체된 질량(SM)을 생산합니다.</p>
+        <div class="section-title">공간 팽창 업그레이드</div>
+        <div class="probabilizer-upgrades space-expansion-upgrades" role="group" aria-label="정체된 질량으로 구매하는 공간 팽창 업그레이드">
+          <button id="spaceExpansionHiggsGainUpgradeBtn" class="knuth-upgrade" type="button">
+            <span id="spaceExpansionHiggsGainUpgradeLabel" class="knuth-upgrade-title">힉스입자 증폭</span>
+            <span class="knuth-upgrade-description">힉스입자를 구매마다 3배 더 얻습니다. 다음 공간 팽창 종료 보상부터 적용됩니다.</span>
+            <span id="spaceExpansionHiggsGainUpgradeCost" class="cost"></span>
+          </button>
+          <button id="spaceExpansionMassGainUpgradeBtn" class="knuth-upgrade" type="button">
+            <span id="spaceExpansionMassGainUpgradeLabel" class="knuth-upgrade-title">정체된 질량 생산 강화</span>
+            <span class="knuth-upgrade-description">정체된 질량을 구매마다 5배 더 얻습니다.</span>
+            <span id="spaceExpansionMassGainUpgradeCost" class="cost"></span>
+          </button>
+          <button id="spaceExpansionMassEffectUpgradeBtn" class="knuth-upgrade" type="button">
+            <span id="spaceExpansionMassEffectUpgradeLabel" class="knuth-upgrade-title">정체된 특이점 효과 강화</span>
+            <span class="knuth-upgrade-description">정체된 특이점이 주는 최종 배율을 구매마다 2배로 만듭니다. 반지름·무작위력·28-1과 추가 업그레이드의 특이점 배율에도 적용됩니다.</span>
+            <span id="spaceExpansionMassEffectUpgradeCost" class="cost"></span>
+          </button>
+        </div>
+        <section id="spaceExpansionExtraUpgrades" class="hidden">
+          <div class="section-title">공간 팽창 추가 업그레이드</div>
+          <p id="spaceExpansionExtraStatus" class="sub"></p>
+          <div id="spaceExpansionExtraUpgradeList" class="probabilizer-upgrades space-expansion-upgrades" role="group" aria-label="공간 팽창 일회성 업그레이드"></div>
+        </section>
+        <details class="space-expansion-formulas">
+          <summary>공식</summary>
+          <div id="spaceExpansionFormulaText"></div>
+        </details>
+      </div>
+      <div id="knuthBlackHolePanel" role="tabpanel" aria-labelledby="knuthBlackHoleTabBtn">
       <div class="section-title">숫자 블랙홀</div>
       <div id="numberBlackHoleStatus" class="number-black-hole-status" aria-live="polite">비활성</div>
       <div id="numberBlackHoleResourceControl" class="number-black-hole-resource hidden">
@@ -507,6 +575,7 @@
       <dl class="number-black-hole-summary">
         <div><dt>슈바르츠실트 반지름</dt><dd id="numberBlackHoleRadiusValue">0</dd></div>
         <div><dt>현재 시간 가속</dt><dd id="numberBlackHoleTimeMultiplierValue">×1</dd></div>
+        <div><dt>시간 가속 상한</dt><dd id="numberBlackHoleTimeLimitValue">×1e100</dd></div>
         <div><dt>누적 가속 시간</dt><dd id="numberBlackHoleAccumulatedTimeValue">0초</dd></div>
       </dl>
 
@@ -515,8 +584,9 @@
         <div><dt>보유 특이점</dt><dd id="singularityPointValue">0</dd></div>
         <div><dt>다음 필요 반지름</dt><dd id="singularityRadiusRequirementValue">20</dd></div>
       </dl>
+      <p id="singularityReserveStatus" class="sub hidden"></p>
       <button id="singularityPurchaseBtn" class="singularity-purchase" type="button">
-        특이점 +1
+        <span id="singularityPurchaseLabel">특이점 +1</span>
         <span class="cost">숫자 블랙홀 전체 초기화</span>
       </button>
       <dl class="number-black-hole-summary singularity-effects">
@@ -538,6 +608,84 @@
           <span class="cost" id="singularityKpUpgradeCost"></span>
         </button>
       </div>
+      </div>
+      <div id="knuthProbabilizerPanel" class="hidden" role="tabpanel" aria-labelledby="knuthProbabilizerTabBtn">
+        <div class="section-title">확률자</div>
+        <div id="probabilizerStatus" class="number-black-hole-status" role="status">4그룹 확률자 구매 필요</div>
+        <div id="probabilizerBoard" class="hidden">
+          <div class="probabilizer-power">
+            <div class="sub">무작위력</div>
+            <div id="randomPowerValue" class="value">0</div>
+          </div>
+          <dl class="number-black-hole-summary probabilizer-summary">
+            <div><dt>시작점 a</dt><dd id="probabilizerAValue">1</dd></div>
+            <div><dt>끝점 b</dt><dd id="probabilizerBValue">100</dd></div>
+            <div><dt>최근 추첨</dt><dd id="probabilizerLastRollValue">—</dd></div>
+            <div><dt>추첨 주기</dt><dd id="probabilizerIntervalValue">현실 시간 1초</dd></div>
+            <div><dt>무작위력 획득 배율</dt><dd id="probabilizerPowerGainValue">×1</dd></div>
+            <div><dt>최소 추첨 간격</dt><dd id="probabilizerMinimumIntervalValue">1ms</dd></div>
+            <div><dt>분포 중심</dt><dd id="probabilizerModeValue">50.5</dd></div>
+            <div><dt>발산자 a·b 강화</dt><dd id="probabilizerDivergerEffect">각각 ×1</dd></div>
+            <div><dt>블랙홀 가속 상한</dt><dd id="probabilizerTimeLimitEffect">×1e100</dd></div>
+          </dl>
+          <div id="probabilizerPlot" class="probabilizer-plot" role="img" aria-label="1부터 100까지의 추첨 수직선">
+            <div class="probabilizer-axis">
+              <svg class="probabilizer-distribution" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <path id="probabilizerDistribution" d="M 0 100 L 50 8 L 100 100 Z"></path>
+              </svg>
+              <span id="probabilizerTick0" class="probabilizer-tick start">1</span>
+              <span id="probabilizerTick1" class="probabilizer-tick quarter">25.75</span>
+              <span id="probabilizerTick2" class="probabilizer-tick center">50.5</span>
+              <span id="probabilizerTick3" class="probabilizer-tick three-quarter">75.25</span>
+              <span id="probabilizerTick4" class="probabilizer-tick end">100</span>
+              <div id="probabilizerDots" aria-hidden="true"></div>
+            </div>
+          </div>
+          <div class="section-title">확률자 업그레이드</div>
+          <p class="sub" id="probabilizerPriceRule">현재 결제 가격이 1e500 KP부터 기존 지수 ×2에 더해, 1e100배 구간마다 가격 상승폭의 지수가 추가로 4배 됩니다. 29-1 연구 시 상승 기준 가격을 분리합니다.</p>
+          <div class="probabilizer-upgrades">
+            <button id="probabilizerAUpgradeBtn" class="knuth-upgrade" type="button">
+              <span id="probabilizerAUpgradeLabel" class="knuth-upgrade-title">a값 증가</span>
+              <span id="probabilizerAUpgradeDescription" class="knuth-upgrade-description">시작점 a를 1.5배 늘립니다. a는 b를 넘지 않습니다. 가격은 ×100, 1e500 KP부터 ×10k입니다.</span>
+              <span id="probabilizerAUpgradeCost" class="cost"></span>
+            </button>
+            <button id="probabilizerBUpgradeBtn" class="knuth-upgrade" type="button">
+              <span id="probabilizerBUpgradeLabel" class="knuth-upgrade-title">b값 증가</span>
+              <span id="probabilizerBUpgradeDescription" class="knuth-upgrade-description">끝점 b를 1.5배 늘립니다. 가격은 ×10, 1e500 KP부터 ×100입니다.</span>
+              <span id="probabilizerBUpgradeCost" class="cost"></span>
+            </button>
+            <button id="probabilizerSpeedUpgradeBtn" class="knuth-upgrade" type="button">
+              <span id="probabilizerSpeedUpgradeLabel" class="knuth-upgrade-title">속도 증가</span>
+              <span id="probabilizerSpeedUpgradeDescription" class="knuth-upgrade-description">추첨 간격을 20% 줄입니다. 최소 간격은 1ms입니다. 가격은 ×1e5, 1e500 KP부터 ×1e10입니다.</span>
+              <span id="probabilizerSpeedUpgradeCost" class="cost"></span>
+            </button>
+            <button id="probabilizerShiftUpgradeBtn" class="knuth-upgrade" type="button">
+              <span id="probabilizerShiftUpgradeLabel" class="knuth-upgrade-title">분포도 이동</span>
+              <span class="knuth-upgrade-description">가장 자주 나오는 값을 b 방향으로 1만큼 옮깁니다. 가격은 ×1e10, 1e500 KP부터 ×1e20입니다.</span>
+              <span id="probabilizerShiftUpgradeCost" class="cost"></span>
+            </button>
+          </div>
+          <hr class="probabilizer-upgrade-divider">
+          <div class="section-title">무작위력 업그레이드</div>
+          <div class="probabilizer-upgrades probabilizer-power-upgrades" role="group" aria-label="무작위력으로 구매하는 확률자 업그레이드">
+            <button id="probabilizerPowerGainUpgradeBtn" class="knuth-upgrade" type="button">
+              <span id="probabilizerPowerGainUpgradeLabel" class="knuth-upgrade-title">무작위력 증폭</span>
+              <span class="knuth-upgrade-description">무작위력을 구매마다 3배 더 얻습니다. 1b 무작위력부터 시작하며, 가격은 구매마다 10배 증가합니다.</span>
+              <span id="probabilizerPowerGainUpgradeCost" class="cost"></span>
+            </button>
+            <button id="probabilizerPowerDivergerUpgradeBtn" class="knuth-upgrade" type="button">
+              <span id="probabilizerPowerDivergerUpgradeLabel" class="knuth-upgrade-title">발산자 강화 증폭</span>
+              <span class="knuth-upgrade-description">발산자의 a·b 강화 배율을 구매마다 1.5배 늘립니다. 가격은 5b 무작위력부터 ×50, 1e40 이상부터 ×2000입니다.</span>
+              <span id="probabilizerPowerDivergerUpgradeCost" class="cost"></span>
+            </button>
+            <button id="probabilizerPowerIntervalFloorUpgradeBtn" class="knuth-upgrade" type="button">
+              <span id="probabilizerPowerIntervalFloorUpgradeLabel" class="knuth-upgrade-title">속도 하한 완화</span>
+              <span class="knuth-upgrade-description">속도 강화로 도달할 수 있는 최소 추첨 간격을 구매마다 절반으로 줄입니다. 5b 무작위력부터 시작하며, 가격은 구매마다 25배 증가합니다.</span>
+              <span id="probabilizerPowerIntervalFloorUpgradeCost" class="cost"></span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div id="knuthEquipUpgradePanel" class="hidden">
@@ -546,6 +694,14 @@
       </button>
       <div class="section-title">강화 선택</div>
       <div id="knuthUpgradeGroups" class="knuth-upgrade-groups"></div>
+      <section id="knuthAdvancedEquipmentPanel" class="knuth-advanced-equipment hidden" aria-label="고급 장착 업그레이드">
+        <h3>고급 장착 업그레이드</h3>
+        <p class="knuth-advanced-payment"><strong>구매 시 KP에서 가격을 빼지 않고, 보유 KP를 가격으로 나눕니다.</strong><br>1e100 KP ÷ 1e50 = 1e50 KP</p>
+        <div class="section-title">고급 장착 구매</div>
+        <div id="knuthAdvancedPurchaseList" class="knuth-upgrade-list"></div>
+        <div class="section-title">보유 고급 장착</div>
+        <div id="knuthAdvancedInventoryList" class="knuth-upgrade-list"></div>
+      </section>
     </div>
 
     <div id="knuthChallengePanel" class="hidden">
@@ -604,6 +760,17 @@
         <p>보상: 기본 커누스 업그레이드 자동구매 및 N 구매·조회, 4·5·6그룹을 해금합니다.</p>
         <div id="knuthChallengeKc5Progress" class="knuth-challenge-progress"></div>
         <button id="knuthChallengeKc5Btn" type="button">도전 시작</button>
+      </article>
+      <article id="knuthChallengeKc6" class="knuth-challenge-card">
+        <div class="knuth-challenge-heading">
+          <strong>KC6</strong>
+          <span id="knuthChallengeKc6Status">미완료</span>
+        </div>
+        <p>제한: 퍼센트로 얻는 최종 수가 1e-10제곱됩니다. SP·CP 획득량을 배율하는 효과는 1배가 됩니다.</p>
+        <p>목표: 1e1000 CP</p>
+        <p>보상: 연산 강화의 300회 제한을 해제합니다. 301번째부터 기본 1e10배씩 오르고, 1e200·1e300·1e400… KP 구간마다 가격 상승 배율을 제곱합니다. 29-1 연구 시 상승 기준 가격을 따로 계산합니다.</p>
+        <div id="knuthChallengeKc6Progress" class="knuth-challenge-progress"></div>
+        <button id="knuthChallengeKc6Btn" type="button">도전 시작</button>
       </article>
     </div>
 
@@ -667,6 +834,7 @@
       <legend>첫 번째 분기</legend>
       <label>1순위<select id="abstractionBranchPriority1"></select></label>
       <label>2순위 · 두 경로 해금 시<select id="abstractionBranchPriority2"></select></label>
+      <label>3순위 · 세 경로 해금 시<select id="abstractionBranchPriority3"></select></label>
     </fieldset>
     <fieldset>
       <legend>두 번째 분기</legend>
@@ -723,6 +891,16 @@
   </header>
   <div id="automatiumQuickProgramList" class="automatium-quick-list"></div>
 </aside>
+
+<section id="definitionStoryPanel" class="definition-story-panel hidden" role="button" tabindex="0" aria-label="대화 진행">
+  <p id="definitionStoryText" aria-live="polite" aria-atomic="true"></p>
+</section>
+
+<audio id="definitionEasterEggAudio" preload="none" src="./assets/easter-eggs/definition-jumpscare.mp3"></audio>
+<div id="definitionEasterEggOverlay" class="definition-easter-egg hidden" aria-hidden="true">
+  <img src="./assets/easter-eggs/definition-employment.png" alt="" width="301" height="394">
+  <canvas id="definitionEasterEggFlames" class="definition-easter-egg-flames"></canvas>
+</div>
 
 <div id="automatiumWorkspace" class="automatium-workspace hidden" role="dialog" aria-modal="true" aria-labelledby="automatiumTitle">
   <div class="automatium-shell">
@@ -811,38 +989,44 @@
   </div>
 </div>
 
-<script src="./scripts/data/chapter-roadmap.js?v=20260919-knuth"></script>
-<script src="./scripts/core/session.js?v=20261019-offline-summary-v1"></script>
-<script src="./scripts/core/constants.js?v=20261019-knuth-groups-4-6-v1"></script>
+<script src="./scripts/data/chapter-roadmap.js?v=20261112-definition-tab-v1"></script>
+<script src="./scripts/core/session.js?v=20261112-stagnant-singularities-v1"></script>
+<script src="./scripts/core/constants.js?v=20261112-stagnant-singularities-v1"></script>
 <script src="./scripts/core/number-math.js?v=20261015-nested-exponent-parser-v1"></script>
-<script src="./scripts/core/state.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/systems/formula-help.js?v=20261012-log-overflow-v1"></script>
-<script src="./scripts/core/dom.js?v=20261019-black-hole-auto-limits-v1"></script>
-<script src="./scripts/core/chapter-ui.js?v=20260922-performance"></script>
-<script src="./scripts/systems/percent-lanes.js?v=20261013-percent-continuous-v1"></script>
-<script src="./scripts/systems/square-upgrades.js?v=20261001-formula-help-v1"></script>
-<script src="./scripts/systems/square-breakthrough.js?v=20261015-knuth-equipment-v1"></script>
-<script src="./scripts/systems/square-convergence.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/core/state.js?v=20261112-breakthrough-overflow-v1"></script>
+<script src="./scripts/systems/formula-help.js?v=20261112-stagnant-singularities-v1"></script>
+<script src="./scripts/core/dom.js?v=20261112-definition-tab-v1"></script>
+<script src="./scripts/core/chapter-ui.js?v=20261112-definition-tab-v2"></script>
+<script src="./scripts/systems/percent-lanes.js?v=20261031-mobile-performance-v1"></script>
+<script src="./scripts/systems/square-upgrades.js?v=20261023-abstraction22-23-v1"></script>
+<script src="./scripts/systems/square-breakthrough.js?v=20261112-breakthrough-overflow-v1"></script>
+<script src="./scripts/systems/square-convergence.js?v=20261112-localization-v1"></script>
 <script src="./scripts/systems/abstraction.js?v=20261019-offline-session-v1"></script>
 <script src="./scripts/systems/square-dimensions.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/systems/diverger.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/systems/achievements.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/core/render.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/systems/number-black-hole.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/systems/clickers.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/systems/percent-system.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/systems/auto-upgrades.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/systems/news-ticker.js?v=20261008-human-messages-v1"></script>
-<script src="./scripts/chapters/square.js?v=20261005-square-prestige-time-v1"></script>
-<script src="./scripts/chapters/knuth.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/core/save.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/systems/diverger.js?v=20261021-probabilizer-parameters-v4"></script>
+<script src="./scripts/systems/achievements.js?v=20261112-localization-v1"></script>
+<script src="./scripts/core/render.js?v=20261112-definition-tab-v1"></script>
+<script src="./scripts/systems/number-black-hole.js?v=20261112-breakthrough-overflow-v1"></script>
+<script src="./scripts/systems/probabilizer.js?v=20261031-abstraction29-v1"></script>
+<script src="./scripts/systems/space-expansion.js?v=20261112-stagnant-singularities-v1"></script>
+<script src="./scripts/systems/clickers.js?v=20261031-space-expansion-revert-final-v1"></script>
+<script src="./scripts/systems/percent-system.js?v=20261112-breakthrough-overflow-v1"></script>
+<script src="./scripts/systems/auto-upgrades.js?v=20261112-breakthrough-overflow-v1"></script>
+<script src="./scripts/systems/news-ticker.js?v=20261112-localization-v1"></script>
+<script src="./scripts/chapters/square.js?v=20261029-space-expansion-sp-log-v1"></script>
+<script src="./scripts/chapters/knuth.js?v=20261103-advanced-power-decay-v1"></script>
+<script src="./scripts/core/save.js?v=20261112-definition-tab-v1"></script>
 <script src="./scripts/automatium/n-lexer.js?v=20260905-cache-refresh"></script>
-<script src="./scripts/automatium/n-parser.js?v=20261016-kc4-automation-v1"></script>
-<script src="./scripts/automatium/n-runtime.js?v=20261016-kc4-automation-v1"></script>
-<script src="./scripts/systems/automatium.js?v=20261019-offline-session-v1"></script>
-<script src="./scripts/systems/dev-console.js?v=20261019-offline-session-v1"></script>
+<script src="./scripts/automatium/n-parser.js?v=20261031-space-expansion-extra-v1"></script>
+<script src="./scripts/automatium/n-runtime.js?v=20261031-space-expansion-extra-v1"></script>
+<script src="./scripts/systems/automatium.js?v=20261112-localization-v1"></script>
+<script src="./scripts/systems/definition-story.js?v=20261112-localization-v1"></script>
+<script src="./scripts/systems/definition-easter-egg.js?v=20261112-definition-easter-egg-v4"></script>
+<script src="./scripts/systems/dev-console.js?v=20261029-space-expansion-log-power-v1"></script>
+<script src="./scripts/systems/purchase-utility.js?v=20261031-shift-max-v1"></script>
+<script src="./scripts/i18n/game.js?v=20261112-localization-v1"></script>
 <script src="./scripts/main.js?v=20261019-offline-session-v1"></script>
 <script src="./scripts/config/firebase-config.js?v=20260918-auth"></script>
-<script type="module" src="./scripts/systems/firebase-auth.js?v=20261019-offline-session-v1"></script>
+<script type="module" src="./scripts/systems/firebase-auth.js?v=20261101-cloud-server-v2"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 const knuthUpgradeUi = {};
 const knuthBaseUpgradeUi = new Map();
 const knuthBaseGroupUi = new Map();
+const knuthAdvancedUpgradeUi = new Map();
 let activeKnuthView = 'base';
 let knuthUpgradeGroupsInitialized = false;
 let knuthSlotDisplaySignature = '';
@@ -14,6 +15,12 @@ function renderKnuthBaseAutoControl(control, toggle, id) {
 }
 
 function renderKnuthBaseUpgrades() {
+  const separated = independentUpgradePriceReferenceActive();
+  const priceRule = document.getElementById('knuthRepeatablePriceRule');
+  if (priceRule) priceRule.textContent = `그룹 반복 구매 가격 상승률: ${separated ? '상승 기준 가격' : '현재 비용'}이 1e50 KP 이상이면 기존 상승 배율 ×2, 1.8e308 KP 이상이면 추가 ×4 (기존 대비 ×8). 1e400 KP부터 1e100배 구간마다 상승 배율의 지수에 ×4를 추가합니다. `
+    + (separated ? '29-1 적용: 상승 기준은 기본 가격으로만 증가하며 결제 가격 가속은 반영하지 않습니다.'
+      : '현재 결제 가격으로 구간을 판정합니다. 29-1 연구 시 상승 기준을 분리합니다.')
+    + ' 연산 강화는 별도 가격 규칙을 사용합니다.';
   if (!knuthBaseUpgradeGroups) return;
   if (knuthBaseUpgradeUi.size === 0) {
     for (const group of [1, 2, 3, 4, 5, 6]) {
@@ -59,6 +66,10 @@ function renderKnuthBaseUpgrades() {
         });
         autoControl.append(autoToggle);
         purchase.append(button, autoControl);
+        if (['dyson_limit', 'overclock_limit'].includes(upgrade.id)) {
+          purchase.classList.add('formula-help-host');
+          ensureFormulaHelpButton(purchase, 'knuth-base', upgrade.id);
+        }
         grid.append(purchase);
         knuthBaseUpgradeUi.set(upgrade.id, { button, cost, description, autoControl, autoToggle });
       }
@@ -79,14 +90,17 @@ function renderKnuthBaseUpgrades() {
     const { button, cost, description, autoControl, autoToggle } = knuthBaseUpgradeUi.get(upgrade.id);
     renderKnuthBaseAutoControl(autoControl, autoToggle, upgrade.id);
     const firstGroupEffects = { cp_gain: 25, sp_gain: 10000, kp_gain: 5, diverger_gain: 2, dimension_gain: 4 };
-    description.textContent = upgrade.group === 1 && hasAbstractionResearch('11-1')
-      ? `구매마다 ${knuthBaseEffectPerPurchase(upgrade.id, firstGroupEffects[upgrade.id])}배 증가합니다. (11-1 적용)`
+    const firstGroupResearch = ['11-1', '22-2'].filter(hasAbstractionResearch);
+    if (knuthAdvancedEquipped.group_effect > 0 && knuthAdvancedUnlocked()) firstGroupResearch.push('고급 장착');
+    if (hasSpaceExpansionOneTimeUpgrade('group_boost')) firstGroupResearch.push('질량 강화');
+    description.textContent = upgrade.group === 1 && firstGroupResearch.length > 0
+      ? `구매마다 ${knuthPreciseValueText(knuthBaseEffectPerPurchase(upgrade.id, firstGroupEffects[upgrade.id]), 7)}배 증가합니다. (${firstGroupResearch.join('·')} 적용)`
       : upgrade.description;
     if (upgrade.id === 'dyson_limit' && hasAbstractionResearch('17-3')) {
-      description.textContent = '다이슨 스웜 구매 한도 +2. 추가 구매분의 다음 가격은 (직전 가격 ×20)^1.01로 증가합니다. (17-3 적용)';
+      description.textContent = '다이슨 스웜의 구매 한도를 2개 늘립니다. 추가로 구매하는 다이슨 스웜의 가격은 더 빠르게 증가합니다. (17-3 적용)';
     }
-    if (upgrade.id === 'diverger_b_bonus') {
-      description.textContent = `구매마다 b +${divergerBUpgradeGain()}. 현재 b 강화 1회분이며 CP 강화 횟수·가격은 유지됩니다.`;
+    if (upgrade.id === 'dyson_limit' && hasSpaceExpansionOneTimeUpgrade('group_boost')) {
+      description.textContent += ` 추가 개수에 질량 배율 ×${knuthPreciseValueText(spaceExpansionGroupMultiplier())} 적용.`;
     }
     if (upgrade.id === 'stagnant_mass_gain') {
       description.textContent += ` 현재 기여 배율 강화: ×${fmtPowerBase(stagnantMassBlackHoleMultiplier())}`;
@@ -94,11 +108,15 @@ function renderKnuthBaseUpgrades() {
     if (isKnuthChallengeActive('kc5')) description.textContent += ' (KC5: 효과·구매 비활성)';
     const level = knuthBaseUpgradeLevel(upgrade.id);
     const complete = level >= knuthBaseUpgradeMax(upgrade);
+    const price = knuthBaseUpgradeCost(upgrade);
     button.disabled = !canBuyKnuthBaseUpgrade(upgrade.id);
     button.classList.toggle('equipped', level > 0);
     button.classList.toggle('bought', complete);
     cost.textContent = complete ? '구매 완료'
-      : `${level}회 구매 · 비용: ${fmtPowerBase(knuthBaseUpgradeCost(upgrade))} KP`;
+      : price === null ? `${level}회 구매 · 비용이 큰수 표현 범위를 넘었습니다.`
+        : `${level}회 구매 · 비용: ${NumberMath.isScientific(price)
+          ? formatScientificParts(price.mantissa, price.exponent) : fmtPowerBase(price)} KP`;
+    if (separated && !complete && upgrade.growth) cost.textContent += ` · 상승 기준: ${fmtPowerBase(knuthBaseUpgradeReferenceCost(upgrade))} KP`;
   }
 }
 
@@ -106,9 +124,9 @@ function knuthSlotTierLabel(slots) {
   return slots >= 5 ? '↑↑↑↑↑+' : '↑'.repeat(slots);
 }
 
-function knuthPreciseValueText(value) {
+function knuthPreciseValueText(value, precision = 3) {
   return compareNumberValues(value, 1000) < 0
-    ? Number(realNumberFromValue(value).toPrecision(3)).toString()
+    ? Number(realNumberFromValue(value).toPrecision(precision)).toString()
     : fmtPowerBase(value);
 }
 
@@ -163,10 +181,21 @@ function setKnuthView(view) {
   knuthEquipUpgradePanel.classList.toggle('hidden', !equipmentActive);
   knuthChallengePanel.classList.toggle('hidden', !challengesActive);
   abstractionPanel.classList.toggle('hidden', !abstractionActive);
-  if (productionActive && typeof renderNumberBlackHoleBoard === 'function') {
-    renderNumberBlackHoleBoard();
-  }
+  renderKnuthVisibleView();
   if (typeof render === 'function') render();
+}
+
+function renderKnuthVisibleView() {
+  if (activeKnuthView === 'base') renderKnuthBaseUpgrades();
+  else if (activeKnuthView === 'equipment') {
+    renderKnuthUpgradeGroups();
+    renderKnuthAdvancedEquipment();
+  } else if (activeKnuthView === 'challenges') renderKnuthChallenges();
+  else if (activeKnuthView === 'abstraction') renderAbstractionBoard();
+  else if (activeKnuthView === 'production' && typeof renderNumberBlackHoleBoard === 'function') {
+    if (typeof renderKnuthProduction === 'function') renderKnuthProduction();
+    else renderNumberBlackHoleBoard();
+  }
 }
 
 function renderKnuthSlotDisplay() {
@@ -284,6 +313,63 @@ function renderKnuthUpgradeGroups() {
   }
 }
 
+function renderKnuthAdvancedEquipment() {
+  if (!knuthAdvancedEquipmentPanel) return;
+  const unlocked = knuthAdvancedUnlocked();
+  knuthAdvancedEquipmentPanel.classList.toggle('hidden', !unlocked);
+  if (!unlocked) return;
+  if (knuthAdvancedUpgradeUi.size === 0) {
+    for (const upgrade of KNUTH_ADVANCED_UPGRADES) {
+      const createCard = (label, parent) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'knuth-upgrade';
+        button.setAttribute('aria-label', `${upgrade.title} ${label}`);
+        const title = document.createElement('span');
+        title.className = 'knuth-upgrade-title';
+        title.textContent = upgrade.title;
+        const description = document.createElement('span');
+        description.className = 'knuth-upgrade-description';
+        description.textContent = upgrade.description;
+        const status = document.createElement('span');
+        status.className = 'cost';
+        button.append(title, description, status);
+        parent.appendChild(button);
+        return { button, status, description };
+      };
+      const purchase = createCard('구매', knuthAdvancedPurchaseList);
+      const inventory = createCard('장착', knuthAdvancedInventoryList);
+      inventory.button.dataset.knuthAdvancedUpgrade = upgrade.id;
+      purchase.button.addEventListener('click', () => buyKnuthAdvancedUpgrade(upgrade.id));
+      inventory.button.title = '좌클릭: 1개 장착 · 우클릭: 1개 해제 · Shift: 가능한 개수 전체';
+      inventory.button.addEventListener('click', event => changeKnuthAdvancedEquipment(upgrade.id, true, event.shiftKey));
+      inventory.button.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        changeKnuthAdvancedEquipment(upgrade.id, false, event.shiftKey);
+      });
+      knuthAdvancedUpgradeUi.set(upgrade.id, { purchase, inventory });
+    }
+  }
+  for (const upgrade of KNUTH_ADVANCED_UPGRADES) {
+    const { purchase, inventory } = knuthAdvancedUpgradeUi.get(upgrade.id);
+    const perCopyText = upgrade.description + (upgrade.diminishingPower
+      ? ` 다음 장착 효과: ^${knuthPreciseValueText(knuthAdvancedEffectPerCopy(upgrade, knuthAdvancedEquipped[upgrade.id] + 1), 7)}.` : '');
+    purchase.description.textContent = perCopyText;
+    inventory.description.textContent = perCopyText;
+    const cost = knuthAdvancedUpgradeCost(upgrade.id);
+    const owned = knuthAdvancedOwned[upgrade.id], equipped = knuthAdvancedEquipped[upgrade.id];
+    purchase.status.textContent = `KP ÷ ${fmtPowerBase(cost)} · 보유 ${owned}개 · ${upgrade.slots}슬롯/개`;
+    purchase.button.disabled = !canBuyKnuthAdvancedUpgrade(upgrade.id);
+    const effect = knuthAdvancedEffect(upgrade.id);
+    const effectText = knuthPreciseValueText(effect, 7);
+    inventory.status.textContent = `장착 ${equipped} / 보유 ${owned} · ${equipped * upgrade.slots}슬롯 사용 · 현재 ${upgrade.id.endsWith('_power') ? '^' : '×'}${effectText}`;
+    inventory.button.classList.toggle('equipped', equipped > 0);
+    // Keep owned cards enabled at capacity so right-click can still unequip them.
+    inventory.button.disabled = owned === 0;
+    inventory.button.setAttribute('aria-pressed', String(equipped > 0));
+  }
+}
+
 function renderKnuthChallengeCard(id, card, status, progress, button) {
   const challenge = knuthChallenge(id);
   const active = isKnuthChallengeActive(id);
@@ -305,6 +391,8 @@ function renderKnuthChallengeCard(id, card, status, progress, button) {
     progress.textContent = `진행: ${fmtPowerBase(current)} / ${fmtPowerBase(challenge.goal)} ${currency}`;
   } else if (!hasClaimedKnuthPoint) {
     progress.textContent = '첫 번째 KP를 획득한 뒤 도전할 수 있습니다.';
+  } else if (spaceExpansionActive) {
+    progress.textContent = '공간 팽창을 종료한 뒤 도전할 수 있습니다.';
   } else {
     progress.textContent = '도전을 시작하면 현재 커누스 진행 상황이 초기화됩니다.';
   }
@@ -316,7 +404,7 @@ function renderKnuthChallengeCard(id, card, status, progress, button) {
   button.textContent = completed ? '완료' : active ? '도전 포기' : '도전 시작';
   button.dataset.devChallengeId = id;
   button.disabled = !devConsoleOpen
-    && (!hasClaimedKnuthPoint || completed || Boolean(activeKnuthChallengeId && !active));
+    && (!hasClaimedKnuthPoint || completed || spaceExpansionActive || Boolean(activeKnuthChallengeId && !active));
 }
 
 function renderKnuthChallenges() {
@@ -325,6 +413,7 @@ function renderKnuthChallenges() {
   renderKnuthChallengeCard('kc3', knuthChallengeKc3, knuthChallengeKc3Status, knuthChallengeKc3Progress, knuthChallengeKc3Btn);
   renderKnuthChallengeCard('kc4', knuthChallengeKc4, knuthChallengeKc4Status, knuthChallengeKc4Progress, knuthChallengeKc4Btn);
   renderKnuthChallengeCard('kc5', knuthChallengeKc5, knuthChallengeKc5Status, knuthChallengeKc5Progress, knuthChallengeKc5Btn);
+  renderKnuthChallengeCard('kc6', knuthChallengeKc6, knuthChallengeKc6Status, knuthChallengeKc6Progress, knuthChallengeKc6Btn);
 }
 
 function renderKnuthBoard() {
@@ -363,9 +452,22 @@ function renderKnuthBoard() {
   ) return;
   const cost = knuthOperationUpgradeCost();
   const slotsGained = knuthSlotCapacity(knuthOperationLevel + 1) - knuthSlotCapacity();
-  knuthOperationUpgradeCostText.textContent = knuthOperationLevel >= KNUTH_OPERATION_MAX_LEVEL
-    ? `최대 강화 (${knuthOperationLevel}/${KNUTH_OPERATION_MAX_LEVEL}회)`
-    : `비용: ${fmtPowerBase(cost)} KP · 슬롯 +${slotsGained}`;
+  const maxLevel = knuthOperationMaxLevel();
+  knuthOperationUpgradeCostText.textContent = knuthOperationLevel >= maxLevel
+    ? `최대 강화 (${knuthOperationLevel}/${maxLevel}회)`
+    : cost === null ? '비용이 큰수 표현 범위를 넘었습니다.'
+      : `비용: ${fmtPowerBase(cost)} KP · 슬롯 +${slotsGained}`;
+  if (independentUpgradePriceReferenceActive() && hasCompletedKnuthChallenge('kc6') && knuthOperationLevel >= KNUTH_OPERATION_MAX_LEVEL) {
+    knuthOperationUpgradeCostText.textContent += ` · 상승 기준: ${fmtPowerBase(knuthOperationReferenceCost())} KP`;
+  }
+  if (knuthOperationPriceRule) {
+    knuthOperationPriceRule.textContent = '연산 강화 가격: 1~100번째 구매까지 ×2, 101~200번째 ×4, 201~300번째 ×8 · 기본 슬롯 +1개/회. '
+      + (hasCompletedKnuthChallenge('kc6')
+        ? independentUpgradePriceReferenceActive()
+          ? 'KC6 보상: 300회 제한 해제. 301번째는 300번째 가격의 1e10배. 29-1 적용: 상승 기준 가격은 이후 ×1e10씩만 오르며, 기준이 1e200·1e300·1e400… KP에 도달하면 결제 가격의 상승 배율이 제곱됩니다.'
+          : 'KC6 보상: 300회 제한 해제. 301번째는 300번째 가격의 1e10배, 이후 현재 결제 가격이 1e200·1e300·1e400… KP 구간에 도달할 때마다 상승 배율을 제곱합니다. 29-1 연구 시 상승 기준을 분리합니다.'
+        : '최대 300회 구매 · KC6 완료 시 제한 해제.');
+  }
   knuthOperationUpgradeBtn.disabled = !canBuyKnuthOperationUpgrade();
   renderKnuthBaseAutoControl(knuthOperationAutoControl, knuthOperationAutoToggle, 'operation');
   const resetOnNextPrestige = knuthResetEquipmentOnNextPrestige === true;
@@ -374,11 +476,7 @@ function renderKnuthBoard() {
   knuthResetEquipmentToggle.setAttribute('aria-pressed', String(resetOnNextPrestige));
   knuthResetEquipmentToggle.textContent = `다음 커누스 때 장착 초기화: ${resetOnNextPrestige ? 'ON' : 'OFF'}`;
   renderKnuthSlotDisplay();
-  renderKnuthBaseUpgrades();
-  renderKnuthUpgradeGroups();
-  renderKnuthChallenges();
-  if (activeKnuthView === 'production') renderNumberBlackHoleBoard();
-  if (activeKnuthView === 'abstraction') renderAbstractionBoard();
+  renderKnuthVisibleView();
 }
 
 knuthOperationUpgradeBtn.addEventListener('click', buyKnuthOperationUpgrade);
@@ -410,6 +508,10 @@ knuthChallengeKc4Btn.addEventListener('click', () => {
 knuthChallengeKc5Btn.addEventListener('click', () => {
   if (isKnuthChallengeActive('kc5')) abandonKnuthChallenge();
   else startKnuthChallenge('kc5');
+});
+knuthChallengeKc6Btn.addEventListener('click', () => {
+  if (isKnuthChallengeActive('kc6')) abandonKnuthChallenge();
+  else startKnuthChallenge('kc6');
 });
 setKnuthView(activeKnuthView);
 

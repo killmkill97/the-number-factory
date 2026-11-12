@@ -11,7 +11,7 @@ function buySquareBreakthroughUpgrade(id) {
   const cost = squareBreakthroughCost(upgrade);
   if (cost === null || compareNumberValues(squarePoints, cost) < 0) return false;
 
-  squarePoints = subtractNumberValues(squarePoints, cost);
+  setSquarePoints(subtractNumberValues(squarePoints, cost));
   squareBreakthroughLevels[id] = level + 1;
   applySquareBreakthroughSideEffects(id);
   render();
@@ -59,20 +59,22 @@ function squareBreakthroughCostText(upgrade) {
 function squareBreakthroughEffectText(upgrade) {
   const level = squareBreakthroughLevel(upgrade.id);
   if (upgrade.id === 'extra_investment') return `현재 SP 획득 x${fmtPowerBase(affectedNumberMultiplierValue(2, level))}`;
-  if (upgrade.id === 'invisible_hand') return `현재 자동 업글 속도 x${autoUpgradeSpeedMultiplier().toFixed(2).replace(/\.?0+$/, '')}`;
-  if (upgrade.id === 'overclock') return `현재 퍼센트 소프트캡 +${4 * dysonEffectNumber() * level}단계`;
+  if (upgrade.id === 'invisible_hand') return `현재 자동 업글 속도 x${fmtPowerBase(autoUpgradeSpeedMultiplier())}`;
+  if (upgrade.id === 'overclock') return `현재 퍼센트 소프트캡 +${fmtPowerBase(percentPowerSoftcapBonusLevels())}단계`;
   if (upgrade.id === 'doctor_octopus') return `현재 클릭 획득 x${fmtPowerBase(affectedNumberMultiplierValue(8, level))}`;
   if (upgrade.id === 'gregtech') return `현재 병렬 상한 x${fmtPowerBase(affectedNumberMultiplierValue(2, level))}`;
   if (upgrade.id === 'bottleneck_tracker') {
     return level > 0
-      ? `퍼센트 가격 가속 시작 +${2 * dysonEffectNumber() * level}레벨 · 퍼센트 효율 x${percentEfficiencyMultiplier().toFixed(2)}`
+      ? `퍼센트 가격 가속 시작 +${fmtPowerBase(percentPowerPriceAccelerationBonusLevels())}레벨 · 퍼센트 효율 x${fmtPowerBase(percentEfficiencyMultiplier())}`
       : '미작동';
   }
   if (upgrade.id === 'percent_expansion') return `현재 퍼센트 라인 한도 ${percentLaneLimit()} / ${MAX_PERCENT_LANES}`;
   if (upgrade.id === 'dyson_swarm') {
     return isKnuthChallengeActive('kc1')
       ? 'KC1 진행 중 · 구매 및 효과 비활성화'
-      : `별표 효과 x${fmtPowerBase(dysonEffectMultiplier())}`;
+      : `별표 효과 x${fmtPowerBase(dysonEffectMultiplier())}`
+        + (hasAbstractionResearch('19-2')
+          ? ` · 연구 보너스 +${abstractionDivergerDysonBonus()}기 (총 ${effectiveDysonSwarmLevel()}기)` : '');
   }
   return upgrade.description;
 }

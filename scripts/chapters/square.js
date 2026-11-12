@@ -87,8 +87,8 @@ function completeSquarePrestige({
   squareMode = false;
   const gainedSquarePoints = targetedReward === null
     ? squarePointGainForValue(rewardValue)
-    : multiplyNumberValue(targetedReward, knuthSpCpGainMultiplier());
-  squarePoints = addBaseNumbers(squarePoints, gainedSquarePoints);
+    : spaceExpansionFinalSpGain(multiplyNumberValue(targetedReward, spaceExpansionMultiplier(knuthSpCpGainMultiplier())));
+  setSquarePoints(addBaseNumbers(squarePoints, gainedSquarePoints));
 
   resetSquarePrestigeCycleTime();
   resetRunStateAfterSquarePrestige();

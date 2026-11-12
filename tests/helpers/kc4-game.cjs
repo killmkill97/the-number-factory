@@ -35,7 +35,8 @@ function game(withProduction = false, sessionOptions = null) {
   vm.runInContext("render=()=>{};log=()=>{};setChapter=()=>{};ensureFormulaHelpButton=()=>{};", context);
   if (!withProduction) vm.runInContext("let activeSquareView='upgrades';", context);
   for (const file of ['systems/percent-lanes.js', 'systems/square-breakthrough.js', 'systems/square-upgrades.js',
-    'systems/square-convergence.js', 'systems/achievements.js', 'systems/number-black-hole.js', 'core/save.js']) load(file);
+    'systems/square-convergence.js', 'systems/achievements.js', 'systems/number-black-hole.js',
+    'systems/space-expansion.js', 'core/save.js']) load(file);
   if (withProduction) {
     for (const file of ['systems/clickers.js', 'systems/percent-system.js', 'systems/auto-upgrades.js',
       'systems/square-dimensions.js', 'systems/diverger.js', 'chapters/square.js']) load(file);

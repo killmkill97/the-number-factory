@@ -378,7 +378,7 @@ test('stellar divergence modestly improves actual final gain without changing it
       coefficient:balance.logStrength,description:KNUTH_SLOT_UPGRADES.find(u=>u.id==='dyson_diverger').description};
   `);
   assert.ok(row.ratio>2&&row.ratio<3,JSON.stringify(row));
-  assert.equal(row.noDyson,1);assert.equal(row.coefficient,0.045);assert.ok(row.description.includes('0.045'));
+  assert.equal(row.noDyson,1);assert.equal(row.coefficient,0.045);assert.match(row.description,/다이슨 스웜의 개수에 따라 발산력을 배율합니다/);
 });
 
 test('tier-4.5 exponent curves are neutral at zero and remain ordered for layered inputs',()=>{

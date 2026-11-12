@@ -54,8 +54,8 @@ function advanceNumberBlackHoleAutomation(elapsedRealMs) {
   }
   let changed = false;
   if (numberBlackHoleAutoUpgradeEnabled) {
-    const elapsed = gameTick(elapsedRealMs) * autoUpgradeSpeedMultiplier();
     const maximum = NUMBER_BLACK_HOLE_AUTO_INTERVAL_MS * NUMBER_BLACK_HOLE_AUTO_BATCH_LIMIT;
+    const elapsed = autoUpgradeElapsedTime(gameTick(elapsedRealMs), maximum);
     numberBlackHoleAutoTimerMs = Math.min(maximum, numberBlackHoleAutoTimerMs + (Number.isFinite(elapsed) ? elapsed : maximum));
     const attempts = Math.min(hasGeneralizationResearch('3-4') ? NUMBER_BLACK_HOLE_AUTO_BATCH_LIMIT : 1,
       Math.floor(numberBlackHoleAutoTimerMs / NUMBER_BLACK_HOLE_AUTO_INTERVAL_MS));
@@ -75,13 +75,6 @@ function advanceNumberBlackHoleAutomation(elapsedRealMs) {
   } else numberBlackHoleAutoTimerMs = 0;
   if (numberBlackHoleAutoMaxEnabled) changed = maximizeNumberBlackHoleSettings(null, { useAutoLimits: true }) || changed;
   return changed;
-}
-
-function numberBlackHoleDonationPercentLimit() {
-  return Math.min(
-    NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT,
-    NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT + numberBlackHoleDonationAmountLevel
-  );
 }
 
 function numberBlackHoleDonationRateLimit() {
@@ -104,8 +97,10 @@ function setNumberBlackHoleResource(resource) {
   if (isKnuthChallengeActive('kc5')) return false;
   if (!['number', 'sp'].includes(resource) || (resource === 'sp' && !numberBlackHoleSpUnlocked())) return false;
   if (numberBlackHoleDonationResource !== resource) {
+    recordAbstractionPermanentSingularities();
     numberBlackHoleDonationResource = resource;
     numberBlackHoleDonationTimerMs = 0;
+    recordAbstractionPermanentSingularities();
   }
   renderNumberBlackHoleBoard();
   return true;
@@ -141,8 +136,9 @@ function numberBlackHoleUnboostedRadius() {
 
 function numberBlackHoleSchwarzschildRadius() {
   const radius = numberBlackHoleUnboostedRadius();
-  return isPositiveNumberValue(singularityPoints)
+  const boosted = isPositiveNumberValue(singularityPoints)
     ? multiplyNumberValue(radius, singularityRadiusMultiplier()) : radius;
+  return multiplyNumberValue(boosted, stagnantMassRadiusMultiplier());
 }
 
 function numberBlackHoleTimeMultiplier() {
@@ -154,8 +150,9 @@ function numberBlackHoleTimeMultiplier() {
   let boosted = hasKnuthUpgrade('diverger_black_hole')
     ? multiplyNumberValue(base, knuthDivergerBlackHoleMultiplier()) : base;
   if (hasSingularityEffect) boosted = multiplyNumberValue(boosted, singularityBlackHoleMultiplier());
-  return compareNumberValues(boosted, NUMBER_BLACK_HOLE_MAX_TIME_MULTIPLIER) >= 0
-    ? NUMBER_BLACK_HOLE_MAX_TIME_MULTIPLIER
+  const limit = numberBlackHoleTimeLimit();
+  return compareNumberValues(boosted, limit) >= 0
+    ? limit
     : NumberMath.toNumber(boosted);
 }
 
@@ -176,6 +173,7 @@ function singularitySpRequirementDivisor() {
 function numberBlackHoleBaseTimeMultiplier() {
   if (isKnuthChallengeActive('kc5')) return 1;
   if (!numberBlackHoleSystemEnabled || !knuthUnlocked) return 1;
+  const limit = numberBlackHoleTimeLimit();
 
   const radius = numberBlackHoleSchwarzschildRadius();
   const { radiusReference, timeScale, timeExponent } = NUMBER_BLACK_HOLE_BALANCE;
@@ -184,21 +182,21 @@ function numberBlackHoleBaseTimeMultiplier() {
   if (radiusComparison < 0) {
     const radiusNumber = realNumberFromValue(radius);
     const directMultiplier = timeScale * ((radiusNumber / radiusReference) ** timeExponent);
-    if (!Number.isFinite(directMultiplier)) return NUMBER_BLACK_HOLE_MAX_TIME_MULTIPLIER;
-    return Math.min(NUMBER_BLACK_HOLE_MAX_TIME_MULTIPLIER, Math.max(1, directMultiplier));
+    if (!Number.isFinite(directMultiplier)) return limit;
+    return Math.min(limit, Math.max(1, directMultiplier));
   }
 
   const radiusLog10 = NumberMath.toNumber(NumberMath.log10(radius));
   if (!Number.isFinite(radiusLog10)) {
-    return NUMBER_BLACK_HOLE_MAX_TIME_MULTIPLIER;
+    return limit;
   }
 
   multiplierLog10 = Math.log10(timeScale) + timeExponent * (radiusLog10 - Math.log10(radiusReference));
   if (
     !Number.isFinite(multiplierLog10)
-    || multiplierLog10 >= Math.log10(NUMBER_BLACK_HOLE_MAX_TIME_MULTIPLIER)
+    || multiplierLog10 >= Math.log10(limit)
   ) {
-    return NUMBER_BLACK_HOLE_MAX_TIME_MULTIPLIER;
+    return limit;
   }
 
   return Math.max(1, 10 ** multiplierLog10);
@@ -214,14 +212,25 @@ function resetNumberBlackHoleTimers() {
 function canPurchaseSingularity() {
   return knuthUnlocked
     && !isKnuthChallengeActive('kc5')
-    && compareNumberValues(singularityPoints, singularityHoldingLimit()) < 0
+    && isPositiveNumberValue(singularityPointGain())
     && compareNumberValues(numberBlackHoleSchwarzschildRadius(), singularityRadiusRequirement()) >= 0;
+}
+
+function singularityPointGain() {
+  if (!knuthUnlocked || isKnuthChallengeActive('kc5')) return 0;
+  const room = NumberMath.floor(NumberMath.max(0, subtractNumberValues(singularityHoldingLimit(), singularityPoints)));
+  if (!isPositiveNumberValue(room)) return 0;
+  const bonus = abstractionPermanentStorageActive('26-2') ? abstractionSingularityBonus(numberBlackHoleSchwarzschildRadius()) : 0;
+  return NumberMath.min(room, addBaseNumbers(1, bonus));
 }
 
 function purchaseSingularity() {
   if (!canPurchaseSingularity()) return false;
-  singularityPoints = addBaseNumbers(singularityPoints, 1);
-  totalSingularitiesPurchased = addBaseNumbers(totalSingularitiesPurchased, 1);
+  const gain = singularityPointGain();
+  recordAbstractionPermanentSingularities();
+  setSingularityPoints(addBaseNumbers(singularityPoints, gain));
+  recordAbstractionPermanentSingularities();
+  totalSingularitiesPurchased = addBaseNumbers(totalSingularitiesPurchased, gain);
   numberBlackHoleDonationPercent = NUMBER_BLACK_HOLE_BASE_DONATION_PERCENT;
   numberBlackHoleDonationRate = NUMBER_BLACK_HOLE_BASE_DONATION_RATE;
   numberBlackHoleDonationAmountLevel = 0;
@@ -243,7 +252,8 @@ function buySingularityUpgrade(id) {
   if (!knuthUnlocked || isKnuthChallengeActive('kc5')) return false;
   const cost = singularityUpgradeCost(id);
   if (cost === null || !isPositiveNumberValue(cost) || compareNumberValues(singularityPoints, cost) < 0) return false;
-  singularityPoints = subtractNumberValues(singularityPoints, cost);
+  recordAbstractionPermanentSingularities();
+  setSingularityPoints(subtractNumberValues(singularityPoints, cost));
   singularityUpgradeLevels[id] = addBaseNumbers(singularityUpgradeLevels[id], 1);
   render();
   return true;
@@ -252,10 +262,20 @@ function buySingularityUpgrade(id) {
 function renderSingularityBoard() {
   if (typeof singularityPointValue === 'undefined' || !singularityPointValue) return;
   singularityPointValue.textContent = `${fmtPowerBase(singularityPoints)} / ${fmtPowerBase(singularityHoldingLimit())}`;
+  if (typeof singularityReserveStatus !== 'undefined' && singularityReserveStatus) {
+    const active = abstractionPermanentStorageActive('26-2');
+    singularityReserveStatus.classList.toggle('hidden', !active && !isPositiveNumberValue(abstractionPermanentSingularities));
+    const inactiveReason = spaceExpansionActive && hasAbstractionResearch('26-2')
+      ? '공간 팽창 중 비활성 · 기록 보존' : '연구 비활성 · 기록 보존';
+    singularityReserveStatus.textContent = `영구 특이점 ${fmtPowerBase(abstractionPermanentSingularities)}개 · ${active ? '최소 보유량 보호 중' : inactiveReason}`;
+  }
   const requirement = singularityRadiusRequirement();
   singularityRadiusRequirementValue.textContent = compareNumberValues(requirement, 1000) < 0
     ? Number(NumberMath.toNumber(requirement).toPrecision(4)).toString() : fmtPowerBase(requirement);
   singularityPurchaseBtn.disabled = !canPurchaseSingularity();
+  if (typeof singularityPurchaseLabel !== 'undefined' && singularityPurchaseLabel) {
+    singularityPurchaseLabel.textContent = `특이점 +${fmtPowerBase(singularityPointGain())}`;
+  }
   singularityBlackHoleEffect.textContent = `×${fmtPowerBase(singularityBlackHoleMultiplier())}`;
   const radiusMultiplier = singularityRadiusMultiplier();
   const radiusText = compareNumberValues(radiusMultiplier, 1000) < 0
@@ -298,7 +318,7 @@ function buyNumberBlackHoleUpgrade(kind, renderAfter = true) {
     ? numberBlackHoleDonationAmountCost
     : numberBlackHoleDonationSpeedCost;
   const atLimit = isAmountUpgrade
-    ? numberBlackHoleDonationPercentLimit() >= NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT
+    ? numberBlackHoleBaseDonationPercentLimit() >= NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT
     : numberBlackHoleDonationRateLimit() >= NUMBER_BLACK_HOLE_MAX_DONATION_RATE;
   if (atLimit || compareNumberValues(knuthPoints, cost) < 0) return false;
 
@@ -341,12 +361,14 @@ function setNumberBlackHoleSetting(kind, value) {
   if (!Number.isSafeInteger(parsed)) return false;
   const nextValue = Math.max(1, Math.min(limit, parsed));
 
+  recordAbstractionPermanentSingularities();
   if (kind === 'amount') {
     numberBlackHoleDonationPercent = nextValue;
   } else {
     numberBlackHoleDonationRate = nextValue;
     numberBlackHoleDonationTimerMs = 0;
   }
+  recordAbstractionPermanentSingularities();
   renderNumberBlackHoleBoard();
   return true;
 }
@@ -363,28 +385,53 @@ function applyNumberBlackHoleDonations(cycles) {
   if (!Number.isFinite(cycles) || cycles <= 0) return false;
   cycles = Math.min(Number.MAX_SAFE_INTEGER, Math.floor(cycles));
   if (cycles <= 0) return false;
+  if (numberBlackHoleDonationPercent > NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT) {
+    numberBlackHoleDonationPercent = Math.min(numberBlackHoleDonationPercent, numberBlackHoleDonationPercentLimit());
+  }
   const usesSp = numberBlackHoleActiveResource() === 'sp';
   const startingNumber = usesSp ? squarePoints : getBaseNumber();
   if (!isPositiveNumberValue(startingNumber)) return false;
 
-  const retainedFraction = Math.pow(
-    1 - numberBlackHoleDonationPercent / 100,
-    cycles
-  );
+  if (hasAbstractionResearch('25-2')) {
+    // Every cycle draws the same fraction from the unchanged balance; no per-cycle loop.
+    const invested = multiplyNumberValue(multiplyNumberValue(startingNumber, numberBlackHoleDonationPercent / 100), cycles);
+    if (!isPositiveNumberValue(invested)) return false;
+    if (usesSp) {
+      numberBlackHoleTotalSpInvested = addBaseNumbers(numberBlackHoleTotalSpInvested, invested);
+      numberBlackHoleSpDonationCount = addBaseNumbers(numberBlackHoleSpDonationCount, cycles);
+    } else numberBlackHoleTotalInvested = addBaseNumbers(numberBlackHoleTotalInvested, invested);
+    recordAbstractionPermanentSingularities();
+    return true;
+  }
+
+  const retainedPerCycle = 1 - numberBlackHoleDonationPercent / 100;
+  const retainedFraction = Math.pow(retainedPerCycle, cycles);
   const remainingNumber = multiplyNumberValue(startingNumber, retainedFraction);
-  const investedNumber = subtractNumberValues(startingNumber, remainingNumber);
+  let investedNumber = subtractNumberValues(startingNumber, remainingNumber);
+  const hasSpReserve = usesSp && abstractionPermanentStorageActive('23-3') && isPositiveNumberValue(abstractionPermanentSp);
+  if (hasSpReserve) {
+    // Split at the first floor hit; all later donations draw from the replenished reserve.
+    const toFloor = retainedPerCycle === 0 ? 1 : Math.max(0, Math.ceil(NumberMath.toNumber(
+      NumberMath.divideApproximate(NumberMath.subtract(NumberMath.log10(abstractionPermanentSp),
+        NumberMath.log10(startingNumber)), Math.log10(retainedPerCycle)))));
+    const beforeFloor = Math.min(cycles, toFloor);
+    investedNumber = addBaseNumbers(
+      subtractNumberValues(startingNumber, multiplyNumberValue(startingNumber, Math.pow(retainedPerCycle, beforeFloor))),
+      multiplyNumberValue(abstractionPermanentSp, (1 - retainedPerCycle) * (cycles - beforeFloor)));
+  }
   if (!isPositiveNumberValue(investedNumber)) return false;
 
   if (usesSp) {
-    squarePoints = remainingNumber;
+    setSquarePoints(remainingNumber);
     numberBlackHoleTotalSpInvested = addBaseNumbers(numberBlackHoleTotalSpInvested, investedNumber);
-    // A 100% donation exhausts the balance on the first cycle, not once per batched attempt.
+    // Without a reserve, a 100% donation exhausts the balance on the first cycle.
     numberBlackHoleSpDonationCount = addBaseNumbers(numberBlackHoleSpDonationCount,
-      numberBlackHoleDonationPercent === 100 ? 1 : cycles);
+      numberBlackHoleDonationPercent === 100 && !hasSpReserve ? 1 : cycles);
   } else {
     setBaseNumber(remainingNumber);
     numberBlackHoleTotalInvested = addBaseNumbers(numberBlackHoleTotalInvested, investedNumber);
   }
+  recordAbstractionPermanentSingularities();
   return true;
 }
 
@@ -398,6 +445,7 @@ function advanceNumberBlackHole(elapsedRealMs) {
     || elapsed <= 0
   ) return false;
 
+  recordAbstractionPermanentSingularities();
   const acceleratedSeconds = gameTick(elapsed) / 1000;
   if (Number.isFinite(acceleratedSeconds) && acceleratedSeconds > 0) {
     numberBlackHoleAccumulatedGameSeconds = addBaseNumbers(
@@ -417,6 +465,7 @@ function advanceNumberBlackHole(elapsedRealMs) {
   const cycles = Math.floor(numberBlackHoleDonationTimerMs / periodMs);
   numberBlackHoleDonationTimerMs %= periodMs;
   const donated = cycles > 0 && applyNumberBlackHoleDonations(cycles);
+  if (growsRadius) recordAbstractionPermanentSingularities();
   return donated || growsRadius;
 }
 
@@ -424,6 +473,9 @@ function renderNumberBlackHoleBoard() {
   if (!numberBlackHoleStatus || !numberBlackHoleAmountInput || !numberBlackHoleSpeedInput) return;
 
   const enabled = numberBlackHoleAvailable();
+  if (numberBlackHoleDonationPercent > NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT) {
+    numberBlackHoleDonationPercent = Math.min(numberBlackHoleDonationPercent, numberBlackHoleDonationPercentLimit());
+  }
   const spUnlocked = numberBlackHoleSpUnlocked();
   numberBlackHoleResourceControl.classList.toggle('hidden', !spUnlocked);
   numberBlackHoleResourceSelect.value = numberBlackHoleActiveResource();
@@ -448,7 +500,7 @@ function renderNumberBlackHoleBoard() {
   }
   const amountLimit = numberBlackHoleDonationPercentLimit();
   const speedLimit = numberBlackHoleDonationRateLimit();
-  const amountAtLimit = amountLimit >= NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT;
+  const amountAtLimit = numberBlackHoleBaseDonationPercentLimit() >= NUMBER_BLACK_HOLE_MAX_DONATION_PERCENT;
   const speedAtLimit = speedLimit >= NUMBER_BLACK_HOLE_MAX_DONATION_RATE;
   const canBuyAmount = compareNumberValues(knuthPoints, numberBlackHoleDonationAmountCost) >= 0;
   const canBuySpeed = compareNumberValues(knuthPoints, numberBlackHoleDonationSpeedCost) >= 0;
@@ -488,6 +540,7 @@ function renderNumberBlackHoleBoard() {
   numberBlackHoleTimeMultiplierValue.textContent = `×${fmtPowerBase(
     numberValueFromReal(gameTick(1000) / 1000)
   )}`;
+  numberBlackHoleTimeLimitValue.textContent = `×${fmtPowerBase(numberBlackHoleTimeLimit())}`;
   numberBlackHoleAccumulatedTimeValue.textContent = `${fmtPowerBase(numberBlackHoleAccumulatedGameSeconds)}초`;
   renderSingularityBoard();
 }

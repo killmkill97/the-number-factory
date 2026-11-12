@@ -103,12 +103,12 @@ test('16-1 strengthens all existing Dyson consumers without adding swarms or cha
     squareBreakthroughLevels.black_hole=1;squareBreakthroughLevels.extra_investment=3;
     setSquareDimensionPowerForDev(NumberMath.fromString('1e80000'));
     const before={cap:percentPowerSoftcapBonusLevels(),price:percentPowerPriceAccelerationStart(),
-      efficiency:percentEfficiencyMultiplierNumerator()-4,ticks:gameTick(1000000),sp:affectedNumberMultiplierValue(2,3)};
+      efficiency:subtractNumberValues(percentEfficiencyMultiplierNumerator(),4),ticks:gameTick(1000000),sp:affectedNumberMultiplierValue(2,3)};
     const cost=NumberMath.serialize(squareBreakthroughCost(SQUARE_BREAKTHROUGH_UPGRADES.find(u=>u.id==='dyson_swarm')));
     abstractionResearchState['16-1']=true;const m=abstractionSquarePowerDysonMultiplier();
-    return {m,cap:percentPowerSoftcapBonusLevels()/before.cap,
-      price:(percentPowerPriceAccelerationStart()-8)/(before.price-8),
-      efficiency:(percentEfficiencyMultiplierNumerator()-4)/before.efficiency,ticks:gameTick(1000000)/before.ticks,
+    return {m,cap:plain(NumberMath.divideApproximate(percentPowerSoftcapBonusLevels(),before.cap)),
+      price:plain(NumberMath.divideApproximate(subtractNumberValues(percentPowerPriceAccelerationStart(),8),subtractNumberValues(before.price,8))),
+      efficiency:plain(NumberMath.divideApproximate(subtractNumberValues(percentEfficiencyMultiplierNumerator(),4),before.efficiency)),ticks:gameTick(1000000)/before.ticks,
       sp:plain(NumberMath.divideApproximate(affectedNumberMultiplierValue(2,3),before.sp)),count:effectiveDysonSwarmLevel(),
       sameCost:cost===NumberMath.serialize(squareBreakthroughCost(SQUARE_BREAKTHROUGH_UPGRADES.find(u=>u.id==='dyson_swarm')))};
   `);

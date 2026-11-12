@@ -50,9 +50,11 @@ function render() {
 }
 
 function updateGameRenderState() {
-  rebasePercentPowerPricesForDiverger();
-  repairPercentPowerCostState();
-  repairExtraPercentLanePowerCosts();
+  withPercentPriceValidationCache(() => {
+    rebasePercentPowerPricesForDiverger();
+    repairPercentPowerCostState();
+    repairExtraPercentLanePowerCosts();
+  });
   updateAchievements();
 }
 
@@ -68,6 +70,11 @@ function renderNow() {
   if (currencyTheoryValue) currencyTheoryValue.textContent = fmtPowerBase(theory);
   if (currencyGreatTheoryValue) currencyGreatTheoryValue.textContent = fmtPowerBase(greatTheory);
   if (currencySingularityValue) currencySingularityValue.textContent = fmtPowerBase(singularityPoints);
+  const definitionRow = document.getElementById('currencyDefinitionRow');
+  if (definitionRow) {
+    definitionRow.classList.toggle('hidden', !isPositiveNumberValue(definitionFragments));
+    document.getElementById('currencyDefinitionValue').textContent = fmtPowerBase(definitionFragments);
+  }
   if (activeChallengeStatus) {
     const activeChallenge = activeKnuthChallengeId ? knuthChallenge(activeKnuthChallengeId) : null;
     activeChallengeStatus.textContent = activeChallenge ? `현재 ${activeChallenge.title}중` : '';
@@ -84,6 +91,12 @@ function renderNow() {
   if (activeChapter === 'knuth') {
     if (knuthPointValue) knuthPointValue.textContent = `${fmtPowerBase(knuthPoints)} KP`;
     if (typeof renderKnuthBoard === 'function') renderKnuthBoard();
+    renderManualExchangeDock();
+    renderAutomatiumAccess();
+    return;
+  }
+
+  if (activeChapter === 'definition') {
     renderManualExchangeDock();
     renderAutomatiumAccess();
     return;

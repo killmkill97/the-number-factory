@@ -285,6 +285,9 @@
   body.knuth-mode {
     background: #07140f;
   }
+  body.definition-mode {
+    background: #0a1020;
+  }
   .app {
     width: 100%;
     max-width: 620px;
@@ -299,6 +302,7 @@
   }
   body.square-mode .chapter { color: #a97dd4; }
   body.knuth-mode .chapter { color: #56d364; }
+  body.definition-mode .chapter { color: #67e8ef; }
   h1 {
     font-size: 22px;
     margin: 0 0 20px 0;
@@ -347,6 +351,10 @@
   body.knuth-mode .chapter-tabs button.active {
     border-color: #2ea043;
     color: #7ee787;
+  }
+  body.definition-mode .chapter-tabs button.active {
+    border-color: #67e8ef;
+    color: #67e8ef;
   }
   .chapter-panel {
     width: 100%;
@@ -1151,20 +1159,24 @@
     font-size: 10px;
     margin-bottom: 8px;
   }
-  .abstraction-tree-theme .research-node.has-live-info {
+  .abstraction-tree-theme .research-node.has-live-info,
+  .abstraction-tree-theme .research-node.abstraction-detailed-research {
     display: flex;
     flex-direction: column;
   }
-  .research-node.has-live-info > :not(.research-node-description) {
+  .research-node.has-live-info > :not(.research-node-description),
+  .research-node.abstraction-detailed-research > :not(.research-node-description) {
     flex-shrink: 0;
   }
-  .research-node.has-live-info .research-node-description {
+  .research-node.has-live-info .research-node-description,
+  .research-node.abstraction-detailed-research .research-node-description {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
     margin-bottom: 4px;
   }
-  .research-node.has-live-info .research-node-parents {
+  .research-node.has-live-info .research-node-parents,
+  .research-node.abstraction-detailed-research .research-node-parents {
     min-height: 0;
     margin-bottom: 4px;
   }
@@ -1176,7 +1188,8 @@
     overflow-wrap: anywhere;
     margin-bottom: 4px;
   }
-  .research-node.has-live-info > button {
+  .research-node.has-live-info > button,
+  .research-node.abstraction-detailed-research > button {
     min-height: 20px;
     padding: 2px 6px;
     font-size: 10px;
@@ -1187,6 +1200,31 @@
   }
   .research-node.bought .research-node-title {
     color: #7ee787;
+  }
+  html[lang="en"] .generalization-tree .research-node {
+    display: flex;
+    flex-direction: column;
+  }
+  html[lang="en"] .research-node > :not(.research-node-description) {
+    flex-shrink: 0;
+  }
+  html[lang="en"] .research-node .research-node-description {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    margin-bottom: 4px;
+  }
+  html[lang="en"] .research-node .research-node-parents {
+    min-height: 0;
+    margin-bottom: 4px;
+  }
+  html[lang="en"] .research-node > button:not(.formula-help-trigger) {
+    min-height: 24px;
+    padding: 4px 6px;
+    font-size: 11px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
   }
   .theory-resource-label {
     color: var(--text-dim);
@@ -1281,6 +1319,93 @@
     border: 1px solid #6b3fa0;
     border-radius: 4px;
     box-shadow: 0 8px 26px rgba(0, 0, 0, 0.38);
+  }
+  .definition-currency { color: #67e8ef; }
+  .definition-content-card {
+    width: 100%;
+    min-height: 140px;
+    padding: 28px 20px;
+    border: 1px solid #67e8ef;
+    border-radius: 4px;
+    background: #14283d;
+    color: #c5f8ff;
+    font: inherit;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+  body.definition-mode .definition-content-card:hover:not(:disabled) {
+    background: #1b3650;
+    border-color: #67e8ef;
+    color: #c5f8ff;
+  }
+  .definition-content-card:focus-visible { outline: 2px solid #b6fbff; outline-offset: 3px; }
+  .definition-easter-egg {
+    position: fixed;
+    inset: 0;
+    z-index: 20000;
+    overflow: hidden;
+    pointer-events: none;
+    background: #fff;
+    opacity: 1;
+    transition: opacity 2300ms linear;
+  }
+  .definition-easter-egg.is-fading { opacity: 0; }
+  .definition-easter-egg > img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    object-fit: fill;
+  }
+  .definition-easter-egg-flames {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .definition-story-panel {
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    z-index: 1100;
+    width: min(420px, calc(100% - 28px));
+    min-height: 140px;
+    max-height: 38dvh;
+    overflow: auto;
+    box-sizing: border-box;
+    padding: 20px 20px 40px;
+    color: #67e8ef;
+    background: #101e22;
+    border: 1px solid #67e8ef;
+    border-radius: 4px;
+    box-shadow: 0 8px 26px #0006;
+    cursor: pointer;
+    text-align: left;
+    font-size: 14px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+  }
+  .definition-story-panel p { margin: 0; }
+  .definition-story-panel:focus-visible { outline: 2px solid #b6fbff; outline-offset: 3px; }
+  body.definition-rebirth { pointer-events: none; }
+  .definition-rebirth > .app,
+  .definition-rebirth > .currency-status,
+  .definition-rebirth > .manual-exchange-dock,
+  .definition-rebirth > .automatium-quick-panel {
+    animation: definition-rebirth 950ms ease-in-out both;
+    transform-origin: center;
+  }
+  @keyframes definition-rebirth {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    45%, 55% { transform: scale(0.025); opacity: 0.05; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .definition-rebirth > .app,
+    .definition-rebirth > .currency-status,
+    .definition-rebirth > .manual-exchange-dock,
+    .definition-rebirth > .automatium-quick-panel { animation-duration: 1ms; }
   }
   .automatium-quick-header {
     min-height: 42px;
@@ -1524,6 +1649,7 @@
   }
   .save-toolbar {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     justify-content: flex-end;
     margin-bottom: 12px;
@@ -1532,6 +1658,14 @@
     width: auto;
     min-width: 92px;
   }
+  .save-transfer-status {
+    margin: 0 0 12px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+  }
+  .save-transfer-status:empty { display: none; }
   body.automatium-open {
     overflow: hidden;
   }
@@ -2191,6 +2325,27 @@
     display: grid;
     gap: 10px;
   }
+  .knuth-advanced-equipment {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid #2ea043;
+  }
+  .knuth-advanced-equipment h3 {
+    margin: 0 0 12px;
+    font-size: 16px;
+    color: #7ee787;
+  }
+  .knuth-advanced-payment {
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    margin: 0 0 18px;
+  }
+  .knuth-advanced-payment strong {
+    color: #7ee787;
+  }
+  .knuth-advanced-equipment .knuth-upgrade {
+    overflow-wrap: anywhere;
+  }
   .knuth-reset-toggle {
     width: 100%;
     margin-bottom: 12px;
@@ -2383,6 +2538,129 @@
   .abstraction-preset-dialog-actions button {
     min-width: 74px;
     border-color: #315f3c;
+  }
+  .knuth-production-tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .knuth-production-tabs button.active {
+    color: #7ee787;
+    border-color: #2ea043;
+  }
+  #knuthSpaceExpansionPanel { padding-bottom: 220px; }
+  .space-expansion-rule, .space-expansion-formulas {
+    color: #a3b3aa;
+    font-size: 12px;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+  .number-black-hole-summary.space-expansion-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .space-expansion-summary dd { overflow-wrap: anywhere; }
+  #spaceExpansionToggleBtn { border-color: #2ea043; color: #7ee787; width: 100%; }
+  #spaceExpansionToggleBtn.active { background: #153e22; }
+  .space-expansion-formulas summary { cursor: pointer; color: #7ee787; }
+  .space-expansion-upgrades { margin-bottom: 18px; }
+  .space-expansion-upgrades .knuth-upgrade-title { overflow-wrap: anywhere; }
+  .space-expansion-upgrades button:last-child { grid-column: 1 / -1; }
+  #spaceExpansionExtraUpgradeList > .formula-help-card:last-child { grid-column: 1 / -1; }
+  .probabilizer-power {
+    padding: 18px 0;
+    border-bottom: 1px solid #2d3a43;
+  }
+  .probabilizer-power .value {
+    margin-top: 8px;
+    font-size: 28px;
+    color: #7ee787;
+    overflow-wrap: anywhere;
+  }
+  .number-black-hole-summary.probabilizer-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .probabilizer-upgrades {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .probabilizer-upgrades button {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .probabilizer-upgrade-divider {
+    border: 0;
+    border-top: 1px solid #2d3a43;
+    margin: 22px 0 18px;
+  }
+  .probabilizer-power-upgrades button:last-child { grid-column: 1 / -1; }
+  @media (max-width: 700px) {
+    #knuthProbabilizerPanel { padding-bottom: 320px; }
+    .probabilizer-upgrades { grid-template-columns: minmax(0, 1fr); }
+  }
+  .probabilizer-plot {
+    height: 180px;
+    padding: 116px 22px 0;
+    border-top: 1px solid #2d3a43;
+    border-bottom: 1px solid #2d3a43;
+    background: #0d1714;
+  }
+  .probabilizer-axis {
+    position: relative;
+    height: 1px;
+    background: #82958a;
+  }
+  .probabilizer-distribution {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 96px;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .probabilizer-distribution path {
+    fill: #7ee78724;
+    stroke: #7ee787;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .probabilizer-tick {
+    position: absolute;
+    top: 16px;
+    font-size: 12px;
+    color: #9baaa0;
+    transform: translateX(-50%);
+  }
+  .probabilizer-tick::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -20px;
+    height: 8px;
+    width: 1px;
+    background: #82958a;
+  }
+  .probabilizer-tick.start { left: 0; }
+  .probabilizer-tick.quarter { left: 25%; }
+  .probabilizer-tick.center { left: 50%; }
+  .probabilizer-tick.three-quarter { left: 75%; }
+  .probabilizer-tick.end { left: 100%; }
+  .probabilizer-point {
+    position: absolute;
+    top: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #7ee787;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    animation: probabilizer-fade 2s linear forwards;
+  }
+  @keyframes probabilizer-fade {
+    from { opacity: 1; }
+    to { opacity: 0; }
   }
   .number-black-hole-status {
     margin-bottom: 12px;
@@ -2641,6 +2919,13 @@
   }
   .formula-help-host {
     position: relative;
+  }
+  .knuth-base-purchase.formula-help-host > .formula-help-trigger {
+    right: 72px;
+    top: 8px;
+  }
+  .knuth-base-purchase.formula-help-host > .knuth-upgrade {
+    padding-right: 42px;
   }
   #percentSection.formula-help-host > .section-title {
     min-height: 28px;

@@ -79,8 +79,9 @@ function renderDivergerView() {
 
   divergerPowerValue.textContent = formatDivergerScientific(divergerPower);
   const enhancedParameters = ['14-1', '14-2', '14-3'].some(hasAbstractionResearch);
-  const bSymbol = hasAbstractionResearch('4-2') || enhancedParameters ? 'b효과' : 'b';
-  const aSymbol = enhancedParameters ? 'a효과' : 'a';
+  const probabilizerEffect = probabilizerAvailable() && isPositiveNumberValue(randomPower);
+  const bSymbol = hasAbstractionResearch('4-2') || enhancedParameters || probabilizerEffect ? 'b효과' : 'b';
+  const aSymbol = enhancedParameters || probabilizerEffect ? 'a효과' : 'a';
   const cSymbol = enhancedParameters ? 'c효과' : 'c';
   const denominatorText = enhancedParameters ? `max(1, 100 - ${cSymbol})` : '(100 - c)';
   const formula = hasGeneralizationResearch('5-3')
@@ -108,7 +109,7 @@ function renderDivergerView() {
   divergerAUpgradeBtn.disabled = !developerConsoleOpen
     && !divergerCanAfford(divergerACpCost);
 
-  divergerBUpgradeLabel.textContent = `b 강화 · ${divergerB.toFixed(6)} → ${(divergerB + divergerBUpgradeGain()).toFixed(6)}`;
+  divergerBUpgradeLabel.textContent = `b 강화 · ${divergerB.toFixed(6)} → ${divergerBAtLevel(divergerBLevel + 1).toFixed(6)}`;
   divergerBUpgradeCost.textContent = `비용: ${fmtPowerBase(divergerBCpCost)} CP`;
   divergerBUpgradeBtn.disabled = !developerConsoleOpen
     && !divergerCanAfford(divergerBCpCost);

@@ -85,7 +85,7 @@ function upgradePercentPower() {
 
 percentPowerBtn.addEventListener('click', upgradePercentPower);
 
-function buyPercentPowerBatch(maxPurchases, lane = null, deadline = Infinity) {
+function buyPercentPowerBatch(maxPurchases, lane = null, deadline = Infinity, budget = null) {
   const result = { purchased: 0, operations: 0 };
   if (overflowed || squareMode || !percentUnlocked || percentChargeNeeded > PERCENT_POWER_UNLOCK_CHARGE) return result;
   const requested = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(maxPurchases)));
@@ -110,12 +110,16 @@ function buyPercentPowerBatch(maxPurchases, lane = null, deadline = Infinity) {
       lane ? scaleByLane(40000, lane.laneNumber) : 40000
     );
     result.operations++;
-    const plan = model ? planPercentPowerBulkPurchase(model, limit, deadline) : null;
+    const available = budget ? NumberMath.min(getBaseNumber(), budget.remaining) : getBaseNumber();
+    const plan = model ? planPercentPowerBulkPurchase(model, limit, deadline, available) : null;
     if (plan !== null) {
       if (plan.purchased <= 0) break;
+      const payment = budget ? percentPowerBulkBalanceAfter(model, plan.purchased, getBaseNumber(), deadline) : plan;
+      if (!payment || payment.affordable === false) break;
       const nextCost = model.nextCost(plan.purchased);
       const granted = grantPercentPowerBatch(power, bonus, count, plan.purchased);
-      setBaseNumber(plan.balance);
+      setBaseNumber(payment.balance);
+      if (budget) budget.remaining = plan.balance;
       if (lane) {
         lane.power = granted.power;
         lane.powerPurchaseBonus = granted.purchaseBonus;
@@ -134,7 +138,15 @@ function buyPercentPowerBatch(maxPurchases, lane = null, deadline = Infinity) {
       break;
     }
     if (gameClockNowMs() >= deadline) break;
+    let cost;
+    if (budget) {
+      cost = lane
+        ? percentPowerCost(lane.powerCost, lane.powerCostCompounding, lane.powerPurchaseCount, scaleByLane(40000, lane.laneNumber))
+        : percentPowerCost(percentPowerUpgradeCost, percentPowerCostCompounding);
+      if (compareNumberValues(budget.remaining, cost) < 0) break;
+    }
     if (!(lane ? buyExtraLanePower(lane) : upgradePercentPower())) break;
+    if (budget) budget.remaining = subtractNumberValues(budget.remaining, cost);
     result.purchased++;
   }
   return result;
@@ -221,7 +233,7 @@ function advanceAutomaticPercentUses(elapsedRealMs) {
 
   const elapsed = gameTick(elapsedRealMs);
   const percentAutoElapsed = hasAbstractionResearch('2-1')
-    ? elapsed * autoUpgradeSpeedMultiplier()
+    ? autoUpgradeElapsedTime(elapsed)
     : elapsed;
   percentAutoTimer = percentAutoUnlocked
     ? addPercentAutoTime(percentAutoTimer, percentAutoElapsed)

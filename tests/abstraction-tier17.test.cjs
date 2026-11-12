@@ -150,8 +150,8 @@ test('Dyson base card and diverger n readout expose the active effects and resto
     abstractionResearchState['17-3']=false;abstractionResearchState['17-4']=false;renderKnuthBaseUpgrades();renderDivergerView();
     return {description,active,base:knuthBaseUpgradeUi.get('dyson_limit').description.textContent,normal:divergerNValue.textContent};
   `);
-  assert.match(row.description,/한도 \+2/);assert.match(row.description,/17-3/);
-  assert.match(row.active,/n 증가 속도/);assert.match(row.base,/한도 \+1/);assert.doesNotMatch(row.normal,/n 증가 속도/);
+  assert.match(row.description,/구매 한도를 2개/);assert.match(row.description,/17-3/);
+  assert.match(row.active,/n 증가 속도/);assert.match(row.base,/구매 한도를 1개/);assert.doesNotMatch(row.normal,/n 증가 속도/);
 });
 
 test('all research flags and real paid costs survive saves and Knuth, and optional reset refunds all four', () => {

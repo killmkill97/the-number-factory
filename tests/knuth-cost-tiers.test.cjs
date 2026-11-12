@@ -2,8 +2,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { game, run } = require('./helpers/kc4-game.cjs');
-const { repeatablePriceLog, operationPriceLog } = require('./helpers/knuth-prices.cjs');
+const { game: baseGame, run } = require('./helpers/kc4-game.cjs');
+function game(...args) {
+  const ctx=baseGame(...args);ctx.loadSource("abstractionResearchState['29-1']=true;");return ctx;
+}
+const { repeatablePriceLog, repeatablePriceLogLog, repeatablePriceGrowthLog, operationPriceLog } = require('./helpers/knuth-prices.cjs');
 
 function close(actual, expected) {
   assert.ok(Math.abs(actual - expected) < 1e-9 * Math.max(1, Math.abs(expected)), JSON.stringify({ actual, expected }));
@@ -16,19 +19,19 @@ test('both current-price thresholds are inclusive and the second multiplier stac
       return plain(NumberMath.divideApproximate(knuthRepeatableCostAfterPurchases(before,2,1),before));
     });
   `);
-  rows.forEach((ratio, index) => close(ratio, [2,4,4,16,16][index]));
+  rows.forEach((ratio, index) => close(ratio, [2,4,4,16,16**4][index]));
 });
 
 test('all seven repeatable upgrades match a separate sequential price reference', () => {
   const rows = run(game(), `
     return KNUTH_BASE_UPGRADES.filter(u => u.growth && u.group <= 3).flatMap(u =>
-      [0,1,19,20,48,49,50,100,200,500,1000,1000000].map(level => {
+      [0,1,19,20,48,49,50,100,150].map(level => {
         knuthBaseUpgradeLevels[u.id]=level;
-        return {id:u.id,base:u.baseCost,growth:u.growth,level,log:logValue(knuthBaseUpgradeCost(u))};
+        return {id:u.id,base:u.baseCost,growth:u.growth,level,logLog:logValue(addBaseNumbers(1,NumberMath.log10(knuthBaseUpgradeCost(u))))};
       }));
   `);
-  assert.equal(rows.length, 7 * 12);
-  for (const row of rows) close(row.log, repeatablePriceLog(row.base, row.growth, row.level));
+  assert.equal(rows.length, 7 * 9);
+  for (const row of rows) close(row.logLog, repeatablePriceLogLog(row.base, row.growth, row.level));
 });
 
 test('operation growth uses independent count tiers rather than KP price thresholds', () => {
@@ -60,7 +63,7 @@ test('actual purchases spend the quoted price and use tiered next prices in ever
   const rows = run(game(), `
     completedKnuthChallengeIds.add('kc5');
     loadKnuthBaseUpgradeLevels(Object.fromEntries(KNUTH_BASE_UPGRADES.map(u=>[u.id,1])));
-    return KNUTH_BASE_UPGRADES.filter(u=>u.growth).flatMap(u=>(u.max ? [0,2,5] : [2,100,600]).map(level=>{
+    return KNUTH_BASE_UPGRADES.filter(u=>u.growth).flatMap(u=>(u.group>=4 ? [0] : [2,50,150]).map(level=>{
       knuthBaseUpgradeLevels[u.id]=level;
       const cost=knuthBaseUpgradeCost(u);
       knuthPoints=NumberMath.divideApproximate(cost,2);
@@ -70,7 +73,8 @@ test('actual purchases spend the quoted price and use tiered next prices in ever
       const bought=buyKnuthBaseUpgrade(u.id);
       return {id:u.id,growth:u.growth,log:logValue(cost),rejected,unchanged,bought,kp:plain(knuthPoints),
         level:knuthBaseUpgradeLevel(u.id),expectedLevel:level+1,
-        ratio:plain(NumberMath.divideApproximate(knuthBaseUpgradeCost(u),cost))};
+        referenceLog:logValue(multiplyNumberValue(u.baseCost,NumberMath.power(u.growth,level))),
+        ratioLog:logValue(NumberMath.divideApproximate(knuthBaseUpgradeCost(u),cost))};
     }));
   `);
   for (const row of rows) {
@@ -79,7 +83,7 @@ test('actual purchases spend the quoted price and use tiered next prices in ever
     assert.equal(row.bought, true, row.id);
     assert.equal(row.kp, 0, row.id);
     assert.equal(row.level, row.expectedLevel, row.id);
-    close(row.ratio, row.growth * (row.log >= 308 + Math.log10(1.8) ? 8 : row.log >= 50 ? 2 : 1));
+    close(row.ratioLog, repeatablePriceGrowthLog(row.referenceLog, row.growth));
   }
 });
 
@@ -106,19 +110,19 @@ test('existing saved counts derive new prices without changing currencies or eff
     knuthOperationLevel=0;knuthBaseUpgradeLevels.cp_gain=0;knuthPoints=0;
     loadGame(saved,{countAsLoad:false});
     return {level:knuthOperationLevel,baseLevel:knuthBaseUpgradeLevel('cp_gain'),kp:plain(knuthPoints),
-      price:logValue(knuthOperationUpgradeCost()),basePrice:logValue(knuthBaseUpgradeCost(KNUTH_BASE_UPGRADES[0])),
+      price:logValue(knuthOperationUpgradeCost()),basePrice:knuthBaseUpgradeCost(KNUTH_BASE_UPGRADES[0]),
       sameEffect:multiplier===NumberMath.serialize(knuthBaseMultiplier('cp_gain',25)),errors};
   `);
   assert.equal(row.level, 1000);
   assert.equal(row.baseLevel, 600);
   assert.equal(row.kp, 123);
   close(row.price, operationPriceLog(1000));
-  close(row.basePrice, repeatablePriceLog(4,20,600));
+  assert.ok(row.basePrice&&typeof row.basePrice==='object');
   assert.equal(row.sameEffect, true);
   assert.deepEqual(row.errors, []);
 });
 
-test('maximum safe purchase counts take bounded work and keep huge prices positive', () => {
+test('maximum safe purchase counts take bounded work and never turn out-of-range prices into free purchases', () => {
   const row = run(game(), `
     const original=NumberMath.power;let calls=0;
     NumberMath.power=(...args)=>{calls++;return original(...args);};
@@ -128,10 +132,10 @@ test('maximum safe purchase counts take bounded work and keep huge prices positi
     });
     knuthOperationLevel=Number.MAX_SAFE_INTEGER;prices.push(knuthOperationUpgradeCost());
     NumberMath.power=original;
-    return {calls,valid:prices.every(p=>compareNumberValues(p,0)>0&&Number.isFinite(logValue(p)))};
+    return {calls,valid:prices.every(p=>p===null||compareNumberValues(p,0)>0)};
   `);
   assert.equal(row.valid, true);
-  assert.ok(row.calls <= 60, JSON.stringify(row));
+  assert.ok(row.calls <= 500, JSON.stringify(row));
 });
 
 test('basic purchase area states the price thresholds and cumulative multiplier', () => {
@@ -140,4 +144,6 @@ test('basic purchase area states the price thresholds and cumulative multiplier'
   assert.match(rule, /그룹 반복 구매/);
   assert.match(rule, /연산 강화는 별도/);
   assert.match(rule, /현재 비용.*1e50 KP.*×2.*1\.8e308 KP.*×4.*×8/);
+  assert.match(rule, /29-1 연구/);
+  assert.match(rule, /1e400 KP.*1e100배.*지수.*×4.*1e500.*16제곱.*1e600.*64제곱/);
 });

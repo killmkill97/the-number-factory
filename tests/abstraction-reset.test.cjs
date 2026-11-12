@@ -140,7 +140,7 @@ test('save round trip preserves the reservation and actual paid costs, including
   const saveSource = fs.readFileSync(path.join(__dirname, '../scripts/core/save.js'), 'utf8');
   assert.match(saveSource, /abstractionResearchPaidCosts:\s*\{\s*\.\.\.abstractionResearchPaidCosts\s*\}/);
   assert.match(saveSource, /abstractionResetOnNextKnuthPoint,/);
-  assert.match(saveSource, /loadAbstractionResetState\(d\.abstractionResearchPaidCosts, d\.abstractionResetOnNextKnuthPoint\)/);
+  assert.match(saveSource, /loadAbstractionResetState\(d\.abstractionResearchPaidCosts,\s*d\.abstractionResetOnNextKnuthPoint,/);
   assert.deepEqual(run(gameContext(), `
     abstractionResearchState['11-1'] = true;
     abstractionResearchPaidCosts['11-1'] = 8;

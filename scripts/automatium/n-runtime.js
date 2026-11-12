@@ -252,6 +252,12 @@ const NRuntime = (() => {
       return null;
     }
 
+    if (statement.type === 'SpaceExpansion') {
+      if (typeof context.adapter.spaceExpansion !== 'function') runtimeError('공간 팽창 자동화를 사용할 수 없습니다.', statement);
+      context.adapter.spaceExpansion(statement.action, statement);
+      return null;
+    }
+
     if (statement.type === 'Buy') {
       const upgradeIndex = statement.upgradeIndex === null
         ? null

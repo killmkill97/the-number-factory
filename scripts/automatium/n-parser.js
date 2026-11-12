@@ -60,6 +60,7 @@ const NParser = (() => {
       if (this.isWord('click')) return this.parseClick();
       if (this.isWord('wait')) return this.parseWait();
       if (this.isWord('black_hole')) return this.parseBlackHoleSetting();
+      if (this.isWord('space_expansion')) return this.parseSpaceExpansion();
       if (this.isWord('square') || this.isWord('sp') || this.isWord('cp') || this.isWord('kp')) return this.parsePointExchange();
       if (this.isWord('if')) return this.parseIf();
       if (this.isWord('while')) return this.parseWhile();
@@ -126,6 +127,14 @@ const NParser = (() => {
       else value = this.parseExpression();
       this.finishStatement();
       return { type: 'BlackHoleSetting', kind: kind.value, value, line: start.line };
+    }
+
+    parseSpaceExpansion() {
+      const start = this.consume('identifier', 'space_expansion');
+      const action = this.consumeWord('공간 팽창 명령은 start 또는 end가 필요합니다.');
+      if (!['start', 'end'].includes(action.value)) throw new NLanguageError('공간 팽창 명령은 start 또는 end여야 합니다.', action);
+      this.finishStatement();
+      return { type: 'SpaceExpansion', action: action.value, line: start.line };
     }
 
     parseOptionalIndex() {

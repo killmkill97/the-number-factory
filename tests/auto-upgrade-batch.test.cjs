@@ -11,6 +11,7 @@ const context = vm.createContext({
   setGameInterval: () => 0,
   gameTick: elapsedMs => elapsedMs * 10000,
   autoUpgradeSpeedMultiplier: () => 1,
+  autoUpgradeElapsedTime: elapsedMs => elapsedMs,
   setInterval: () => 0
 });
 vm.runInContext(`${source}\n;globalThis.batchSize = automaticUpgradeBatchSizeForElapsed;`, context);

@@ -86,5 +86,5 @@ test('resource cards show both distinct multipliers using the current balancing 
     return {active,idle:abstractionTimeResearchInfo('12-3'),descriptions:['12-1','13-1','14-1','12-3','13-3'].map(id=>ABSTRACTION_RESEARCHES.find(r=>r.id===id).description)};
   `);
   assert.match(data.active,/SP ×800000 · CP ×200/);assert.match(data.idle,/SP ×500000.5 · CP ×125.5/);
-  for(const [i,value] of ['799999','21/','1+3/','999999','26.5H'].entries())assert.ok(data.descriptions[i].includes(value));
+  for(const description of data.descriptions){assert.match(description,/현실 시간/);assert.doesNotMatch(description,/[=^]|log2|√/);}
 });

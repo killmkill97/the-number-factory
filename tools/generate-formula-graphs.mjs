@@ -52,7 +52,7 @@ function sampleLine(line, spec) {
   return commands.join(' ');
 }
 
-function renderChart(spec) {
+export function renderChart(spec) {
   const yTicks = spec.yTicks.map(tick => {
     const y = plot.top + (1 - coordinateY(tick.value, spec)) * plotHeight;
     return `<g><line class="grid" x1="${plot.left}" x2="${width - plot.right}" y1="${y.toFixed(2)}" y2="${y.toFixed(2)}"/><text class="tick" x="${plot.left - 12}" y="${(y + 5).toFixed(2)}" text-anchor="end">${escapeXml(tick.label)}</text></g>`;
@@ -187,8 +187,10 @@ const graphs = [
   }
 ];
 
-fs.mkdirSync(outputDir, { recursive: true });
-for (const graph of graphs) {
-  fs.writeFileSync(path.join(outputDir, graph.file), renderChart(graph), 'utf8');
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  fs.mkdirSync(outputDir, { recursive: true });
+  for (const graph of graphs) {
+    fs.writeFileSync(path.join(outputDir, graph.file), renderChart(graph), 'utf8');
+  }
+  console.log(`Generated ${graphs.length} static formula graphs in ${path.relative(root, outputDir)}.`);
 }
-console.log(`Generated ${graphs.length} static formula graphs in ${path.relative(root, outputDir)}.`);

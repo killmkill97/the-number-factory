@@ -1,4 +1,14 @@
+const percentLaneBaseCostCache = new Map();
+
 function scaleByLane(base, laneNumber) {
+  if ([40000, 150, 250].includes(base) && Number.isInteger(laneNumber) && laneNumber >= 1 && laneNumber <= MAX_PERCENT_LANES) {
+    if (!percentLaneBaseCostCache.has(base)) percentLaneBaseCostCache.set(base, [base]);
+    const costs = percentLaneBaseCostCache.get(base);
+    while (costs.length < laneNumber) {
+      costs.push(divideNumberValue(addBaseNumbers(multiplyNumberValue(costs[costs.length - 1], 3), 1), 2));
+    }
+    return costs[laneNumber - 1];
+  }
   let value = base;
   for (let i = 1; i < laneNumber; i++) {
     value = divideNumberValue(
@@ -48,7 +58,9 @@ function repairPercentLanePowerCost(lane) {
 }
 
 function repairExtraPercentLanePowerCosts() {
-  for (const lane of extraPercentLanes) repairPercentLanePowerCost(lane);
+  withPercentPriceValidationCache(() => {
+    for (const lane of extraPercentLanes) repairPercentLanePowerCost(lane);
+  });
 }
 
 let lastDivergerPercentPriceState = null;
@@ -68,25 +80,27 @@ function rebasePercentPowerPricesForDiverger(force = false) {
   const shouldRebase = equipped || (!force && previousState?.startsWith('1:'));
   if (!shouldRebase) return false;
 
-  const mainProgress = reconcilePercentPowerProgress(percentPower, percentPowerPurchaseCount);
-  percentPower = mainProgress.power;
-  percentPowerPurchaseCount = mainProgress.purchaseCount;
-  const mainCost = rebasePercentPowerPriceForProgress(percentPowerPurchaseCount, 40000);
-  percentPowerUpgradeCost = mainCost.cost;
-  percentPowerCostCompounding = mainCost.compounding;
+  return withPercentPriceValidationCache(() => {
+    const mainProgress = reconcilePercentPowerProgress(percentPower, percentPowerPurchaseCount);
+    percentPower = mainProgress.power;
+    percentPowerPurchaseCount = mainProgress.purchaseCount;
+    const mainCost = rebasePercentPowerPriceForProgress(percentPowerPurchaseCount, 40000);
+    percentPowerUpgradeCost = mainCost.cost;
+    percentPowerCostCompounding = mainCost.compounding;
 
-  for (const lane of extraPercentLanes) {
-    const progress = reconcilePercentPowerProgress(lane.power, lane.powerPurchaseCount);
-    lane.power = progress.power;
-    lane.powerPurchaseCount = progress.purchaseCount;
-    const cost = rebasePercentPowerPriceForProgress(
-      lane.powerPurchaseCount,
-      scaleByLane(40000, lane.laneNumber)
-    );
-    lane.powerCost = cost.cost;
-    lane.powerCostCompounding = cost.compounding;
-  }
-  return true;
+    for (const lane of extraPercentLanes) {
+      const progress = reconcilePercentPowerProgress(lane.power, lane.powerPurchaseCount);
+      lane.power = progress.power;
+      lane.powerPurchaseCount = progress.purchaseCount;
+      const cost = rebasePercentPowerPriceForProgress(
+        lane.powerPurchaseCount,
+        scaleByLane(40000, lane.laneNumber)
+      );
+      lane.powerCost = cost.cost;
+      lane.powerCostCompounding = cost.compounding;
+    }
+    return true;
+  });
 }
 
 function percentPowerText() {

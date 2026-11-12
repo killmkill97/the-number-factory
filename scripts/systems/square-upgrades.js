@@ -15,7 +15,7 @@ function buySquareUpgrade(id) {
 
   if (compareNumberValues(squarePoints, upgrade.cost) < 0) return false;
 
-  squarePoints = subtractNumberValues(squarePoints, upgrade.cost);
+  setSquarePoints(subtractNumberValues(squarePoints, upgrade.cost));
   squareUpgradeState[id] = true;
   if (id === 'auto_upgrade_top_down') {
     autoUpgradeEnabled = true;

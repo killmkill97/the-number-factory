@@ -7,7 +7,7 @@ const AUTO_UPGRADE_BATCH_BUDGET_MS = 12;
 let autoUpgradeLastTickAt = gameTimelineNowMs();
 
 function automaticUpgradeBatchSizeForElapsed(elapsedMs) {
-  const acceleratedTime = gameTick(elapsedMs) * autoUpgradeSpeedMultiplier();
+  const acceleratedTime = autoUpgradeElapsedTime(gameTick(elapsedMs));
   if (!Number.isFinite(acceleratedTime)) return AUTO_UPGRADE_BATCH_OPERATION_LIMIT;
   return Math.max(
     1,
@@ -118,7 +118,7 @@ setGameInterval(() => {
   const bulkEnabled = hasGeneralizationResearch('3-4');
   const maximumTimer = AUTO_UPGRADE_INTERVAL_MS
     * (bulkEnabled ? Number.MAX_SAFE_INTEGER : AUTO_UPGRADE_BATCH_OPERATION_LIMIT);
-  autoUpgradeTimer += gameTick(elapsedMs) * autoUpgradeSpeedMultiplier();
+  autoUpgradeTimer += autoUpgradeElapsedTime(gameTick(elapsedMs), maximumTimer);
   if (!Number.isFinite(autoUpgradeTimer)) {
     autoUpgradeTimer = maximumTimer;
   }
